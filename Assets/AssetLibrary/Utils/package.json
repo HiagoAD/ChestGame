@@ -1,0 +1,19 @@
+{
+  "name": "com.tapnation.utils",
+  "displayName": "Utils",
+  "version": "0.1.0",
+  "unity": "2022.3",
+  "description": "Utils scripts",
+  "author": {
+    "name": "TapNation",
+    "email": "dev@tap-nation.io",
+    "url": "https://tap-nation.io"
+  },
+  "keywords": [
+    "utils",
+    "utilities"
+  ],
+  "dependencies": {
+    "com.tapnation.assetlibrary": "https://gitlab.com/tn-asset-library/asset-library-main.git"
+  }
+}

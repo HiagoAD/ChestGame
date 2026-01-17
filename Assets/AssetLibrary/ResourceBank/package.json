@@ -1,0 +1,24 @@
+{
+  "name": "com.tapnation.ResourceBank",
+  "displayName": "Resource Bank",
+  "version": "0.2.0",
+  "unity": "2022.3",
+  "description": "A barebones implementation of a Resource Bank, designed to be used with other components to add meaning into it",
+  "author": {
+    "name": "TapNation",
+    "email": "dev@tap-nation.io",
+    "url": "https://tap-nation.io"
+  },
+  "keywords": [
+    "resource",
+    "bank",
+    "currency",
+    "management",
+    "shard",
+    "sharding"
+  ],
+  "dependencies": {
+    "com.tapnation.assetlibrary": "https://gitlab.com/tn-asset-library/asset-library-main.git",
+    "com.tapnation.utils": "https://gitlab.com/tn-asset-library/utils.git"
+  }
+}
