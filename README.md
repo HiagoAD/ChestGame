@@ -14,6 +14,8 @@ The dependencies are added at `Assets/_Project/Scripts/Core/GameLifetimeScore.cs
 
 `Assets/_Project/Scripts/UI/CurrencyWatcher` displays the current state of the currencies, and is updated by events.
 
+<img src="ChestGameDiagram.png">
+
 ## 2. Key Design Decisions
 
 1. The use of libraries to speed up the development. UniTask eases the handle of async operations, VContainer the management of references and overall project structure, and Resource Bank to speed up the development of a currency manager. This decision was made to speed up development and increase reliability
