@@ -5,6 +5,11 @@ using UnityEngine.UI;
 
 namespace Company.ChestGame.Gameplay
 {
+    // Simple implementation of the Chest, only controlling the view based on the state,
+    // and providing a simple callback for interaction.
+    //
+    // The Opening state offer a slider to display the amount of time remaining
+
     public class Chest : MonoBehaviour
     {
         public enum State

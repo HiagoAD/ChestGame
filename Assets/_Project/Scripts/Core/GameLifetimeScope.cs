@@ -5,6 +5,7 @@ using VContainer.Unity;
 
 namespace Company.ChestGame.Core
 {
+    // Simple implementation of DI
     public class GameLifetimeScope : LifetimeScope
     {
         protected override void Configure(IContainerBuilder builder)

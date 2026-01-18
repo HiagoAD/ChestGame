@@ -4,6 +4,18 @@ using TapNation.Modules.ResourceBank.Internal;
 
 namespace Company.ChestGame.Currency
 {
+    // Currency Manager to handle every currency in the game, with persistency. 
+    // More currencies can be added by modifying CurrencyType enum. 
+    // Relies on the ResourceBank library that can be found on:
+    // https://gitlab.com/tn-asset-library/resource-bank
+    //
+    // Provides key places to handle events, analytics, and custom saving methods (PlayerPrefs as default)
+    //
+    // A simplification made for this project was the removal of the ResourceBank.ResourceIdMap, that maps
+    // the enum values to strings, making the project more robust, avoinding the drawbacks of using an enum,
+    // like chaing the order or the name. For more reference, check
+    // Assets/AssetLibrary/ResourceBank/Examples/CurrencyManager/CurrencyManagerExample.cs
+
     public class CurrencyManager
     {
         public event ResourceBankCallbacks<CurrencyType>.ResourceAmountChangedDelegate OnCurrencyChanged

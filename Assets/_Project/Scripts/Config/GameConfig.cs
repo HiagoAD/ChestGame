@@ -1,8 +1,7 @@
 using System;
-using System.Threading.Tasks;
-using Cysharp.Threading.Tasks;
 using UnityEngine;
 using Newtonsoft.Json;
+using Company.ChestGame.Config.Internal;
 
 namespace Company.ChestGame.Config
 {
@@ -14,39 +13,35 @@ namespace Company.ChestGame.Config
     {
         private const string FILE_NAME = "Data";
 
-        [Serializable]
-        private class GameConfigData
-        {
-            public int ChestCount;
-            public int AttempsCount;
-            public int TimeToOpenChestMiliseconds;
-        }
-
         public bool Initialized { get; }
 
         public int ChestCount { get; }
         public int AttempsCount { get; }
-        public TimeSpan TimeToOpenChest{ get; }
+        public TimeSpan TimeToOpenChest { get; }
+        public long GemsReward { get; }
+        public long CoinsReward { get; }
 
         public GameConfig()
         {
             UnityEngine.Object rawObject = Resources.Load(FILE_NAME);
-            if(rawObject == null)
+            if (rawObject == null)
             {
                 throw new Exception($"File {FILE_NAME} not found, make sure that it exists on a Resources folder");
             }
 
             TextAsset castedObject = rawObject as TextAsset;
-            if(castedObject == null)
+            if (castedObject == null)
             {
                 throw new Exception($"File {FILE_NAME} is not a valid text asset");
             }
-            
+
             GameConfigData parsedObject = JsonConvert.DeserializeObject<GameConfigData>(castedObject.text);
 
             ChestCount = parsedObject.ChestCount;
             AttempsCount = parsedObject.AttempsCount;
             TimeToOpenChest = new TimeSpan(TimeSpan.TicksPerMillisecond * parsedObject.TimeToOpenChestMiliseconds);
+            GemsReward = parsedObject.GemsReward;
+            CoinsReward = parsedObject.CoinsReward;
 
             Initialized = true;
         }
