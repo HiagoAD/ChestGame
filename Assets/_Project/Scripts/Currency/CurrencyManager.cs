@@ -16,7 +16,7 @@ namespace Company.ChestGame.Currency
     // like chaing the order or the name. For more reference, check
     // Assets/AssetLibrary/ResourceBank/Examples/CurrencyManager/CurrencyManagerExample.cs
 
-    public class CurrencyManager
+    public class CurrencyManager : ICurrencyManager
     {
         public event ResourceBankCallbacks<CurrencyType>.ResourceAmountChangedDelegate OnCurrencyChanged
         {

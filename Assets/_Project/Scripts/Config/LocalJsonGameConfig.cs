@@ -9,7 +9,7 @@ namespace Company.ChestGame.Config
     // Right now is simplified to just load a Data.json file, with a flag to indicate
     // if the data was loaded. In the case of a proper implementation, callbacks might
     // be needed, depending on the game structure
-    public class GameConfig
+    public class LocalJsonGameConfig : IGameConfig
     {
         private const string FILE_NAME = "Data";
 
@@ -17,11 +17,11 @@ namespace Company.ChestGame.Config
 
         public int ChestCount { get; }
         public int AttempsCount { get; }
-        public TimeSpan TimeToOpenChest { get; }
+        public int TimeToOpenChestMiliseconds { get; }
         public long GemsReward { get; }
         public long CoinsReward { get; }
 
-        public GameConfig()
+        public LocalJsonGameConfig()
         {
             UnityEngine.Object rawObject = Resources.Load(FILE_NAME);
             if (rawObject == null)
@@ -39,7 +39,7 @@ namespace Company.ChestGame.Config
 
             ChestCount = parsedObject.ChestCount;
             AttempsCount = parsedObject.AttempsCount;
-            TimeToOpenChest = new TimeSpan(TimeSpan.TicksPerMillisecond * parsedObject.TimeToOpenChestMiliseconds);
+            TimeToOpenChestMiliseconds = parsedObject.TimeToOpenChestMiliseconds;
             GemsReward = parsedObject.GemsReward;
             CoinsReward = parsedObject.CoinsReward;
 

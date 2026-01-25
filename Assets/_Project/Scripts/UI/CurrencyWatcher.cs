@@ -10,11 +10,11 @@ namespace Company.ChestGame.UI
         [SerializeField] private CurrencyType _currency;
         [SerializeField] private TextMeshProUGUI _text;
 
-        private CurrencyManager _currencyManager;
+        private ICurrencyManager _currencyManager;
 
 
         [Inject]
-        public void Inject(CurrencyManager currencyManager)
+        private void Inject(ICurrencyManager currencyManager)
         {
             _currencyManager = currencyManager;
             Init();

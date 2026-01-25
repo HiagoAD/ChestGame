@@ -3,14 +3,14 @@ using Cysharp.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.UI;
 
-namespace Company.ChestGame.Gameplay
+namespace Company.ChestGame.Gameplay.ChestsMinigame
 {
     // Simple implementation of the Chest, only controlling the view based on the state,
     // and providing a simple callback for interaction.
     //
     // The Opening state offer a slider to display the amount of time remaining
 
-    public class Chest : MonoBehaviour
+    public class ChestsMinigameChestView : MonoBehaviour
     {
         public enum State
         {
@@ -31,7 +31,7 @@ namespace Company.ChestGame.Gameplay
 
         public State CurrentState { get; private set; }
         
-        private Action<Chest> _onClickCallback;
+        private Action<ChestsMinigameChestView> _onClickCallback;
 
 
         private void Awake()
@@ -41,7 +41,7 @@ namespace Company.ChestGame.Gameplay
             SetClosed();
         }
 
-        public void SetClickCallback(Action<Chest> callback)
+        public void SetClickCallback(Action<ChestsMinigameChestView> callback)
         {
             _onClickCallback = callback;
         }

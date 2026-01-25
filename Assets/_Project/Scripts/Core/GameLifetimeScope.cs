@@ -1,5 +1,7 @@
 using Company.ChestGame.Config;
 using Company.ChestGame.Currency;
+using Company.ChestGame.Popups;
+using Company.ChestGame.Rewards;
 using VContainer;
 using VContainer.Unity;
 
@@ -10,8 +12,10 @@ namespace Company.ChestGame.Core
     {
         protected override void Configure(IContainerBuilder builder)
         {
-            builder.Register<CurrencyManager>(Lifetime.Singleton);
-            builder.Register<GameConfig>(Lifetime.Singleton);
+            builder.Register<ICurrencyManager, CurrencyManager>(Lifetime.Singleton);
+            builder.Register<IGameConfig, LocalJsonGameConfig>(Lifetime.Singleton);
+            builder.Register<IRewardsManager, RewardsManager>(Lifetime.Singleton);
+            builder.Register<IPopupManager, PopupManager>(Lifetime.Singleton);
         }
     }
 }
