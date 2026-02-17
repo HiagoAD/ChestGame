@@ -182,8 +182,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: e4016c91f0c79471796bcfee4743cf3c, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Superbloom.ChestGame.Gameplay.GameController
-  _chestsMinigamePrefab: {fileID: 6842470231953160308, guid: fb6e7fffa2cdb4fd89d83dcbd3cf3b32, type: 3}
-  _chestsMinigameParent: {fileID: 4803424781116700085}
+  _minigamesParent: {fileID: 4803424781116700085}
   _startButton: {fileID: 1623371897909034468}
 --- !u!1 &513409541
 GameObject:

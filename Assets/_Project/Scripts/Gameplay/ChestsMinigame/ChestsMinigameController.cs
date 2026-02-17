@@ -1,55 +1,68 @@
 using System;
 using System.Collections.Generic;
 using System.Threading;
+using Company.ChestGame.Config;
+using Company.ChestGame.Minigame.Core;
+using Company.ChestGame.Rewards;
 using Cysharp.Threading.Tasks;
-using TMPro;
-using UnityEngine;
+using VContainer;
+using VContainer.Unity;
 
 using Random = UnityEngine.Random;
+using Time = UnityEngine.Time;
 
-namespace Company.ChestGame.Gameplay.ChestsMinigame
+namespace Company.ChestGame.Minigame.Chests.Internal
 {
-    public class ChestsMinigameController : MonoBehaviour
+    public class ChestsMinigameController : MinigameControllerBase
     {
-        private enum State
+        public enum State
         {
             NotStarted,
             Playing,
             Ended
         }
 
-        [SerializeField] private ChestsMinigameChestView _chestPrefab;
-        [SerializeField] private Transform _chestsParent;
-        [SerializeField] private TextMeshProUGUI _attemptsText;
-        [SerializeField] private TextMeshProUGUI _controlMessage;
+        public event Action<State> OnStateChange;
+        public event Action<bool> OnGameFinished;
 
-        private State _currentState;
-        private int _attempts;
-
-        private int _chestCount;
-        private int _timeToOpenChestMiliseconds;
-        private int _totalAttempts;
-
-        private List<ChestsMinigameChestView> _chestInstances;
-        private CancellationTokenSource _openingCancelationTokenSource;
-        private Action<bool> _onGameFinished;
-
-        private bool _isSet;
-
-        private void Awake()
+        public State CurrentState
         {
-            _currentState = State.NotStarted;
-            UpdateAttemptsText(true);
-            SetControlMessage(null);
+            get => _state;
+            set
+            {
+                _state = value;
+                OnStateChange?.Invoke(_state);
+            }
         }
 
-        public void Set(int chestCount, int timeToOpenChestMiliseconds, int totalAttempts, Action<bool> gameFinishedCallback)
+
+        public int Attempts { get; private set; }
+        public int ChestCount { get; private set; }
+        public int TotalAttempts { get; private set; }
+
+
+
+        private int _timeToOpenChestMiliseconds;
+        private CancellationTokenSource _openingCancelationTokenSource;
+        private IRewardsManager _rewardsManager;
+
+        private State _state = State.NotStarted;
+
+        [Inject]
+        public void Inject(IGameConfig gameConfig, IRewardsManager rewardsManager)
         {
-            _chestCount = chestCount;
-            _timeToOpenChestMiliseconds = timeToOpenChestMiliseconds;
-            _totalAttempts = totalAttempts;
-            _onGameFinished = gameFinishedCallback;
-            _isSet = true;
+            ChestCount = gameConfig.ChestCount;
+            _timeToOpenChestMiliseconds = gameConfig.TimeToOpenChestMiliseconds;
+            TotalAttempts = gameConfig.AttempsCount;
+
+            _rewardsManager = rewardsManager;
+        }
+
+        public override void Dispose()
+        {
+            CancelOpeningToken();
+            _rewardsManager = null;
+            OnStateChange = null;
         }
 
         // As a new game starts, if some chest was opening, cancels it.
@@ -57,37 +70,13 @@ namespace Company.ChestGame.Gameplay.ChestsMinigame
         // the chests are instantiated, else it resets
         // the state of the currently spawned ones. This approach doesn't
         // support the number of chests changing between games.       
-        public void NewGame()
+        public override void NewGame()
         {
-            Debug.Assert(_isSet, "Chests Minigame Not Set");
-
             CancelOpeningToken();
 
-            if (_chestInstances == null)
-            {
-                _chestInstances = new();
+            Attempts = 0;
 
-                for (int i = 0; i < _chestCount; i++)
-                {
-                    ChestsMinigameChestView instance = Instantiate(_chestPrefab, _chestsParent);
-                    instance.SetClickCallback(OnChestClicked);
-                    _chestInstances.Add(instance);
-                }
-            }
-            else
-            {
-                foreach (ChestsMinigameChestView chest in _chestInstances)
-                {
-                    chest.SetClosed();
-                }
-            }
-
-            _attempts = 0;
-            UpdateAttemptsText();
-
-            SetControlMessage(null);
-
-            _currentState = State.Playing;
+            CurrentState = State.Playing;
         }
 
         // When a chest is clicked, checks if the game is still active,
@@ -96,10 +85,10 @@ namespace Company.ChestGame.Gameplay.ChestsMinigame
         // A very small optimization that could be done is to save the delay at
         // the start. Doing this way it gives support for the time varying between
         // pulls/games
-        private void OnChestClicked(ChestsMinigameChestView chest)
+        public void OnChestClicked(ChestsMinigameChestElementView chest)
         {
-            if (_currentState != State.Playing) return;
-            if (chest.CurrentState != ChestsMinigameChestView.State.Closed) return;
+            if (CurrentState != State.Playing) return;
+            if (chest.CurrentState != ChestsMinigameChestElementView.State.Closed) return;
 
             CancelOpeningToken();
 
@@ -137,7 +126,7 @@ namespace Company.ChestGame.Gameplay.ChestsMinigame
         // The task that handles the opening state. Relies on the UniTask.Yield documentation
         // that guarantees that it lasts for a update loop, working the same way as a yield return null
         // on a Coroutine, respecting Time.timeScale. This way, the time between loops is Time.deltaTime
-        private async UniTask UpdateOpeningProgress(ChestsMinigameChestView chest, int millisecondsDelay, CancellationToken cancellationToken)
+        private async UniTask UpdateOpeningProgress(ChestsMinigameChestElementView chest, int millisecondsDelay, CancellationToken cancellationToken)
         {
             float totalTime = millisecondsDelay / 1000f;
             float passedTime = 0;
@@ -152,7 +141,7 @@ namespace Company.ChestGame.Gameplay.ChestsMinigame
 
         // The task that handles the open state, in a simple way, just setting a Delay, then 
         // calling OpenChest
-        private async UniTask WaitAndOpenChest(ChestsMinigameChestView chest, int millisecondsDelay, CancellationToken cancellationToken)
+        private async UniTask WaitAndOpenChest(ChestsMinigameChestElementView chest, int millisecondsDelay, CancellationToken cancellationToken)
         {
             await UniTask.Delay(millisecondsDelay: millisecondsDelay, cancellationToken: cancellationToken);
             ClearCancellationToken();
@@ -160,10 +149,9 @@ namespace Company.ChestGame.Gameplay.ChestsMinigame
             OpenChest(chest);
         }
 
-        private void OpenChest(ChestsMinigameChestView chest)
+        private void OpenChest(ChestsMinigameChestElementView chest)
         {
-            _attempts++;
-            UpdateAttemptsText();
+            Attempts++;
 
             bool hasChestPrize = TryGiveChestPrize();
             chest.SetOpen(hasChestPrize);
@@ -178,7 +166,7 @@ namespace Company.ChestGame.Gameplay.ChestsMinigame
         // The simpler approach would be to just save the winner chest index at the new game.
         private bool TryGiveChestPrize()
         {
-            float prizeChance = 1 / (float)(_chestCount - _attempts);
+            float prizeChance = 1 / (float)(ChestCount - Attempts);
             if (prizeChance >= Random.value)
             {
 
@@ -191,35 +179,14 @@ namespace Company.ChestGame.Gameplay.ChestsMinigame
         {
             if (hasChestPrize)
             {
-                _currentState = State.Ended;
-                SetControlMessage("You won!");
-                _onGameFinished?.Invoke(true);
+                CurrentState = State.Ended;
+                _rewardsManager.GiveRandomCurrencyReward("ChestsMinigame");
+                OnGameFinished?.Invoke(true);
             }
-            else if (_attempts >= _totalAttempts)
+            else if (Attempts >= TotalAttempts)
             {
-                _currentState = State.Ended;
-                SetControlMessage("Game Over! Out of attempts!");
-                _onGameFinished?.Invoke(false);
-            }
-
-        }
-
-        private void UpdateAttemptsText(bool empty = false)
-        {
-            _attemptsText.text = empty ? "" : $"Attempts: {_attempts} / {_totalAttempts}";
-        }
-
-        private void SetControlMessage(string message)
-        {
-            if (string.IsNullOrEmpty(message))
-            {
-                _controlMessage.gameObject.SetActive(false);
-                return;
-            }
-            else
-            {
-                _controlMessage.text = message;
-                _controlMessage.gameObject.SetActive(true);
+                CurrentState = State.Ended;
+                OnGameFinished?.Invoke(false);
             }
         }
     }

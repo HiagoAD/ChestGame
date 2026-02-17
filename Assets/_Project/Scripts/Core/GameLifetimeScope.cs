@@ -1,5 +1,6 @@
 using Company.ChestGame.Config;
 using Company.ChestGame.Currency;
+using Company.ChestGame.Minigame;
 using Company.ChestGame.Popups;
 using Company.ChestGame.Rewards;
 using VContainer;
@@ -16,6 +17,7 @@ namespace Company.ChestGame.Core
             builder.Register<IGameConfig, LocalJsonGameConfig>(Lifetime.Singleton);
             builder.Register<IRewardsManager, RewardsManager>(Lifetime.Singleton);
             builder.Register<IPopupManager, PopupManager>(Lifetime.Singleton);
+            builder.Register<IMinigameManager, MinigameManager>(Lifetime.Singleton);
         }
     }
 }

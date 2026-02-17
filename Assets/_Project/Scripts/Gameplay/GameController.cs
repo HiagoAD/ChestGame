@@ -5,8 +5,9 @@ using UnityEngine;
 using UnityEngine.UI;
 using VContainer;
 
-using Company.ChestGame.Rewards;
-using Company.ChestGame.Gameplay.ChestsMinigame;
+using Company.ChestGame.Minigame.Core;
+using Company.ChestGame.Minigame;
+using Company.ChestGame.Minigame.Chests;
 
 namespace Company.ChestGame.Gameplay
 {
@@ -24,22 +25,20 @@ namespace Company.ChestGame.Gameplay
 
     public class GameController : MonoBehaviour
     {
-        [SerializeField] private ChestsMinigameController _chestsMinigamePrefab;
-        [SerializeField] private Transform _chestsMinigameParent;
+        [SerializeField] private Transform _minigamesParent;
         [SerializeField] private Button _startButton;
 
-        private IGameConfig _gameConfig;
-        private IRewardsManager _rewardsManager;
+        private MinigameContainer _activeMinigame;
+        private IMinigameManager _minigamesManager;
 
 
-        private ChestsMinigameController _chestsMinigameInstance;
+        // private ChestsMinigameController _chestsMinigameInstance;
 
 
         [Inject]
-        private void Inject(IGameConfig gameConfig, IRewardsManager rewardsManager)
+        private void Inject(IMinigameManager minigamesManager)
         {
-            _gameConfig = gameConfig;
-            _rewardsManager = rewardsManager;
+            _minigamesManager = minigamesManager;
         }
 
         private void Awake()
@@ -50,21 +49,14 @@ namespace Company.ChestGame.Gameplay
  
         private void NewChestsMinigame()
         {
-            if (_chestsMinigameInstance == null)
+            if(_activeMinigame == null || !_activeMinigame.Running)
             {
-                _chestsMinigameInstance = Instantiate(_chestsMinigamePrefab, _chestsMinigameParent);
-                _chestsMinigameInstance.Set(_gameConfig.ChestCount, _gameConfig.TimeToOpenChestMiliseconds, _gameConfig.AttempsCount, OnChestsMinigameFinished);
+                _activeMinigame = _minigamesManager.Get<ChestsMinigame>();
+                _activeMinigame.Begin(_minigamesParent);
             }
 
-            _chestsMinigameInstance.NewGame();
-        }
+            _activeMinigame.ControllerInstance.NewGame();
 
-        private void OnChestsMinigameFinished(bool won)
-        {
-            if (won)
-            {
-                _rewardsManager.GiveRandomCurrencyReward("ChestsMinigame");
-            }
         }
     }
 }
