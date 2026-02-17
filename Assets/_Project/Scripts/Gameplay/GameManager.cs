@@ -11,19 +11,18 @@ using Company.ChestGame.Minigame.Chests;
 
 namespace Company.ChestGame.Gameplay
 {
-    // The main class of the game, controls everything, and should be split on a proper game,
-    // with the logic of the minigame being handled somewhere else, and only instantiating 
-    // the minigame prefab. But as this project is so simple, doing this way avoids boilerplates.
-    // 
+    // The main class that controls the game.
+    //
     // The key area here is to control async the chest state. To display this control better,
     // a weird approach was taken, where two concurrent async tasks run in parallel, one
     // updating every frame the slider inside the chest, and the other waiting until the
     // timer finishes to open the chest, with both being controlled by the same cancellation
     // token to ensure that they behave in sync with each other.
     //
-    // This game doesn't have persistence. At each new game, a the amount of attemps is reset.
+    // This minigame doesn't have persistence. At each new game, the amount of attemps is reset.
+    // The currencies are persisted, even between sessions.
 
-    public class GameController : MonoBehaviour
+    public class GameManager : MonoBehaviour
     {
         [SerializeField] private Transform _minigamesParent;
         [SerializeField] private Button _startButton;
