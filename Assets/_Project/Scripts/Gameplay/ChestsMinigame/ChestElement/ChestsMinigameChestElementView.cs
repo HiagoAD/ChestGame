@@ -12,12 +12,6 @@ namespace Company.ChestGame.Minigame.Chests.Internal
 
     public class ChestsMinigameChestElementView : MonoBehaviour
     {
-        public enum State
-        {
-            Closed,
-            Opening,
-            Open
-        }
 
         [Header("Sprites")]
         [SerializeField] private Sprite _closedSprite;
@@ -29,9 +23,8 @@ namespace Company.ChestGame.Minigame.Chests.Internal
         [SerializeField] private Slider _timerSlider;
         [SerializeField] private Button _button;
 
-        public State CurrentState { get; private set; }
-        
-        private Action<ChestsMinigameChestElementView> _onClickCallback;
+        private Action<ChestsMinigameChestModel> _onClickCallback;
+        private ChestsMinigameChestModel _model;
 
 
         private void Awake()
@@ -41,16 +34,39 @@ namespace Company.ChestGame.Minigame.Chests.Internal
             SetClosed();
         }
 
-        public void SetClickCallback(Action<ChestsMinigameChestElementView> callback)
+        public void Init(ChestsMinigameChestModel model, Action<ChestsMinigameChestModel> callback)
         {
+            _model = model;
             _onClickCallback = callback;
+
+            _model.OnStateChanged += OnStateChanged;
+            OnStateChanged(_model.CurrentState);
         }
 
-        public void SetClosed()
-        {
-            if (CurrentState == State.Closed) return;
 
-            CurrentState = State.Closed;
+
+        private void OnStateChanged(ChestsMinigameChestModel.State state)
+        {
+            switch (state)
+            {
+                case ChestsMinigameChestModel.State.Closed:
+                    SetClosed();
+                    break;
+                case ChestsMinigameChestModel.State.Opening:
+                    SetOpening(_model.Completition);
+                    break;
+                case ChestsMinigameChestModel.State.Open_Empty:
+                    SetOpen_Empty();
+                    break;
+                case ChestsMinigameChestModel.State.Open_Prize:
+                    SetOpen_Prize();
+                    break;
+
+            }
+        }
+
+        private void SetClosed()
+        {
             _chestImage.sprite = _closedSprite;
             _timerSlider.gameObject.SetActive(false);
         }
@@ -59,25 +75,26 @@ namespace Company.ChestGame.Minigame.Chests.Internal
         {
             _timerSlider.value = completition;
 
-            if (CurrentState == State.Opening) return;
-
-            CurrentState = State.Opening;
             _chestImage.sprite = _closedSprite;
             _timerSlider.gameObject.SetActive(true);
         }
 
-        public void SetOpen(bool hasPrize)
+        public void SetOpen_Empty()
         {
-            if (CurrentState == State.Open) return;
-
-            CurrentState = State.Open;
-            _chestImage.sprite = hasPrize ? _openedFullSprite : _openedEmptySprite;
+            _chestImage.sprite = _openedEmptySprite;
             _timerSlider.gameObject.SetActive(false);
         }
 
+        public void SetOpen_Prize()
+        {
+            _chestImage.sprite = _openedFullSprite;
+            _timerSlider.gameObject.SetActive(false);
+        }
+
+
         private void OnClick()
         {
-            _onClickCallback?.Invoke(this);
+            _onClickCallback?.Invoke(_model);
         }
     }
 }

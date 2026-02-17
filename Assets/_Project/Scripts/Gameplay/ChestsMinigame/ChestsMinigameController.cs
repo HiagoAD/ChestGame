@@ -24,11 +24,12 @@ namespace Company.ChestGame.Minigame.Chests.Internal
 
         public event Action<State> OnStateChange;
         public event Action<bool> OnGameFinished;
+        public event Action<int> OnAttemptsChanged;
 
         public State CurrentState
         {
             get => _state;
-            set
+            private set
             {
                 _state = value;
                 OnStateChange?.Invoke(_state);
@@ -36,9 +37,17 @@ namespace Company.ChestGame.Minigame.Chests.Internal
         }
 
 
-        public int Attempts { get; private set; }
-        public int ChestCount { get; private set; }
+        public int Attempts {
+            get => _attempts;
+            private set
+            {
+                _attempts = value;
+                OnAttemptsChanged?.Invoke(_attempts);
+            }
+        }
+
         public int TotalAttempts { get; private set; }
+        public IReadOnlyList<ChestsMinigameChestModel> Chests { get; private set; }
 
 
 
@@ -47,15 +56,23 @@ namespace Company.ChestGame.Minigame.Chests.Internal
         private IRewardsManager _rewardsManager;
 
         private State _state = State.NotStarted;
+        private int _attempts = 0;
+
 
         [Inject]
         public void Inject(IGameConfig gameConfig, IRewardsManager rewardsManager)
         {
-            ChestCount = gameConfig.ChestCount;
             _timeToOpenChestMiliseconds = gameConfig.TimeToOpenChestMiliseconds;
             TotalAttempts = gameConfig.AttempsCount;
 
             _rewardsManager = rewardsManager;
+
+            List<ChestsMinigameChestModel> chests = new();
+            for (int i = 0; i < gameConfig.ChestCount; i++)
+            {
+                chests.Add(new());
+            }
+            Chests = chests.AsReadOnly();
         }
 
         public override void Dispose()
@@ -66,15 +83,18 @@ namespace Company.ChestGame.Minigame.Chests.Internal
         }
 
         // As a new game starts, if some chest was opening, cancels it.
-        // If the list of instances is null, indicating a new game,
-        // the chests are instantiated, else it resets
-        // the state of the currently spawned ones. This approach doesn't
+        // Closes all chests, to support restart games. This approach doesn't
         // support the number of chests changing between games.       
         public override void NewGame()
         {
             CancelOpeningToken();
 
             Attempts = 0;
+
+            foreach(var chest in Chests)
+            {
+                chest.SetClosed();
+            }
 
             CurrentState = State.Playing;
         }
@@ -85,10 +105,10 @@ namespace Company.ChestGame.Minigame.Chests.Internal
         // A very small optimization that could be done is to save the delay at
         // the start. Doing this way it gives support for the time varying between
         // pulls/games
-        public void OnChestClicked(ChestsMinigameChestElementView chest)
+        public void OnChestClicked(ChestsMinigameChestModel chest)
         {
             if (CurrentState != State.Playing) return;
-            if (chest.CurrentState != ChestsMinigameChestElementView.State.Closed) return;
+            if (chest.CurrentState != ChestsMinigameChestModel.State.Closed) return;
 
             CancelOpeningToken();
 
@@ -126,7 +146,7 @@ namespace Company.ChestGame.Minigame.Chests.Internal
         // The task that handles the opening state. Relies on the UniTask.Yield documentation
         // that guarantees that it lasts for a update loop, working the same way as a yield return null
         // on a Coroutine, respecting Time.timeScale. This way, the time between loops is Time.deltaTime
-        private async UniTask UpdateOpeningProgress(ChestsMinigameChestElementView chest, int millisecondsDelay, CancellationToken cancellationToken)
+        private async UniTask UpdateOpeningProgress(ChestsMinigameChestModel chest, int millisecondsDelay, CancellationToken cancellationToken)
         {
             float totalTime = millisecondsDelay / 1000f;
             float passedTime = 0;
@@ -141,7 +161,7 @@ namespace Company.ChestGame.Minigame.Chests.Internal
 
         // The task that handles the open state, in a simple way, just setting a Delay, then 
         // calling OpenChest
-        private async UniTask WaitAndOpenChest(ChestsMinigameChestElementView chest, int millisecondsDelay, CancellationToken cancellationToken)
+        private async UniTask WaitAndOpenChest(ChestsMinigameChestModel chest, int millisecondsDelay, CancellationToken cancellationToken)
         {
             await UniTask.Delay(millisecondsDelay: millisecondsDelay, cancellationToken: cancellationToken);
             ClearCancellationToken();
@@ -149,7 +169,7 @@ namespace Company.ChestGame.Minigame.Chests.Internal
             OpenChest(chest);
         }
 
-        private void OpenChest(ChestsMinigameChestElementView chest)
+        private void OpenChest(ChestsMinigameChestModel chest)
         {
             Attempts++;
 
@@ -159,14 +179,13 @@ namespace Company.ChestGame.Minigame.Chests.Internal
             CheckEndGame(hasChestPrize);
         }
 
-        // This should a class by itself, but for simplicity is left here.
         // The prize location is calculated every run to avoid memory inspection.
         // Altho unrealistic, and if any anti-hacker efforts were to be done
         // there would need a lot more than this, was left for demonstration purposes.
         // The simpler approach would be to just save the winner chest index at the new game.
         private bool TryGiveChestPrize()
         {
-            float prizeChance = 1 / (float)(ChestCount - Attempts);
+            float prizeChance = 1 / (float)(Chests.Count - Attempts);
             if (prizeChance >= Random.value)
             {
 

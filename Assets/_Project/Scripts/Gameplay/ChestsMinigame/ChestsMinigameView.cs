@@ -28,11 +28,13 @@ namespace Company.ChestGame.Minigame.Chests.Internal
 
             _controller = (ChestsMinigameController)controller;
             _controller.OnStateChange += OnControllerStateChanged;
+            _controller.OnGameFinished += OnGameFinished;
+            _controller.OnAttemptsChanged += UpdateAttemptsText;
         }
 
         private void OnControllerStateChanged(ChestsMinigameController.State state)
         {
-            if(state == ChestsMinigameController.State.Playing)
+            if (state == ChestsMinigameController.State.Playing)
             {
                 StartGame();
             }
@@ -44,22 +46,24 @@ namespace Company.ChestGame.Minigame.Chests.Internal
             {
                 _chestInstances = new();
 
-                for (int i = 0; i < _controller.ChestCount; i++)
+                foreach (ChestsMinigameChestModel chest in _controller.Chests)
                 {
                     ChestsMinigameChestElementView instance = Instantiate(_chestPrefab, _chestsParent);
-                    instance.SetClickCallback(_controller.OnChestClicked);
+                    instance.Init(chest, _controller.OnChestClicked);
                     _chestInstances.Add(instance);
                 }
             }
-            else
-            {
-                foreach (ChestsMinigameChestElementView chest in _chestInstances)
-                {
-                    chest.SetClosed();
-                }
-            }
+            UpdateAttemptsText();
+            SetControlMessage(null);
         }
 
+        private void OnGameFinished(bool won)
+        {
+            string message = won ? "You won!" : "Game Over! Out of attempts!";
+            SetControlMessage(message);
+        }
+
+        private void UpdateAttemptsText(int _) => UpdateAttemptsText();
         private void UpdateAttemptsText(bool empty = false)
         {
             _attemptsText.text = empty ? "" : $"Attempts: {_controller.Attempts} / {_controller.TotalAttempts}";
