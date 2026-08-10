@@ -9,20 +9,13 @@ namespace Company.ChestGame.Minigame
 {
     public class MinigameManager : IMinigameManager
     {
-        private const string LIST_FILE_NAME = "Minigames/MinigameList";
-        private Dictionary<Type, MinigameBaseSO> _minigameDefs;
+        private readonly IReadOnlyDictionary<Type, MinigameBaseSO> _minigameDefs;
 
-        private IObjectResolver _resolver;
-        public MinigameManager(IObjectResolver resolver)
+        private readonly IObjectResolver _resolver;
+
+        public MinigameManager(IObjectResolver resolver, IMinigameCatalog catalog)
         {
-            MinigameListSO minigameListSO = Resources.Load<MinigameListSO>(LIST_FILE_NAME);
-            if (minigameListSO == null)
-            {
-                throw new Exception($"File {LIST_FILE_NAME} not found, make sure that it exists on a Resources folder");
-            }
-
-            _minigameDefs = minigameListSO.Minigames;
-
+            _minigameDefs = catalog.Minigames;
             _resolver = resolver;
         }
 
@@ -30,7 +23,7 @@ namespace Company.ChestGame.Minigame
         {
             if (!_minigameDefs.TryGetValue(typeof(TMinigame), out MinigameBaseSO minigameSO))
             {
-                throw new Exception("Minigame prefab not found");
+                throw new MinigameNotFoundException(typeof(TMinigame));
             }
 
             TMinigame wrapper = minigameSO.GetMinigameContainer() as TMinigame;

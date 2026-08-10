@@ -31,9 +31,6 @@ namespace Company.ChestGame.Gameplay
         private IMinigameManager _minigamesManager;
 
 
-        // private ChestsMinigameController _chestsMinigameInstance;
-
-
         [Inject]
         private void Inject(IMinigameManager minigamesManager)
         {
@@ -45,17 +42,38 @@ namespace Company.ChestGame.Gameplay
             _startButton.onClick.AddListener(NewChestsMinigame);
         }
 
- 
-        private void NewChestsMinigame()
+        // Closing the loop the framework opens: whatever is running gets torn down when this scene
+        // goes away, so the controller disposes and the view is destroyed instead of being left to
+        // the garbage collector with its subscriptions still live.
+        private void OnDestroy()
         {
-            if(_activeMinigame == null || !_activeMinigame.Running)
+            _startButton.onClick.RemoveListener(NewChestsMinigame);
+            EndActiveMinigame();
+        }
+
+        private void NewChestsMinigame() => StartMinigame<ChestsMinigame>();
+
+        // Starting a minigame of a different type, or restarting one that has been torn down,
+        // builds a fresh container; asking again for the one already running just restarts it.
+        private void StartMinigame<TMinigame>() where TMinigame : MinigameContainer
+        {
+            if (_activeMinigame is not TMinigame || !_activeMinigame.Running)
             {
-                _activeMinigame = _minigamesManager.Get<ChestsMinigame>();
+                EndActiveMinigame();
+
+                _activeMinigame = _minigamesManager.Get<TMinigame>();
                 _activeMinigame.Begin(_minigamesParent);
             }
 
             _activeMinigame.ControllerInstance.NewGame();
+        }
 
+        private void EndActiveMinigame()
+        {
+            if (_activeMinigame == null) return;
+
+            _activeMinigame.End();
+            _activeMinigame = null;
         }
     }
 }

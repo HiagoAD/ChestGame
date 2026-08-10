@@ -43,6 +43,19 @@ namespace Company.ChestGame.Minigame.Chests.Internal
             OnStateChanged(_model.CurrentState);
         }
 
+        // The model outlives this view: it belongs to the controller, while this object dies with
+        // the minigame's view hierarchy. Without this, a chest tearing down would leave the model
+        // holding a handler that drives a destroyed MonoBehaviour on the next state change.
+        private void OnDestroy()
+        {
+            if (_model != null)
+            {
+                _model.OnStateChanged -= OnStateChanged;
+            }
+
+            _button.onClick.RemoveListener(OnClick);
+        }
+
 
 
         private void OnStateChanged(ChestsMinigameChestModel.State state)

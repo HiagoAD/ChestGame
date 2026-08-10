@@ -1,10 +1,9 @@
 using System;
+using Company.ChestGame.Common;
 using Company.ChestGame.Config;
 using Company.ChestGame.Currency;
 using Company.ChestGame.Popups;
 using VContainer;
-
-using Random = UnityEngine.Random;
 
 namespace Company.ChestGame.Rewards
 {
@@ -15,18 +14,20 @@ namespace Company.ChestGame.Rewards
         readonly private ICurrencyManager _currencyManager;
         readonly private IGameConfig _gameConfig;
         readonly private IPopupManager _popupManager;
+        readonly private IRandomProvider _random;
 
-        public RewardsManager(ICurrencyManager currencyManager, IGameConfig gameConfig, IPopupManager popupManager)
+        public RewardsManager(ICurrencyManager currencyManager, IGameConfig gameConfig, IPopupManager popupManager, IRandomProvider random)
         {
             _currencyManager = currencyManager;
             _gameConfig = gameConfig;
             _popupManager = popupManager;
+            _random = random;
         }
 
 
         public void GiveRandomCurrencyReward(string source)
         {
-            CurrencyType currencyType = (CurrencyType)Random.Range(0, Enum.GetValues(typeof(CurrencyType)).Length);
+            CurrencyType currencyType = (CurrencyType)_random.Range(0, Enum.GetValues(typeof(CurrencyType)).Length);
 
             long amount = currencyType switch
             {

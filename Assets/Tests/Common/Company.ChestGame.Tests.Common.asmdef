@@ -1,0 +1,25 @@
+{
+    "name": "Company.ChestGame.Tests.Common",
+    "rootNamespace": "Company.ChestGame.Tests.Common",
+    "references": [
+        "Company.ChestGame.Common",
+        "Company.ChestGame.Config",
+        "Company.ChestGame.Currency",
+        "Company.ChestGame.Minigame",
+        "Company.ChestGame.Popups",
+        "Company.ChestGame.Rewards",
+        "TapNation.Modules",
+        "UniTask"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": false,
+    "defineConstraints": [
+        "UNITY_INCLUDE_TESTS"
+    ],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

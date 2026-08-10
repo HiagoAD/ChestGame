@@ -1,0 +1,37 @@
+{
+    "name": "Company.ChestGame.Tests.EditMode",
+    "rootNamespace": "Company.ChestGame.Tests.EditMode",
+    "references": [
+        "UnityEngine.TestRunner",
+        "UnityEditor.TestRunner",
+        "Company.ChestGame.Tests.Common",
+        "Company.ChestGame.Core",
+        "Company.ChestGame.Gameplay",
+        "Unity.TextMeshPro",
+        "UnityEngine.UI",
+        "VContainer",
+        "Company.ChestGame.Common",
+        "Company.ChestGame.Config",
+        "Company.ChestGame.Currency",
+        "Company.ChestGame.Minigame",
+        "Company.ChestGame.Popups",
+        "Company.ChestGame.Rewards",
+        "TapNation.Modules",
+        "UniTask"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": true,
+    "precompiledReferences": [
+        "nunit.framework.dll"
+    ],
+    "autoReferenced": false,
+    "defineConstraints": [
+        "UNITY_INCLUDE_TESTS"
+    ],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

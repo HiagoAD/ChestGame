@@ -1,0 +1,23 @@
+{
+    "name": "Company.ChestGame.Core",
+    "rootNamespace": "Company.ChestGame.Core",
+    "references": [
+        "Company.ChestGame.Common",
+        "Company.ChestGame.Config",
+        "Company.ChestGame.Currency",
+        "Company.ChestGame.Minigame",
+        "Company.ChestGame.Popups",
+        "Company.ChestGame.Rewards",
+        "TapNation.Modules",
+        "VContainer"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": true,
+    "precompiledReferences": [],
+    "autoReferenced": false,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

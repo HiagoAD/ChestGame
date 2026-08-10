@@ -38,11 +38,20 @@ namespace Company.ChestGame.Minigame.Core
             _running = true;
         }
 
+        // Safe to call on a minigame that was never begun, or begun and already ended, so callers
+        // can tear down unconditionally.
         public virtual void End()
         {
+            if (!_running) return;
+
             _running = false;
             ControllerInstance.Dispose();
-            Object.Destroy(ViewInstance.gameObject);
+
+            if (ViewInstance != null)
+            {
+                Object.Destroy(ViewInstance.gameObject);
+            }
+            ViewInstance = null;
         }
     }
 

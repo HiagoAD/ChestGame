@@ -1,6 +1,7 @@
 using UnityEngine;
 using TapNation.Modules.ResourceBank;
 using TapNation.Modules.ResourceBank.Internal;
+using TapNation.Modules.ResourceBank.Saving;
 
 namespace Company.ChestGame.Currency
 {
@@ -38,9 +39,9 @@ namespace Company.ChestGame.Currency
 
         private readonly ResourceBank<CurrencyType> _currencyBank;
 
-        public CurrencyManager()
+        public CurrencyManager(IResourceBankSaveHandler<CurrencyType> saveHandler)
         {
-            _currencyBank = new ResourceBank<CurrencyType>();
+            _currencyBank = new ResourceBank<CurrencyType>(saveHandler);
         }
 
         public long GetCurrencyAmount(CurrencyType currencyType) => _currencyBank.GetResourceAmount(currencyType);

@@ -1,16 +1,17 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using UnityEngine;
 
 namespace Company.ChestGame.Popups.Internal
 {
+    // Pure authoring data: the list as the inspector holds it, holes and all. Turning that into a
+    // usable lookup, and deciding what counts as unusable, belongs to PopupCatalog.
     [CreateAssetMenu(menuName = "Popups/PopupList")]
     public class PopupListSO : ScriptableObject
     {
         [SerializeField] private List<PopupBase> popups;
 
-        public Dictionary<Type, PopupBase> Popups => popups.ToDictionary(p => p.GetType());
+        public IReadOnlyList<PopupBase> Entries => popups;
 
         private void OnValidate()
         {
@@ -18,11 +19,13 @@ namespace Company.ChestGame.Popups.Internal
             for (int i = 0; i < popups.Count; i++)
             {
                 PopupBase popup = popups[i];
-                if(popup == null) continue;
+                if (popup == null) continue;
                 if (types.Contains(popup.GetType()))
                 {
                     popups[i] = null;
-                    throw new Exception($"INVALID ENTRY: Element at {i}, type already present");       
+                    // Reported rather than thrown: OnValidate runs during asset import and on every
+                    // inspector edit, where an exception aborts the surrounding Unity operation.
+                    Debug.LogError($"INVALID ENTRY: Element at {i}, type already present", this);
                 }
                 else
                 {

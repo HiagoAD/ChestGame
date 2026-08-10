@@ -1,0 +1,16 @@
+{
+    "name": "Company.ChestGame.Currency",
+    "rootNamespace": "Company.ChestGame.Currency",
+    "references": [
+        "TapNation.Modules"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": true,
+    "precompiledReferences": [],
+    "autoReferenced": false,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

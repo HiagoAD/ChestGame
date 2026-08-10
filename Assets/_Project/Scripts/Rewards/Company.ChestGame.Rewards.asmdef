@@ -1,0 +1,22 @@
+{
+    "name": "Company.ChestGame.Rewards",
+    "rootNamespace": "Company.ChestGame.Rewards",
+    "references": [
+        "Company.ChestGame.Common",
+        "Company.ChestGame.Config",
+        "Company.ChestGame.Currency",
+        "Company.ChestGame.Popups",
+        "Unity.TextMeshPro",
+        "UnityEngine.UI",
+        "VContainer"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": true,
+    "precompiledReferences": [],
+    "autoReferenced": false,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

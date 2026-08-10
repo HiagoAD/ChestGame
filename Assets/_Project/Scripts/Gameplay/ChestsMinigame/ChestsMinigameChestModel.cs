@@ -38,8 +38,13 @@ namespace Company.ChestGame.Minigame.Chests.Internal
             Completition = 0;
             CurrentState = State.Closed;
         }
+        // Guarded the same way SetOpen is: an opened chest never walks back to Opening. The two
+        // tasks driving a chest resume in the same frame, so a progress tick arriving just after
+        // the chest opened would otherwise reopen it visually.
         public void SetOpening(float completition)
         {
+            if (CurrentState == State.Open_Empty || CurrentState == State.Open_Prize) return;
+
             Completition = completition;
 
             CurrentState = State.Opening;

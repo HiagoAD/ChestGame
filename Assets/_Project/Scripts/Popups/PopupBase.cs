@@ -1,5 +1,4 @@
 using System;
-using Unity.Android.Gradle.Manifest;
 using UnityEngine;
 
 namespace Company.ChestGame.Popups

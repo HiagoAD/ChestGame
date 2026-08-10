@@ -32,6 +32,17 @@ namespace Company.ChestGame.Minigame.Chests.Internal
             _controller.OnAttemptsChanged += UpdateAttemptsText;
         }
 
+        // The controller normally clears these in Dispose before this object is destroyed, but a
+        // view torn down on its own must not leave handlers behind either.
+        private void OnDestroy()
+        {
+            if (_controller == null) return;
+
+            _controller.OnStateChange -= OnControllerStateChanged;
+            _controller.OnGameFinished -= OnGameFinished;
+            _controller.OnAttemptsChanged -= UpdateAttemptsText;
+        }
+
         private void OnControllerStateChanged(ChestsMinigameController.State state)
         {
             if (state == ChestsMinigameController.State.Playing)

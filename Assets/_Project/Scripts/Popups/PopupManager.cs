@@ -1,54 +1,37 @@
 using System;
 using System.Collections.Generic;
-using Company.ChestGame.Popups.Internal;
-using UnityEditor.U2D.Aseprite;
 using UnityEngine;
 
 using Object = UnityEngine.Object;
 
 namespace Company.ChestGame.Popups
 {
+    // Spawns popups from prefabs. Where those prefabs come from, and where they get parented, are
+    // both supplied rather than looked up here, which keeps this class to what it is actually
+    // about: picking a prefab, picking a parent, and handing the popup its data.
     public class PopupManager : IPopupManager
     {
-        private const string PARENT_FILE_NAME = "Popups/PopupParent";
-        private const string LIST_FILE_NAME = "Popups/PopupList";
+        readonly private IPopupCatalog _catalog;
+        readonly private IPopupParentProvider _parentProvider;
 
-        readonly private Transform _defaultPopupParent;
-        readonly private Dictionary<Type, PopupBase> _popupPrefabs;
-
-
-        public PopupManager()
+        public PopupManager(IPopupCatalog catalog, IPopupParentProvider parentProvider)
         {
-            PopupParent parentRef = Resources.Load<PopupParent>(PARENT_FILE_NAME);
-            if (parentRef == null)
-            {
-                throw new Exception($"File {PARENT_FILE_NAME} not found, make sure that it exists on a Resources folder");
-            }
-
-            PopupListSO popupListSO = Resources.Load<PopupListSO>(LIST_FILE_NAME);
-            if(popupListSO == null)
-            {
-                throw new Exception($"File {LIST_FILE_NAME} not found, make sure that it exists on a Resources folder");
-            }
-
-            _popupPrefabs = popupListSO.Popups;
-
-            PopupParent parentInstance = Object.Instantiate(parentRef);
-            Object.DontDestroyOnLoad(parentInstance);
-            _defaultPopupParent = parentInstance.Target;
+            _catalog = catalog;
+            _parentProvider = parentProvider;
         }
 
-        public TPopup Spawn<TPopup, TData>(TData data = null, Transform parent = null) where TPopup : PopupBase<TPopup, TData> where TData : PopupDataBase
+        public TPopup Spawn<TPopup, TData>(TData data = null, Transform parent = null)
+            where TPopup : PopupBase<TPopup, TData>
+            where TData : PopupDataBase
         {
-            if(!_popupPrefabs.TryGetValue(typeof(TPopup), out PopupBase popupPrefab))
+            IReadOnlyDictionary<Type, PopupBase> prefabs = _catalog.Popups;
+            if (!prefabs.TryGetValue(typeof(TPopup), out PopupBase popupPrefab))
             {
-                throw new Exception("Popup prefab not found");
+                throw new PopupNotFoundException(typeof(TPopup));
             }
 
-            if (parent == null)
-                parent = _defaultPopupParent;
+            parent ??= _parentProvider.Default;
 
-            
             TPopup popup = Object.Instantiate(popupPrefab, parent) as TPopup;
             popup.Initialize(data);
 

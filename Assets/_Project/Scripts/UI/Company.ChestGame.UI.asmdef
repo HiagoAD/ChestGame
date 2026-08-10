@@ -1,0 +1,19 @@
+{
+    "name": "Company.ChestGame.UI",
+    "rootNamespace": "Company.ChestGame.UI",
+    "references": [
+        "Company.ChestGame.Currency",
+        "TapNation.Modules",
+        "Unity.TextMeshPro",
+        "VContainer"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": true,
+    "precompiledReferences": [],
+    "autoReferenced": false,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

@@ -57,6 +57,9 @@ ExportedObj/
 # Unity3D generated file on crash reports
 sysinfo.txt
 
+# Test run output from ci/run-tests.sh
+/ci-results/
+
 # Builds
 *.apk
 *.aab
