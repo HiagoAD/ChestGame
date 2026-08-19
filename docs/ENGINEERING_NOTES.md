@@ -7,7 +7,8 @@ tried and rejected, how to verify changes, and which traps cost time the first t
 README first for the map; read this before changing anything structural.
 
 Last updated after the chests minigame was moved into its own assembly and the shell stopped naming
-it by type. At that point the suites were 114 EditMode tests (~0.5 s) and 14 PlayMode tests (~14 s).
+it by type, then the boot phase that made content loading async. At that point the suites were
+122 EditMode tests (~0.5 s) and 22 PlayMode tests (~20 s).
 
 ---
 
@@ -123,6 +124,11 @@ that resolves it from the container deliberately asserts nothing about balances.
 **`Debug.LogError` fails a test by default.** `CurrencyManager` logs an error on every rejected
 operation, so negative-path tests need `LogAssert.Expect(LogType.Error, "exact message")`. Warnings
 do not fail tests, which is why `CatalogBuilder` warns rather than errors on an empty slot.
+
+**UniTask's `AsyncOperation` awaiter is compiled out on Unity 2023.1+.** `UnityAsyncExtensions`
+guards `GetAwaiter(this AsyncOperation)` with `#if !UNITY_2023_1_OR_NEWER`, so on this editor
+`await SceneManager.LoadSceneAsync(...)` binds to the generic `IEnumerator` overload instead and
+fails with CS0311. Use `.ToUniTask()`, which is not version-gated.
 
 **`Assert.Multiple` does not exist** in the bundled NUnit. Use sequential asserts.
 
@@ -275,6 +281,7 @@ Fakes live in `Tests/Common/` and are shared by both suites.
 | `MinigameManagerTests` | Container construction by type and by id, fresh instance per request, all three throw paths, and that `ConfigureController` lands before injection |
 | `PopupManagerTests` | Catalog lookup, parent selection, data hand-off, unregistered popup |
 | `RewardsManagerTests` | Currency draw, amount from config, popup and event agreement |
+| `GameContentLoaderTests` | Every source read once, in order, cancellation threaded through, and a failure stopping the load rather than yielding half-built content |
 | `GameLifetimeScopeTests` | The real `RegisterServices`: every service registered, the risky ones actually resolvable, and the shipped assets — including the chests config `TextAsset` reference — still wired |
 
 | PlayMode fixture | What only play mode can prove |
@@ -282,6 +289,7 @@ Fakes live in `Tests/Common/` and are shared by both suites.
 | `ChestsMinigameIntegrationTests` | `UnityGameClock` drives the same flow the fake does |
 | `MinigameContainerLifecycleTests` | `Begin`/`End` against real `Object.Destroy` semantics |
 | `ChestElementViewLifetimeTests` | A destroyed view really stops listening to its model |
+| `GameBootstrapperTests` | The boot flow end to end: the game scene opens parented to the loaded scope, the root scope survives it, the shipped assets resolve, and both halves of the split inject the scene's objects |
 | `PopupManagerIntegrationTests` | The shipped Resources assets load and a real prefab instantiates |
 
 ---

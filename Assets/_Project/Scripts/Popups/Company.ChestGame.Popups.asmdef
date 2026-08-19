@@ -2,7 +2,8 @@
     "name": "Company.ChestGame.Popups",
     "rootNamespace": "Company.ChestGame.Popups",
     "references": [
-        "Company.ChestGame.Common"
+        "Company.ChestGame.Common",
+        "UniTask"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

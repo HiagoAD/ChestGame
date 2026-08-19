@@ -10,15 +10,16 @@ namespace Company.ChestGame.Config
     // implementation, callbacks might be needed, depending on the game structure.
     //
     // Where the document comes from is the IGameConfigSource's problem, so pointing the game at a
-    // remote config service means registering a different source and changing nothing here.
+    // remote config service means registering a different source and changing nothing here. It
+    // takes the document rather than the source so that parse-and-validate stays a synchronous
+    // constructor: by the time this is built, the fetching is already over.
     public class LocalJsonGameConfig : IGameConfig
     {
         public long GemsReward { get; }
         public long CoinsReward { get; }
 
-        public LocalJsonGameConfig(IGameConfigSource source)
+        public LocalJsonGameConfig(string document)
         {
-            string document = source.Read();
             if (string.IsNullOrEmpty(document))
             {
                 throw new GameConfigException("No game config document was found, make sure the configured source can reach one");

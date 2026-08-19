@@ -17,7 +17,8 @@
         "Company.ChestGame.Popups",
         "Company.ChestGame.Rewards",
         "TapNation.Modules",
-        "UniTask"
+        "UniTask",
+        "Company.ChestGame.UI"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

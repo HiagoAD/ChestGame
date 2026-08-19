@@ -1,75 +1,81 @@
+using System.Collections.Generic;
 using Company.ChestGame.Common;
 using Company.ChestGame.Config;
 using Company.ChestGame.Core;
 using Company.ChestGame.Currency;
 using Company.ChestGame.Minigame;
-using Company.ChestGame.Minigame.Chests;
-using Company.ChestGame.Minigame.Chests.Internal;
 using Company.ChestGame.Minigame.Core;
+using Company.ChestGame.Minigame.Internal;
 using Company.ChestGame.Popups;
 using Company.ChestGame.Popups.Internal;
 using Company.ChestGame.Rewards;
+using Company.ChestGame.Tests.Common;
 using NUnit.Framework;
 using TapNation.Modules.ResourceBank.Saving;
 using UnityEngine;
 using VContainer;
+using VContainer.Unity;
 
 namespace Company.ChestGame.Tests.EditMode
 {
-    // These run against GameLifetimeScope.RegisterServices itself rather than a copy of it, so
+    // These run against GameLifetimeScope's own registration methods rather than a copy of them, so
     // dropping a registration from the composition root fails here.
+    //
+    // The root scope is deliberately everything that needs no asset, which is what keeps it
+    // assertable in edit mode: every core registration resolves the moment the container is built.
+    // What the shipped assets actually contain is proved end to end in GameBootstrapperTests,
+    // because that half now needs a boot scene to exist at all.
     public class GameLifetimeScopeTests
     {
         private ContainerBuilder _builder;
+
+        private PopupParent _parentPrefab;
 
         [SetUp]
         public void SetUp()
         {
             _builder = new ContainerBuilder();
-            GameLifetimeScope.RegisterServices(_builder);
+            GameLifetimeScope.RegisterCoreServices(_builder);
+        }
+
+        [TearDown]
+        public void TearDown()
+        {
+            if (_parentPrefab != null) Object.DestroyImmediate(_parentPrefab.gameObject);
         }
 
         [Test]
-        public void RegisterServices_RegistersEveryServiceTheGameResolves()
+        public void RegisterCoreServices_RegistersEveryServiceTheGameResolves()
         {
             Assert.IsTrue(_builder.Exists(typeof(IRandomProvider), true), nameof(IRandomProvider));
             Assert.IsTrue(_builder.Exists(typeof(IGameClock), true), nameof(IGameClock));
             Assert.IsTrue(_builder.Exists(typeof(IGameConfigSource), true), nameof(IGameConfigSource));
-            Assert.IsTrue(_builder.Exists(typeof(IMinigameCatalog), true), nameof(IMinigameCatalog));
+            Assert.IsTrue(_builder.Exists(typeof(IMinigameListSource), true), nameof(IMinigameListSource));
+            Assert.IsTrue(_builder.Exists(typeof(IPopupListSource), true), nameof(IPopupListSource));
+            Assert.IsTrue(_builder.Exists(typeof(IPopupParentSource), true), nameof(IPopupParentSource));
             Assert.IsTrue(_builder.Exists(typeof(IResourceBankSaveHandler<CurrencyType>), true), "IResourceBankSaveHandler<CurrencyType>");
             Assert.IsTrue(_builder.Exists(typeof(ICurrencyManager), true), nameof(ICurrencyManager));
-            Assert.IsTrue(_builder.Exists(typeof(IGameConfig), true), nameof(IGameConfig));
-            Assert.IsTrue(_builder.Exists(typeof(IRewardsManager), true), nameof(IRewardsManager));
-            Assert.IsTrue(_builder.Exists(typeof(IPopupCatalog), true), nameof(IPopupCatalog));
-            Assert.IsTrue(_builder.Exists(typeof(IPopupParentProvider), true), nameof(IPopupParentProvider));
-            Assert.IsTrue(_builder.Exists(typeof(IPopupManager), true), nameof(IPopupManager));
-            Assert.IsTrue(_builder.Exists(typeof(IMinigameManager), true), nameof(IMinigameManager));
+            Assert.IsTrue(_builder.Exists(typeof(GameContentLoader), true), nameof(GameContentLoader));
+            Assert.IsTrue(_builder.Exists(typeof(GameBootstrapper), true), nameof(GameBootstrapper));
         }
 
         [Test]
-        public void EveryServiceTheGameResolves_HasASatisfiableObjectGraph()
+        public void TheBootstrapper_IsRegisteredAsTheEntryPointThatRunsIt()
         {
-            // Exists() only proves a line of code was written. These two are the services whose
-            // constructors reach outside themselves, so resolving them is the assertion that
-            // matters: PopupManager needs a catalog and a parent provider, MinigameManager needs a
-            // catalog and the container's own IObjectResolver.
-            using IObjectResolver container = _builder.Build();
-
-            Assert.IsInstanceOf<PopupManager>(container.Resolve<IPopupManager>());
-            Assert.IsInstanceOf<MinigameManager>(container.Resolve<IMinigameManager>());
-            Assert.IsInstanceOf<RewardsManager>(container.Resolve<IRewardsManager>());
+            // VContainer only runs what it can find as an IAsyncStartable. Registered as the
+            // concrete type alone, the game would build a container and then never boot.
+            Assert.IsTrue(_builder.Exists(typeof(IAsyncStartable), true), nameof(IAsyncStartable));
         }
 
         [Test]
-        public void ResolvingPopupManager_DoesNotCreateTheSharedCanvasYet()
+        public void EveryCoreServiceTheGameResolves_HasASatisfiableObjectGraph()
         {
-            // The parent canvas is DontDestroyOnLoad, so building it during resolution would leak a
-            // scene object into every consumer of the container, tests included.
+            // Exists() only proves a line of code was written. The loader is the core service whose
+            // constructor reaches outside itself, so resolving it is the assertion that matters: it
+            // needs all four sources, and a missing one fails right here.
             using IObjectResolver container = _builder.Build();
 
-            container.Resolve<IPopupManager>();
-
-            Assert.IsEmpty(UnityEngine.Object.FindObjectsByType<PopupParent>(FindObjectsSortMode.None));
+            Assert.IsInstanceOf<GameContentLoader>(container.Resolve<GameContentLoader>());
         }
 
         [Test]
@@ -82,6 +88,9 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.IsInstanceOf<UnityRandomProvider>(container.Resolve<IRandomProvider>());
             Assert.IsInstanceOf<UnityGameClock>(container.Resolve<IGameClock>());
             Assert.IsInstanceOf<ResourcesGameConfigSource>(container.Resolve<IGameConfigSource>());
+            Assert.IsInstanceOf<ResourcesMinigameListSource>(container.Resolve<IMinigameListSource>());
+            Assert.IsInstanceOf<ResourcesPopupListSource>(container.Resolve<IPopupListSource>());
+            Assert.IsInstanceOf<ResourcesPopupParentSource>(container.Resolve<IPopupParentSource>());
             Assert.IsInstanceOf<DefaultResourceBankSaveHandle<CurrencyType>>(
                 container.Resolve<IResourceBankSaveHandler<CurrencyType>>());
         }
@@ -90,7 +99,8 @@ namespace Company.ChestGame.Tests.EditMode
         public void CurrencyManager_ResolvesWithTheRegisteredSaveHandler()
         {
             // CurrencyManager takes its save handler as its only constructor argument, so this
-            // fails outright if the scope stops registering one.
+            // fails outright if the scope stops registering one. It sits in the core half because
+            // that argument is the only thing it needs: no asset, so no waiting.
             using IObjectResolver container = _builder.Build();
 
             // Deliberately no assertion on balances: a container-built CurrencyManager reads the
@@ -99,48 +109,84 @@ namespace Company.ChestGame.Tests.EditMode
         }
 
         [Test]
-        public void GameConfig_ResolvesAndParsesTheShippedConfigDocument()
+        public void RegisterLoadedServices_RegistersEveryContentBackedService()
         {
-            // Reaches the real Resources/GameConfig.json through the registered source, which makes
-            // this the one test that would catch the shipped config going missing or malformed.
-            // Resolving at all is most of the assertion: every failure in there throws.
+            GameLifetimeScope.RegisterLoadedServices(_builder, ContentWithAStubParentPrefab());
+
+            Assert.IsTrue(_builder.Exists(typeof(IGameConfig), true), nameof(IGameConfig));
+            Assert.IsTrue(_builder.Exists(typeof(IMinigameCatalog), true), nameof(IMinigameCatalog));
+            Assert.IsTrue(_builder.Exists(typeof(IPopupCatalog), true), nameof(IPopupCatalog));
+            Assert.IsTrue(_builder.Exists(typeof(IPopupParentProvider), true), nameof(IPopupParentProvider));
+            Assert.IsTrue(_builder.Exists(typeof(IPopupManager), true), nameof(IPopupManager));
+            Assert.IsTrue(_builder.Exists(typeof(IMinigameManager), true), nameof(IMinigameManager));
+            Assert.IsTrue(_builder.Exists(typeof(IRewardsManager), true), nameof(IRewardsManager));
+        }
+
+        [Test]
+        public void EveryLoadedServiceTheGameResolves_HasASatisfiableObjectGraph()
+        {
+            // These three are the services whose constructors reach outside themselves:
+            // PopupManager needs a catalog and a parent provider, MinigameManager needs a catalog
+            // and the container's own IObjectResolver, RewardsManager reaches across both halves
+            // for the currency manager and the random seam.
+            GameLifetimeScope.RegisterLoadedServices(_builder, ContentWithAStubParentPrefab());
+
+            using IObjectResolver container = _builder.Build();
+
+            Assert.IsInstanceOf<PopupManager>(container.Resolve<IPopupManager>());
+            Assert.IsInstanceOf<MinigameManager>(container.Resolve<IMinigameManager>());
+            Assert.IsInstanceOf<RewardsManager>(container.Resolve<IRewardsManager>());
+        }
+
+        [Test]
+        public void TheLoadedConfig_IsBuiltFromTheDocumentThatWasLoaded()
+        {
+            // The registration parses the carried document rather than fetching one of its own,
+            // which is the reason nothing downstream can observe a half-built config.
+            GameLifetimeScope.RegisterLoadedServices(_builder, ContentWithAStubParentPrefab());
+
             using IObjectResolver container = _builder.Build();
 
             IGameConfig config = container.Resolve<IGameConfig>();
 
             Assert.IsInstanceOf<LocalJsonGameConfig>(config);
-            Assert.Greater(config.GemsReward, 0);
-            Assert.Greater(config.CoinsReward, 0);
+            Assert.AreEqual(10, config.GemsReward);
+            Assert.AreEqual(50, config.CoinsReward);
         }
 
         [Test]
-        public void MinigameCatalog_ResolvesAndListsTheShippedMinigames()
+        public void ResolvingPopupManager_DoesNotCreateTheSharedCanvasYet()
         {
+            // The parent canvas is DontDestroyOnLoad, so building it during resolution would leak a
+            // scene object into every consumer of the container, tests included. Counting from
+            // before the registration catches an eager provider constructor as well as an eager
+            // resolve.
+            _parentPrefab = new GameObject("PopupParentPrefab").AddComponent<PopupParent>();
+
+            int before = LivePopupParents();
+
+            GameLifetimeScope.RegisterLoadedServices(_builder, ContentWith(_parentPrefab));
+
             using IObjectResolver container = _builder.Build();
 
-            IMinigameCatalog catalog = container.Resolve<IMinigameCatalog>();
+            container.Resolve<IPopupManager>();
 
-            CollectionAssert.IsNotEmpty(catalog.Minigames);
+            Assert.AreEqual(before, LivePopupParents(), "the shared canvas was instantiated before any popup asked for it");
         }
 
-        [Test]
-        public void TheShippedChestsMinigame_CarriesAConfigDocumentItCanBuildAControllerFrom()
+        private static int LivePopupParents() =>
+            Object.FindObjectsByType<PopupParent>(FindObjectsSortMode.None).Length;
+
+        private LoadedContent ContentWithAStubParentPrefab()
         {
-            // The chests config no longer comes from a Resources path anybody validates; it is a
-            // TextAsset reference on the definition asset. Nothing else would notice that
-            // reference going empty until the first button press in a real session, so this is
-            // where the shipped wiring gets checked.
-            using IObjectResolver container = _builder.Build();
-
-            IMinigameCatalog catalog = container.Resolve<IMinigameCatalog>();
-            MinigameBaseSO definition = catalog.Minigames[typeof(ChestsMinigame)];
-
-            ChestsMinigameController controller =
-                (ChestsMinigameController)definition.GetMinigameContainer().ControllerInstance;
-
-            Assert.IsNotNull(controller.Chests, "the config document never reached the controller");
-            Assert.Greater(controller.Chests.Count, 0);
-            Assert.Greater(controller.TotalAttempts, 0);
+            _parentPrefab = new GameObject("PopupParentPrefab").AddComponent<PopupParent>();
+            return ContentWith(_parentPrefab);
         }
+
+        private static LoadedContent ContentWith(PopupParent parentPrefab) =>
+            new(FakeGameConfigSource.ValidDocument,
+                new List<MinigameBaseSO>(),
+                new List<PopupBase>(),
+                parentPrefab);
     }
 }

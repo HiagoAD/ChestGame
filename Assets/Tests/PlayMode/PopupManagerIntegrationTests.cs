@@ -1,17 +1,21 @@
 using System.Collections;
+using System.Collections.Generic;
+using System.Threading;
 using Company.ChestGame.Currency;
 using Company.ChestGame.Popups;
 using Company.ChestGame.Popups.Internal;
 using Company.ChestGame.Rewards;
+using Company.ChestGame.Tests.Common;
 using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.TestTools;
 
 namespace Company.ChestGame.Tests.PlayMode
 {
-    // PopupManager's own logic is covered in edit mode against a fake catalog. What is left here is
-    // the part that genuinely needs the engine and the shipped assets: that the Resources-backed
-    // catalog and parent provider find their assets, and that a real popup prefab instantiates.
+    // PopupManager's own logic is covered in edit mode against a real catalog and a fake parent.
+    // What is left here is the part that genuinely needs the engine and the shipped assets: that
+    // the Resources-backed sources find their assets, and that a real popup prefab instantiates
+    // under the canvas the provider builds from the prefab they hand back.
     public class PopupManagerIntegrationTests
     {
         private GameObject _spawnedRoot;
@@ -33,18 +37,30 @@ namespace Company.ChestGame.Tests.PlayMode
         }
 
         [Test]
-        public void TheResourcesCatalog_FindsTheShippedPopupList()
+        public void TheResourcesListSource_FindsTheShippedPopupList()
         {
-            ResourcesPopupCatalog catalog = new();
+            PopupCatalog catalog = new(ShippedPopupEntries());
 
             CollectionAssert.IsNotEmpty(catalog.Popups);
             CollectionAssert.Contains(catalog.Popups.Keys, typeof(RewardReceivedPopup));
         }
 
         [Test]
-        public void TheResourcesParentProvider_BuildsTheSharedCanvasOnFirstUse()
+        public void TheResourcesParentSource_FindsTheShippedPrefabWithoutInstantiatingIt()
         {
-            ResourcesPopupParentProvider provider = new();
+            int before = Object.FindObjectsByType<PopupParent>(FindObjectsSortMode.None).Length;
+
+            PopupParent prefab = ShippedParentPrefab();
+
+            Assert.IsNotNull(prefab, "the shipped PopupParent prefab is missing from Resources");
+            Assert.AreEqual(before, Object.FindObjectsByType<PopupParent>(FindObjectsSortMode.None).Length,
+                "loading the prefab must not put a copy of it in the scene");
+        }
+
+        [Test]
+        public void TheParentProvider_BuildsTheSharedCanvasOnFirstUse()
+        {
+            PopupParentProvider provider = new(ShippedParentPrefab());
 
             Transform first = provider.Default;
 
@@ -55,7 +71,9 @@ namespace Company.ChestGame.Tests.PlayMode
         [UnityTest]
         public IEnumerator SpawningTheRealRewardPopup_ProducesALivePopup()
         {
-            PopupManager popups = new(new ResourcesPopupCatalog(), new ResourcesPopupParentProvider());
+            PopupManager popups = new(
+                new PopupCatalog(ShippedPopupEntries()),
+                new PopupParentProvider(ShippedParentPrefab()));
 
             RewardReceivedPopup popup = popups.Spawn<RewardReceivedPopup, RewardReceivedPopupData>(
                 new RewardReceivedPopupData(CurrencyType.Coins, 50));
@@ -66,5 +84,11 @@ namespace Company.ChestGame.Tests.PlayMode
             Assert.IsTrue(popup.isActiveAndEnabled);
             Assert.IsNotNull(popup.transform.parent, "popups land under the shared canvas when no parent is given");
         }
+
+        private static IReadOnlyList<PopupBase> ShippedPopupEntries() =>
+            SynchronousUniTask.Result(new ResourcesPopupListSource().ReadAsync(CancellationToken.None));
+
+        private static PopupParent ShippedParentPrefab() =>
+            SynchronousUniTask.Result(new ResourcesPopupParentSource().ReadAsync(CancellationToken.None));
     }
 }

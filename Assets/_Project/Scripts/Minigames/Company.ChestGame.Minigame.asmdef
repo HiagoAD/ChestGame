@@ -3,7 +3,8 @@
     "rootNamespace": "Company.ChestGame.Minigame",
     "references": [
         "Company.ChestGame.Common",
-        "VContainer"
+        "VContainer",
+        "UniTask"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

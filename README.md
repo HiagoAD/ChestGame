@@ -95,6 +95,21 @@ and all — runs in edit mode with no player loop and no real waiting. The test 
 `FakeGameClock` parks awaiters and releases them from `AdvanceFrame()`, and because the
 continuations resume synchronously inside that call, a test can assert the moment it returns.
 
+### Boot phase
+
+The game starts in `Scenes/Boot.unity`, not in the game scene. `GameLifetimeScope` lives there,
+registers everything that needs no asset, and survives the scene load. `GameBootstrapper` then does
+three things in the order the whole design rests on: `GameContentLoader` reads every source,
+`RegisterLoadedServices` builds a child scope from what came back, and only then does `Game.unity`
+open — parented to that scope through `LifetimeScope.EnqueueParent`.
+
+The point is that no service ever exists with its data not yet arrived, so nothing anywhere has to
+ask whether loading has finished. `GameContentLoader` is a plain class with no scene or scope in it,
+which is what keeps the untestable part of booting down to the three lines in the bootstrapper.
+
+Opening `Game.unity` directly will not work: its scope expects a parent that only the boot scene
+builds.
+
 ### Entry point & game flow
 - `GameManager.cs` is the main entry point. On button press it asks `IMinigameManager` for the
   container registered under its serialized `_minigameId` and starts a new game. Asking for the
@@ -118,13 +133,16 @@ Config is two documents, not one, because the values had two different owners.
 `Resources/GameConfig.json` holds what the whole game shares, currently the two reward amounts,
 and reaches the game through three steps, each with one job:
 
-- `IGameConfigSource` fetches the raw document. `ResourcesGameConfigSource` is the only class
-  that knows the asset path.
+- `IGameConfigSource` fetches the raw document, asynchronously. `ResourcesGameConfigSource` is the
+  only class that knows the asset path, and it still reads from `Resources` — the signature is async
+  ahead of the loader that needs it to be.
 - `LocalJsonGameConfig` parses and validates it. It loads nothing itself.
 - `IGameConfig` is what the rest of the game consumes.
 
-Pointing the game at a real remote config means registering a different source and changing
-nothing else.
+Pointing the game at a real remote config means registering a different source and changing nothing
+else. The same three-step shape now covers the other content too: `IMinigameListSource`,
+`IPopupListSource` and `IPopupParentSource` fetch, and the catalogs and provider they feed take
+plain, already-loaded data.
 
 `Minigames/Chests/ChestsMinigameConfig.json` holds the chests minigame's own values — chest count,
 attempts, open time — and is owned end to end by that minigame. `ChestsMinigameSO` carries the
@@ -207,12 +225,12 @@ inside the call.
 
 ## 2. Testing
 
-128 tests, split across two suites:
+144 tests, split across two suites:
 
 | Suite    | Tests | Wall time |
 |----------|-------|-----------|
-| EditMode | 114   | ~0.5 s    |
-| PlayMode | 14    | ~14 s     |
+| EditMode | 122   | ~0.5 s    |
+| PlayMode | 22    | ~20 s     |
 
 EditMode covers the logic exhaustively against fakes. PlayMode is a thin layer of integration
 smoke tests for the things only a real player loop or a real prefab can prove — that
@@ -291,7 +309,8 @@ structural, and the current known gaps, see [docs/ENGINEERING_NOTES.md](docs/ENG
 ## 4. Instructions to Build and Run
 
 * Open the project in **Unity 6000.3.11f1** (or compatible)
-* To play in the Editor, open the main scene and press Play
+* To play in the Editor, open `Assets/_Project/Scenes/Boot.unity` and press Play. Starting from
+  `Game.unity` will not work — the boot scene is what loads the content and builds the scope it needs
 * To run the tests, see [Running the tests](#running-the-tests) above
 * To build for Android, switch the target platform to Android and follow the standard build procedure
 
