@@ -75,6 +75,7 @@
   <Project Path="UniTask.TextMeshPro.csproj" />
   <Project Path="Unity.2D.Common.Runtime.csproj" />
   <Project Path="Company.ChestGame.Tests.Common.csproj" />
+  <Project Path="Company.ChestGame.Minigame.Chests.csproj" />
   <Project Path="Company.ChestGame.Config.csproj" />
   <Project Path="Unity.InputSystem.TestFramework.csproj" />
   <Project Path="Unity.ShaderGraph.Utilities.csproj" />

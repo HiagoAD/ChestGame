@@ -12,5 +12,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: efc24a90ed5f34658ab7d970ae5e2842, type: 3}
   m_Name: ChestsMinigame
   m_EditorClassIdentifier: Assembly-CSharp::Company.ChestGame.Minigames.Chests.ChestsMinigameSO
+  _id: chests
   _viewRef: {fileID: 191821762029189776, guid: fb6e7fffa2cdb4fd89d83dcbd3cf3b32, type: 3}
   _configDocument: {fileID: 4900000, guid: 81154367956848ba80c1880b806e9a80, type: 3}

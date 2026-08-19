@@ -6,8 +6,8 @@ The README describes what the architecture is. This file covers why it landed th
 tried and rejected, how to verify changes, and which traps cost time the first time round. Read the
 README first for the map; read this before changing anything structural.
 
-Last updated after the config split that gave the chests minigame its own document. At that point
-the suites were 109 EditMode tests (~0.5 s) and 14 PlayMode tests (~14 s).
+Last updated after the chests minigame was moved into its own assembly and the shell stopped naming
+it by type. At that point the suites were 114 EditMode tests (~0.5 s) and 14 PlayMode tests (~14 s).
 
 ---
 
@@ -29,6 +29,7 @@ current design exists because a first attempt was wrong in a way worth recording
 | `PopupManager` loading Resources in its constructor | Left it play-mode only and leaking canvases between tests. `IPopupCatalog` plus a lazy `IPopupParentProvider` moved most popup tests to edit mode. |
 | Catalogs building their dictionary with `ToDictionary` | Threw `NullReferenceException` on an empty inspector slot and `ArgumentException` on a duplicate. `CatalogBuilder` now skips nulls with a warning and throws `InvalidCatalogException` on duplicates. |
 | One `Data.json` and one `IGameConfig` carrying every feature's fields | A god-object: three of its five fields meant nothing outside the chests minigame, and it made that minigame permanently dependent on a shared document. Split into `GameConfig.json` (rewards) and a chests-owned `ChestsMinigameConfig.json`, with a `ConfigureController` hook as the only framework surface it needed. |
+| The chests minigame living in the shell's assembly, started by `StartMinigame<ChestsMinigame>()` | "Self-contained" was held up by convention, and the shell named the minigame at compile time, so nothing could answer "which assets does this minigame own". The minigame moved to `Company.ChestGame.Minigame.Chests` with its assets beside it, and the shell now asks for an authored id. |
 
 The through-line: when a test needs production code bent to accommodate it, the bend is usually
 pointing at a missing seam. Prefer adding the seam.
@@ -150,12 +151,19 @@ thing that actually differs, becomes the visible difference instead of being bur
 The `TEntry : UnityEngine.Object` constraint is deliberate. It makes `entry == null` use Unity's
 overloaded equality, which also catches destroyed objects.
 
-### Why an empty catalog slot warns but a duplicate throws
+### Why an empty catalog slot warns but a duplicate throws, and a blank id warns too
 
 An empty inspector slot is the most common authoring mistake, and `OnValidate` creates one every
 time it clears a duplicate. The rest of the game still works, so making it fatal would mean one bad
 inspector row bricks startup. A duplicate is different: there is no correct answer for which entry
 wins, and silent last-wins is worse than the old `ArgumentException`.
+
+A blank id sits with the empty slot rather than with the duplicate. An entry whose id was never
+authored is still reachable through the type-keyed lookup and the rest of the game still runs, which
+is the same argument. It also matters that two unauthored entries would otherwise collide as a
+duplicate of `""` and throw over a key nobody wrote. Mutating the skip away shows the second half of
+this: a `CreateInstance`d definition leaves `_id` null, so the entry does not merely land under a
+useless key, it takes `Dictionary` down with an `ArgumentNullException`.
 
 ### Why the prize divisor has a `+ 1`
 
@@ -263,8 +271,8 @@ Fakes live in `Tests/Common/` and are shared by both suites.
 | `CurrencyManagerTests` | Add/spend guards, the spent-vs-changed sign asymmetry, persistence through the save handler |
 | `LocalJsonGameConfigTests` | Missing, empty, malformed, non-object, and out-of-range game config documents |
 | `ChestsMinigameConfigTests` | The same failure surface for the chests minigame's own document, plus its three range rules and a definition with no document wired |
-| `CatalogTests` | Empty slots and duplicate types in both catalogs |
-| `MinigameManagerTests` | Container construction, fresh instance per request, both throw paths, and that `ConfigureController` lands before injection |
+| `CatalogTests` | Empty slots and duplicate types in both catalogs, and for minigames the id lookup: indexing by authored id, a duplicate id throwing, a blank id skipped with a warning |
+| `MinigameManagerTests` | Container construction by type and by id, fresh instance per request, all three throw paths, and that `ConfigureController` lands before injection |
 | `PopupManagerTests` | Catalog lookup, parent selection, data hand-off, unregistered popup |
 | `RewardsManagerTests` | Currency draw, amount from config, popup and event agreement |
 | `GameLifetimeScopeTests` | The real `RegisterServices`: every service registered, the risky ones actually resolvable, and the shipped assets — including the chests config `TextAsset` reference — still wired |
@@ -285,6 +293,11 @@ Fakes live in `Tests/Common/` and are shared by both suites.
   add it to `EveryServiceTheGameResolves_HasASatisfiableObjectGraph` too.
 - Adding an assembly: production asmdefs use `autoReferenced: false` and `overrideReferences: true`,
   so list every dependency explicitly, including precompiled ones such as `Newtonsoft.Json.dll`.
+  Trim the assembly it came out of at the same time; a reference left behind still compiles and
+  quietly keeps the old coupling.
+- Adding a minigame: it gets its own assembly and its own folder under `_Project/Minigames/`, an
+  authored `_id` on its definition asset, and no reference from `Company.ChestGame.Gameplay`. The
+  shell reaching a minigame by type again is the thing this layout exists to prevent.
 - Adding a failure mode: give it a type under `ChestGameException` and assert the type in the test,
   not `Exception`.
 - Moving a script that a scene or prefab references: move the `.meta` with it, or the GUID changes

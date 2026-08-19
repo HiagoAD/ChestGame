@@ -57,17 +57,26 @@ Company.ChestGame.Common      _Project/Scripts/Common/     (leaf: engine seams, 
 Company.ChestGame.Config      _Project/Scripts/Config/
 Company.ChestGame.Currency    _Project/Scripts/Currency/
 Company.ChestGame.Popups      _Project/Scripts/Popups/
-Company.ChestGame.Minigame    _Project/Scripts/Minigames/
+Company.ChestGame.Minigame    _Project/Scripts/Minigames/  (the framework, no minigame in it)
 Company.ChestGame.Rewards     _Project/Scripts/Rewards/
-Company.ChestGame.Gameplay    _Project/Scripts/Gameplay/
+Company.ChestGame.Gameplay    _Project/Scripts/Gameplay/    (the shell: GameManager and nothing else)
 Company.ChestGame.UI          _Project/Scripts/UI/
 Company.ChestGame.Core        _Project/Scripts/Core/       (composition root)
+
+Company.ChestGame.Minigame.Chests  _Project/Minigames/Chests/Scripts/   (one minigame, code and assets)
+
 TapNation.Modules             AssetLibrary/                (vendored Resource Bank)
 
 Company.ChestGame.Tests.Common    Tests/Common/            (fakes, shared by both suites)
 Company.ChestGame.Tests.EditMode  Tests/EditMode/
 Company.ChestGame.Tests.PlayMode  Tests/PlayMode/
 ```
+
+The chests minigame is an assembly of its own, and the shell does not reference it. Everything the
+minigame owns — controller, view, model, definition asset, prefabs, sprite, config document — sits
+under `_Project/Minigames/Chests/`, so "what belongs to this minigame" has an answer the compiler
+agrees with rather than one held up by convention. `GameManager` asks for a minigame by authored id,
+which is the only reason it can start one without naming its type.
 
 `Common` is deliberately a leaf — it references only UniTask. The engine seams below would
 otherwise be a natural fit for `Core`, but `Core` already depends on `Rewards`, and `Rewards`
@@ -87,11 +96,13 @@ and all — runs in edit mode with no player loop and no real waiting. The test 
 continuations resume synchronously inside that call, a test can assert the moment it returns.
 
 ### Entry point & game flow
-- `GameManager.cs` is the main entry point. On button press it asks `IMinigameManager` for a
-  minigame container and starts a new game. `StartMinigame<TMinigame>()` is generic: asking for
-  the minigame already running just restarts it, asking for a different one tears the current
-  one down first. `OnDestroy` ends whatever is running, so the controller is disposed and the
-  view destroyed rather than left to the garbage collector with live subscriptions.
+- `GameManager.cs` is the main entry point. On button press it asks `IMinigameManager` for the
+  container registered under its serialized `_minigameId` and starts a new game. Asking for the
+  minigame already running just restarts it, asking for a different one tears the current one down
+  first, which is why the active id is tracked alongside the active container. `OnDestroy` ends
+  whatever is running, so the controller is disposed and the view destroyed rather than left to the
+  garbage collector with live subscriptions. It names no minigame type, and its assembly references
+  no minigame's assembly.
 - `ChestsMinigameController.cs` holds the core logic: chest states, remaining attempts, async
   opening (two parallel UniTasks), and reward distribution. It touches neither `UnityEngine.Random`
   nor `Time` directly — both arrive through the seams above.
@@ -115,10 +126,10 @@ and reaches the game through three steps, each with one job:
 Pointing the game at a real remote config means registering a different source and changing
 nothing else.
 
-`Prefabs/Gameplay/ChestsMinigameConfig.json` holds the chests minigame's own values — chest count,
+`Minigames/Chests/ChestsMinigameConfig.json` holds the chests minigame's own values — chest count,
 attempts, open time — and is owned end to end by that minigame. `ChestsMinigameSO` carries the
 document as a `TextAsset` and `ChestsMinigameConfig.Parse` validates it. Nothing outside the chests
-folder can name a field called `ChestCount`, and the chests code needs no reference to the config
+assembly can name a field called `ChestCount`, and the chests code needs no reference to the config
 assembly at all. That is the point: a minigame that owns its own content can later ship as one unit.
 
 Both documents validate at the boundary and throw `GameConfigException`, which lives in `Common`
@@ -160,15 +171,21 @@ the container, tests included. There is a test pinning exactly that.
 The same three layers show up for both minigames and popups:
 
 - `*ListSO` — pure authoring data, the list as the inspector holds it, holes and all.
-- `*Catalog` — takes a plain `IReadOnlyList` and builds the type-keyed lookup. Constructible in
-  a test with no asset involved.
+- `*Catalog` — takes a plain `IReadOnlyList` and builds the lookup. Constructible in a test with no
+  asset involved. `MinigameCatalog` builds two over the same entries: keyed by container type for
+  callers that already have the type, and keyed by authored id for the shell, which must not.
 - `Resources*Catalog` — a subclass that knows the Resources path and nothing else.
 
-`CatalogBuilder.Build` holds the shared policy: an empty slot is skipped with a warning, because
-the rest of the game is still playable; a duplicate type throws `InvalidCatalogException`,
+`CatalogBuilder` holds the shared policy: an empty slot is skipped with a warning, because
+the rest of the game is still playable; a duplicate key throws `InvalidCatalogException`,
 because there is no right answer for which entry wins. The `TEntry : UnityEngine.Object`
 constraint is deliberate — it makes the null check use Unity's overloaded equality, which also
 catches destroyed objects.
+
+`BuildById` adds the one rule a generic key cannot express: an id that was never authored is blank,
+and blank is not a key, so that entry is skipped from the id lookup with a warning. It follows the
+empty-slot reasoning — the entry is still reachable by type and the game still runs — and it stops
+two unauthored entries from colliding as a duplicate nobody wrote.
 
 ### Exception hierarchy
 
@@ -190,11 +207,11 @@ inside the call.
 
 ## 2. Testing
 
-123 tests, split across two suites:
+128 tests, split across two suites:
 
 | Suite    | Tests | Wall time |
 |----------|-------|-----------|
-| EditMode | 109   | ~0.5 s    |
+| EditMode | 114   | ~0.5 s    |
 | PlayMode | 14    | ~14 s     |
 
 EditMode covers the logic exhaustively against fakes. PlayMode is a thin layer of integration

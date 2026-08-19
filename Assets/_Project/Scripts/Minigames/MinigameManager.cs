@@ -10,12 +10,14 @@ namespace Company.ChestGame.Minigame
     public class MinigameManager : IMinigameManager
     {
         private readonly IReadOnlyDictionary<Type, MinigameBaseSO> _minigameDefs;
+        private readonly IReadOnlyDictionary<string, MinigameBaseSO> _minigameDefsById;
 
         private readonly IObjectResolver _resolver;
 
         public MinigameManager(IObjectResolver resolver, IMinigameCatalog catalog)
         {
             _minigameDefs = catalog.Minigames;
+            _minigameDefsById = catalog.MinigamesById;
             _resolver = resolver;
         }
 
@@ -26,7 +28,24 @@ namespace Company.ChestGame.Minigame
                 throw new MinigameNotFoundException(typeof(TMinigame));
             }
 
-            TMinigame wrapper = minigameSO.GetMinigameContainer() as TMinigame;
+            return Build(minigameSO) as TMinigame;
+        }
+
+        // Same construction, reached without naming a container type. A caller holding only an id
+        // gets the base container back and drives it through the framework's own surface.
+        public MinigameContainer Get(string id)
+        {
+            if (id == null || !_minigameDefsById.TryGetValue(id, out MinigameBaseSO minigameSO))
+            {
+                throw new MinigameNotFoundException(id);
+            }
+
+            return Build(minigameSO);
+        }
+
+        private MinigameContainer Build(MinigameBaseSO minigameSO)
+        {
+            MinigameContainer wrapper = minigameSO.GetMinigameContainer();
             _resolver.Inject(wrapper);
             _resolver.Inject(wrapper.ControllerInstance);
 

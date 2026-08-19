@@ -38,6 +38,13 @@ namespace Company.ChestGame.Tests.EditMode
             return minigame;
         }
 
+        private TDefinition NewMinigame<TDefinition>(string id) where TDefinition : MinigameBaseSO
+        {
+            TDefinition definition = ScriptableObject.CreateInstance<TDefinition>().WithId(id);
+            _created.Add(definition);
+            return definition;
+        }
+
         private TPopup NewPopup<TPopup>() where TPopup : PopupBase
         {
             GameObject host = new(typeof(TPopup).Name);
@@ -94,6 +101,58 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.AreEqual(typeof(FakeMinigameContainer), error.OffendingType);
         }
 
+        // --- Minigame catalog, keyed by id -------------------------------------------------
+
+        // The id lookup is what lets the game shell start a minigame without naming its type, so
+        // the same authoring mistakes have to be answered for again, and the answers differ: a
+        // duplicate id is still fatal, but an unauthored one only costs that entry its id.
+
+        [Test]
+        public void MinigameCatalog_IndexesEntriesByAuthoredId()
+        {
+            FakeMinigameSO minigame = NewMinigame<FakeMinigameSO>("chests");
+
+            MinigameCatalog catalog = new(new List<MinigameBaseSO> { minigame });
+
+            Assert.AreEqual(1, catalog.MinigamesById.Count);
+            Assert.AreSame(minigame, catalog.MinigamesById["chests"]);
+        }
+
+        [Test]
+        public void MinigameCatalog_WithTheSameIdTwice_ThrowsInvalidCatalog()
+        {
+            // Distinct container types on purpose: the type-keyed build runs first, so two entries
+            // sharing a type would throw before the id lookup was ever reached, and this test would
+            // pass without proving anything about ids.
+            List<MinigameBaseSO> entries = new()
+            {
+                NewMinigame<FirstIdOnlyMinigameSO>("chests"),
+                NewMinigame<SecondIdOnlyMinigameSO>("chests")
+            };
+
+            InvalidCatalogException error = Assert.Throws<InvalidCatalogException>(() => new MinigameCatalog(entries));
+
+            Assert.AreEqual("chests", error.OffendingKey);
+        }
+
+        [Test]
+        public void MinigameCatalog_WithABlankId_SkipsItFromTheIdLookupWithoutThrowing()
+        {
+            // Same reasoning as an empty slot: the entry is still reachable by type and the rest of
+            // the game runs, so this warns rather than bricking startup. It also keeps two
+            // unauthored entries from colliding as a duplicate that was never authored at all.
+            LogAssert.Expect(LogType.Warning,
+                "Minigame list has an entry with no id at index 0, skipping it from the id lookup");
+
+            FakeMinigameSO minigame = NewMinigame<FakeMinigameSO>("   ");
+
+            MinigameCatalog catalog = new(new List<MinigameBaseSO> { minigame });
+
+            CollectionAssert.IsEmpty(catalog.MinigamesById);
+            Assert.AreSame(minigame, catalog.Minigames[typeof(FakeMinigameContainer)],
+                "the type-keyed lookup still works, which is why a blank id is survivable");
+        }
+
         // --- Popup catalog -----------------------------------------------------------------
 
         [Test]
@@ -141,6 +200,24 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.AreSame(first, catalog.Popups[typeof(CatalogTestPopup)]);
             Assert.AreSame(second, catalog.Popups[typeof(OtherCatalogTestPopup)]);
         }
+
+        // Two definitions that differ only in container type, so a duplicate id can be built
+        // without the type-keyed lookup throwing first.
+        private class FirstIdOnlyMinigameSO : MinigameBaseSO
+        {
+            public override System.Type ContainerType => typeof(FirstIdOnlyContainer);
+            public override MinigameContainer GetMinigameContainer() => new FirstIdOnlyContainer();
+        }
+
+        private class SecondIdOnlyMinigameSO : MinigameBaseSO
+        {
+            public override System.Type ContainerType => typeof(SecondIdOnlyContainer);
+            public override MinigameContainer GetMinigameContainer() => new SecondIdOnlyContainer();
+        }
+
+        private class FirstIdOnlyContainer : MinigameContainer { }
+
+        private class SecondIdOnlyContainer : MinigameContainer { }
 
         public class CatalogTestPopupData : PopupDataBase { }
 

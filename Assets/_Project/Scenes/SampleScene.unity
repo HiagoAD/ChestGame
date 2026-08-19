@@ -184,6 +184,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::Superbloom.ChestGame.Gameplay.GameController
   _minigamesParent: {fileID: 4803424781116700085}
   _startButton: {fileID: 1623371897909034468}
+  _minigameId: chests
 --- !u!1 &513409541
 GameObject:
   m_ObjectHideFlags: 0

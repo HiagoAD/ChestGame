@@ -85,6 +85,27 @@ namespace Company.ChestGame.Tests.EditMode
         }
 
         [Test]
+        public void GetById_BuildsTheContainerRegisteredForThatId()
+        {
+            // The id path is what the game shell uses, so it has to reach the same construction the
+            // typed path does without the caller ever naming a container type.
+            MinigameContainer minigame = _manager.Get("fake");
+
+            Assert.IsInstanceOf<FakeMinigameContainer>(minigame);
+            Assert.IsInstanceOf<FakeMinigameController>(minigame.ControllerInstance);
+            Assert.AreEqual(1, _minigameSO.ContainersCreated);
+        }
+
+        [Test]
+        public void GetById_ForAnUnknownId_ThrowsMinigameNotFound()
+        {
+            MinigameNotFoundException error = Assert.Throws<MinigameNotFoundException>(
+                () => _manager.Get("no-such-minigame"));
+
+            Assert.AreEqual("no-such-minigame", error.Id);
+        }
+
+        [Test]
         public void Get_ConfiguresTheControllerBeforeInjectingIt()
         {
             // A framework contract, not an accident of ordering: ConfigureController runs inside

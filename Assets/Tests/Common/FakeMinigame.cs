@@ -20,7 +20,9 @@ namespace Company.ChestGame.Tests.Common
             return container;
         }
 
-        public static FakeMinigameSO Create() => CreateInstance<FakeMinigameSO>();
+        // The id matches what MinigameBaseSO exposes, so a manager asked for "fake" finds this.
+        public static FakeMinigameSO Create(string id = "fake") =>
+            CreateInstance<FakeMinigameSO>().WithId(id);
     }
 
     public class FakeMinigameContainer : MinigameContainer { }

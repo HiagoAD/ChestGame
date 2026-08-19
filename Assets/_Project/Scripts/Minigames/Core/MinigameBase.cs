@@ -5,6 +5,14 @@ namespace Company.ChestGame.Minigame.Core
 {
     public abstract class MinigameBaseSO : ScriptableObject
     {
+        // The id the game shell asks for. It is authored on the asset rather than derived from the
+        // container type, which is what lets the shell start a minigame without referencing the
+        // assembly that defines it. Serialized fields on an abstract ScriptableObject base do
+        // serialize, so every concrete definition asset carries this slot.
+        [SerializeField] private string _id;
+
+        public string Id => _id;
+
         public abstract Type ContainerType { get; }
         public abstract MinigameContainer GetMinigameContainer();
     }

@@ -1,22 +1,22 @@
-using System;
-using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
 using VContainer;
 
 using Company.ChestGame.Minigame.Core;
 using Company.ChestGame.Minigame;
-using Company.ChestGame.Minigame.Chests;
 
 namespace Company.ChestGame.Gameplay
 {
     // The main class that controls the game.
     //
-    // The key area here is to control async the chest state. To display this control better,
-    // a weird approach was taken, where two concurrent async tasks run in parallel, one
-    // updating every frame the slider inside the chest, and the other waiting until the
-    // timer finishes to open the chest, with both being controlled by the same cancellation
-    // token to ensure that they behave in sync with each other.
+    // The shell deliberately knows no minigame by type. It holds an authored id, asks the manager
+    // for whatever is registered under it, and drives it through the framework's own surface, so
+    // this assembly references no minigame's assembly and a minigame can be added or removed
+    // without touching the shell.
+    //
+    // The chests minigame it currently starts is where the async work lives: two concurrent tasks
+    // running in parallel, one updating the slider inside the chest every frame and the other
+    // waiting on the timer, both under one cancellation token so they stay in sync.
     //
     // This minigame doesn't have persistence. At each new game, the amount of attemps is reset.
     // The currencies are persisted, even between sessions.
@@ -26,7 +26,16 @@ namespace Company.ChestGame.Gameplay
         [SerializeField] private Transform _minigamesParent;
         [SerializeField] private Button _startButton;
 
+        // Authored in the scene. The initializer is a default for a freshly added component, not
+        // the value the shipped scene relies on.
+        [SerializeField] private string _minigameId = "chests";
+
         private MinigameContainer _activeMinigame;
+
+        // Tracked alongside the container because the container's type no longer identifies which
+        // minigame it is: the shell only ever sees the base type back from the manager.
+        private string _activeMinigameId;
+
         private IMinigameManager _minigamesManager;
 
 
@@ -38,7 +47,7 @@ namespace Company.ChestGame.Gameplay
 
         private void Awake()
         {
-            _startButton.onClick.AddListener(NewChestsMinigame);
+            _startButton.onClick.AddListener(StartConfiguredMinigame);
         }
 
         // Closing the loop the framework opens: whatever is running gets torn down when this scene
@@ -46,21 +55,22 @@ namespace Company.ChestGame.Gameplay
         // the garbage collector with its subscriptions still live.
         private void OnDestroy()
         {
-            _startButton.onClick.RemoveListener(NewChestsMinigame);
+            _startButton.onClick.RemoveListener(StartConfiguredMinigame);
             EndActiveMinigame();
         }
 
-        private void NewChestsMinigame() => StartMinigame<ChestsMinigame>();
+        private void StartConfiguredMinigame() => StartMinigame(_minigameId);
 
-        // Starting a minigame of a different type, or restarting one that has been torn down,
-        // builds a fresh container; asking again for the one already running just restarts it.
-        private void StartMinigame<TMinigame>() where TMinigame : MinigameContainer
+        // Starting a different minigame, or restarting one that has been torn down, builds a fresh
+        // container; asking again for the one already running just restarts it.
+        private void StartMinigame(string id)
         {
-            if (_activeMinigame is not TMinigame || !_activeMinigame.Running)
+            if (_activeMinigameId != id || _activeMinigame == null || !_activeMinigame.Running)
             {
                 EndActiveMinigame();
 
-                _activeMinigame = _minigamesManager.Get<TMinigame>();
+                _activeMinigame = _minigamesManager.Get(id);
+                _activeMinigameId = id;
                 _activeMinigame.Begin(_minigamesParent);
             }
 
@@ -73,6 +83,7 @@ namespace Company.ChestGame.Gameplay
 
             _activeMinigame.End();
             _activeMinigame = null;
+            _activeMinigameId = null;
         }
     }
 }
