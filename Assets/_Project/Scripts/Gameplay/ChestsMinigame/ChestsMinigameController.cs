@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using Company.ChestGame.Common;
-using Company.ChestGame.Config;
 using Company.ChestGame.Minigame.Core;
 using Company.ChestGame.Rewards;
 using Cysharp.Threading.Tasks;
@@ -59,22 +58,27 @@ namespace Company.ChestGame.Minigame.Chests.Internal
         private int _attempts = 0;
 
 
-        [Inject]
-        public void Inject(IGameConfig gameConfig, IRewardsManager rewardsManager, IRandomProvider random, IGameClock clock)
+        // The minigame's own config, handed over by ChestsMinigameSO before the controller is
+        // injected. It has to land first, because the chest list is sized from it.
+        public void Configure(ChestsMinigameConfig config)
         {
-            _timeToOpenChestMiliseconds = gameConfig.TimeToOpenChestMiliseconds;
-            TotalAttempts = gameConfig.AttempsCount;
-
-            _rewardsManager = rewardsManager;
-            _random = random;
-            _clock = clock;
+            _timeToOpenChestMiliseconds = config.TimeToOpenChestMiliseconds;
+            TotalAttempts = config.AttempsCount;
 
             List<ChestsMinigameChestModel> chests = new();
-            for (int i = 0; i < gameConfig.ChestCount; i++)
+            for (int i = 0; i < config.ChestCount; i++)
             {
                 chests.Add(new());
             }
             Chests = chests.AsReadOnly();
+        }
+
+        [Inject]
+        public void Inject(IRewardsManager rewardsManager, IRandomProvider random, IGameClock clock)
+        {
+            _rewardsManager = rewardsManager;
+            _random = random;
+            _clock = clock;
         }
 
         public override void Dispose()

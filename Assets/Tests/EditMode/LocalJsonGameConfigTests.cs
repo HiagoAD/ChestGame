@@ -1,4 +1,5 @@
 using System;
+using Company.ChestGame.Common;
 using Company.ChestGame.Config;
 using Company.ChestGame.Config.Internal;
 using Company.ChestGame.Tests.Common;
@@ -9,6 +10,9 @@ namespace Company.ChestGame.Tests.EditMode
     // The failure surface here is the point: a real remote config can hand back nothing, a
     // truncated payload, or a document whose fields have moved. Splitting fetching from parsing is
     // what makes each of those reachable without an actual network or asset.
+    //
+    // What this document carries is now only what the whole game shares. The chests minigame's own
+    // values, and their range rules, live in ChestsMinigameConfigTests.
     public class LocalJsonGameConfigTests
     {
         private FakeGameConfigSource _source;
@@ -20,21 +24,14 @@ namespace Company.ChestGame.Tests.EditMode
         public void AValidDocument_PopulatesEveryField()
         {
             _source.Document = @"{
-                ""ChestCount"": 8,
-                ""AttempsCount"": 5,
-                ""TimeToOpenChestMiliseconds"": 750,
                 ""GemsReward"": 3,
                 ""CoinsReward"": 120
             }";
 
             LocalJsonGameConfig config = new(_source);
 
-            Assert.AreEqual(8, config.ChestCount);
-            Assert.AreEqual(5, config.AttempsCount);
-            Assert.AreEqual(750, config.TimeToOpenChestMiliseconds);
             Assert.AreEqual(3, config.GemsReward);
             Assert.AreEqual(120, config.CoinsReward);
-            Assert.IsTrue(config.Initialized);
         }
 
         [Test]
@@ -66,7 +63,7 @@ namespace Company.ChestGame.Tests.EditMode
         public void AMalformedDocument_FailsWithATargetedMessage()
         {
             // A truncated payload, the shape a half-finished download takes.
-            _source.Document = @"{ ""ChestCount"": 12, ""AttempsCount"":";
+            _source.Document = @"{ ""GemsReward"": 10, ""CoinsReward"":";
 
             Exception error = Assert.Throws<GameConfigException>(() => new LocalJsonGameConfig(_source));
             StringAssert.Contains("not valid JSON", error.Message);
@@ -84,49 +81,19 @@ namespace Company.ChestGame.Tests.EditMode
         [Test]
         public void UnknownFields_AreIgnoredSoTheConfigCanGrowServerSide()
         {
-            // A server rolling out a new field must not break clients that predate it.
+            // A server rolling out a new field must not break clients that predate it. The chests
+            // minigame's own fields are one such case now: this document no longer knows them.
             _source.Document = @"{
-                ""ChestCount"": 12,
-                ""AttempsCount"": 12,
-                ""TimeToOpenChestMiliseconds"": 1000,
                 ""GemsReward"": 10,
                 ""CoinsReward"": 50,
+                ""ChestCount"": 12,
                 ""SomeFieldThisClientHasNeverHeardOf"": true
             }";
 
             LocalJsonGameConfig config = new(_source);
 
-            Assert.AreEqual(12, config.ChestCount);
-            Assert.IsTrue(config.Initialized);
-        }
-
-        [Test]
-        public void MissingRequiredFields_AreRejected()
-        {
-            // Absent fields deserialize to 0, which for AttempsCount means a round that can never
-            // end. Rejected at the boundary rather than surfacing as a stuck game later.
-            _source.Document = @"{ ""ChestCount"": 4 }";
-
-            GameConfigException error = Assert.Throws<GameConfigException>(() => new LocalJsonGameConfig(_source));
-            StringAssert.Contains(nameof(GameConfigData.AttempsCount), error.Message);
-        }
-
-        [Test]
-        public void AZeroChestCount_IsRejected()
-        {
-            // A game with no chests can never be played, let alone won.
-            _source.Document = DocumentWith(chestCount: 0);
-
-            GameConfigException error = Assert.Throws<GameConfigException>(() => new LocalJsonGameConfig(_source));
-            StringAssert.Contains(nameof(GameConfigData.ChestCount), error.Message);
-        }
-
-        [Test]
-        public void ANegativeChestCount_IsRejected()
-        {
-            _source.Document = DocumentWith(chestCount: -3);
-
-            Assert.Throws<GameConfigException>(() => new LocalJsonGameConfig(_source));
+            Assert.AreEqual(10, config.GemsReward);
+            Assert.AreEqual(50, config.CoinsReward);
         }
 
         [Test]
@@ -141,22 +108,28 @@ namespace Company.ChestGame.Tests.EditMode
         }
 
         [Test]
-        public void AnInstantOpenTime_IsAccepted()
+        public void ANegativeGemsReward_IsRejected()
         {
-            // Zero is a legitimate tuning value, unlike zero chests: chests just open immediately.
-            _source.Document = DocumentWith(timeToOpenMilliseconds: 0);
+            _source.Document = DocumentWith(gemsReward: -1);
+
+            GameConfigException error = Assert.Throws<GameConfigException>(() => new LocalJsonGameConfig(_source));
+            StringAssert.Contains(nameof(GameConfigData.GemsReward), error.Message);
+        }
+
+        [Test]
+        public void AZeroReward_IsAccepted()
+        {
+            // Zero is a legitimate tuning value: a currency the game currently gives none of.
+            _source.Document = DocumentWith(gemsReward: 0, coinsReward: 0);
 
             LocalJsonGameConfig config = new(_source);
 
-            Assert.AreEqual(0, config.TimeToOpenChestMiliseconds);
+            Assert.AreEqual(0, config.GemsReward);
+            Assert.AreEqual(0, config.CoinsReward);
         }
 
-        private static string DocumentWith(int chestCount = 12, int attemptsCount = 12,
-            int timeToOpenMilliseconds = 1000, long gemsReward = 10, long coinsReward = 50) =>
+        private static string DocumentWith(long gemsReward = 10, long coinsReward = 50) =>
             $@"{{
-                ""ChestCount"": {chestCount},
-                ""AttempsCount"": {attemptsCount},
-                ""TimeToOpenChestMiliseconds"": {timeToOpenMilliseconds},
                 ""GemsReward"": {gemsReward},
                 ""CoinsReward"": {coinsReward}
             }}";

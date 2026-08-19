@@ -85,6 +85,33 @@ namespace Company.ChestGame.Tests.EditMode
         }
 
         [Test]
+        public void Get_ConfiguresTheControllerBeforeInjectingIt()
+        {
+            // A framework contract, not an accident of ordering: ConfigureController runs inside
+            // GetMinigameContainer and Get injects afterwards, so a controller can build state
+            // from its own config document and still be injected on top of it. ChestsMinigameSO
+            // depends on exactly this, because the chest list is sized from ChestCount.
+            ConfigurableMinigameSO definition = ScriptableObject.CreateInstance<ConfigurableMinigameSO>();
+            try
+            {
+                MinigameManager manager = new(_container,
+                    new MinigameCatalog(new List<MinigameBaseSO> { definition }));
+
+                ConfigurableContainer minigame = manager.Get<ConfigurableContainer>();
+                ConfigurableController controller = (ConfigurableController)minigame.ControllerInstance;
+
+                Assert.IsTrue(controller.Configured, "the ConfigureController hook should have run");
+                Assert.IsTrue(controller.Injected, "the controller should still be injected");
+                Assert.IsTrue(controller.WasConfiguredBeforeInject,
+                    "Configure has to land before Inject, or a controller cannot build state from its own config");
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(definition);
+            }
+        }
+
+        [Test]
         public void Get_ForAnUnknownMinigame_ThrowsMinigameNotFound()
         {
             // Typed so this cannot be satisfied by an unrelated NullReferenceException from
@@ -104,5 +131,41 @@ namespace Company.ChestGame.Tests.EditMode
         }
 
         private class UnregisteredMinigameContainer : MinigameContainer { }
+
+        // Built on the generic base rather than on MinigameBaseSO directly, so the hook and the
+        // order it runs in are exercised through the real GetMinigameContainer, not a stand-in.
+        private class ConfigurableMinigameSO
+            : MinigameBase<ConfigurableController, ConfigurableView, ConfigurableContainer>
+        {
+            protected override void ConfigureController(ConfigurableController controller) =>
+                controller.Configure();
+        }
+
+        private class ConfigurableContainer : MinigameContainer { }
+
+        private class ConfigurableView : MinigameViewBase
+        {
+            public override void SetController(MinigameControllerBase controller) { }
+        }
+
+        private class ConfigurableController : MinigameControllerBase
+        {
+            public bool Configured { get; private set; }
+            public bool Injected { get; private set; }
+            public bool WasConfiguredBeforeInject { get; private set; }
+
+            public void Configure() => Configured = true;
+
+            [Inject]
+            public void Inject(IRandomProvider random)
+            {
+                WasConfiguredBeforeInject = Configured;
+                Injected = true;
+            }
+
+            public override void NewGame() { }
+
+            public override void Dispose() { }
+        }
     }
 }

@@ -23,8 +23,18 @@ namespace Company.ChestGame.Minigame.Core
         public override MinigameContainer GetMinigameContainer()
         {
             TMinigame minigame = new();
-            minigame.Set(new TController(), _viewRef);
+
+            TController controller = new();
+            ConfigureController(controller);
+
+            minigame.Set(controller, _viewRef);
             return minigame;
         }
+
+        // The one hook a concrete minigame has for handing its controller whatever only it knows
+        // about, its own config document being the reason this exists. It deliberately runs before
+        // the controller is handed over, so a controller can build state from it and still be
+        // injected afterwards by MinigameManager.Get. A minigame needing nothing overrides nothing.
+        protected virtual void ConfigureController(TController controller) { }
     }
 }

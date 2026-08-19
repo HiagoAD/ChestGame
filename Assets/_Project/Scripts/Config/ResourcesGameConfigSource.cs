@@ -6,7 +6,7 @@ namespace Company.ChestGame.Config
     // a real deployment would use, an HTTP fetch against a remote config service.
     public class ResourcesGameConfigSource : IGameConfigSource
     {
-        private const string FILE_NAME = "Data";
+        private const string FILE_NAME = "GameConfig";
 
         public string Read()
         {

@@ -3,7 +3,6 @@
     "rootNamespace": "Company.ChestGame.Gameplay",
     "references": [
         "Company.ChestGame.Common",
-        "Company.ChestGame.Config",
         "Company.ChestGame.Minigame",
         "Company.ChestGame.Rewards",
         "UniTask",
@@ -15,7 +14,9 @@
     "excludePlatforms": [],
     "allowUnsafeCode": false,
     "overrideReferences": true,
-    "precompiledReferences": [],
+    "precompiledReferences": [
+        "Newtonsoft.Json.dll"
+    ],
     "autoReferenced": false,
     "defineConstraints": [],
     "versionDefines": [],

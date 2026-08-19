@@ -6,9 +6,6 @@ namespace Company.ChestGame.Tests.Common
     public class FakeGameConfigSource : IGameConfigSource
     {
         public const string ValidDocument = @"{
-            ""ChestCount"": 12,
-            ""AttempsCount"": 12,
-            ""TimeToOpenChestMiliseconds"": 1000,
             ""GemsReward"": 10,
             ""CoinsReward"": 50
         }";

@@ -3,6 +3,9 @@ using Company.ChestGame.Config;
 using Company.ChestGame.Core;
 using Company.ChestGame.Currency;
 using Company.ChestGame.Minigame;
+using Company.ChestGame.Minigame.Chests;
+using Company.ChestGame.Minigame.Chests.Internal;
+using Company.ChestGame.Minigame.Core;
 using Company.ChestGame.Popups;
 using Company.ChestGame.Popups.Internal;
 using Company.ChestGame.Rewards;
@@ -98,16 +101,16 @@ namespace Company.ChestGame.Tests.EditMode
         [Test]
         public void GameConfig_ResolvesAndParsesTheShippedConfigDocument()
         {
-            // Reaches the real Resources/Data.json through the registered source, which makes this
-            // the one test that would catch the shipped config going missing or malformed.
+            // Reaches the real Resources/GameConfig.json through the registered source, which makes
+            // this the one test that would catch the shipped config going missing or malformed.
+            // Resolving at all is most of the assertion: every failure in there throws.
             using IObjectResolver container = _builder.Build();
 
             IGameConfig config = container.Resolve<IGameConfig>();
 
-            Assert.IsTrue(config.Initialized);
-            Assert.Greater(config.ChestCount, 0);
-            Assert.Greater(config.AttempsCount, 0);
-            Assert.Greater(config.TimeToOpenChestMiliseconds, 0);
+            Assert.IsInstanceOf<LocalJsonGameConfig>(config);
+            Assert.Greater(config.GemsReward, 0);
+            Assert.Greater(config.CoinsReward, 0);
         }
 
         [Test]
@@ -118,6 +121,26 @@ namespace Company.ChestGame.Tests.EditMode
             IMinigameCatalog catalog = container.Resolve<IMinigameCatalog>();
 
             CollectionAssert.IsNotEmpty(catalog.Minigames);
+        }
+
+        [Test]
+        public void TheShippedChestsMinigame_CarriesAConfigDocumentItCanBuildAControllerFrom()
+        {
+            // The chests config no longer comes from a Resources path anybody validates; it is a
+            // TextAsset reference on the definition asset. Nothing else would notice that
+            // reference going empty until the first button press in a real session, so this is
+            // where the shipped wiring gets checked.
+            using IObjectResolver container = _builder.Build();
+
+            IMinigameCatalog catalog = container.Resolve<IMinigameCatalog>();
+            MinigameBaseSO definition = catalog.Minigames[typeof(ChestsMinigame)];
+
+            ChestsMinigameController controller =
+                (ChestsMinigameController)definition.GetMinigameContainer().ControllerInstance;
+
+            Assert.IsNotNull(controller.Chests, "the config document never reached the controller");
+            Assert.Greater(controller.Chests.Count, 0);
+            Assert.Greater(controller.TotalAttempts, 0);
         }
     }
 }

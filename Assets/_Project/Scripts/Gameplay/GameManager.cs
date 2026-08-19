@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using Company.ChestGame.Config;
 using UnityEngine;
 using UnityEngine.UI;
 using VContainer;

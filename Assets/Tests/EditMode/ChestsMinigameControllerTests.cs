@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Linq;
+using Company.ChestGame.Minigame.Chests;
 using Company.ChestGame.Minigame.Chests.Internal;
 using Company.ChestGame.Tests.Common;
 using NUnit.Framework;
@@ -17,7 +18,6 @@ namespace Company.ChestGame.Tests.EditMode
         private const int OpenMilliseconds = 100;
         private const int FramesToOpen = 2;
 
-        private FakeGameConfig _config;
         private FakeRewardsManager _rewards;
         private FakeRandomProvider _random;
         private FakeGameClock _clock;
@@ -26,12 +26,6 @@ namespace Company.ChestGame.Tests.EditMode
         [SetUp]
         public void SetUp()
         {
-            _config = new FakeGameConfig
-            {
-                ChestCount = 4,
-                AttempsCount = 4,
-                TimeToOpenChestMiliseconds = OpenMilliseconds
-            };
             _rewards = new FakeRewardsManager();
             _random = new FakeRandomProvider();
             _clock = new FakeGameClock { DeltaTime = 0.05f };
@@ -41,7 +35,16 @@ namespace Company.ChestGame.Tests.EditMode
         [TearDown]
         public void TearDown() => _controller.Dispose();
 
-        private void Inject() => _controller.Inject(_config, _rewards, _random, _clock);
+        // Mirrors the framework's own order: ChestsMinigameSO configures the controller inside
+        // GetMinigameContainer, and MinigameManager.Get injects it afterwards.
+        //
+        // The real config type rather than a fake: it is a plain validated value the minigame
+        // owns, so building one through Create costs nothing and keeps the test honest.
+        private void ConfigureAndInject(int chestCount = 4, int attemptsCount = 4)
+        {
+            _controller.Configure(ChestsMinigameConfig.Create(chestCount, attemptsCount, OpenMilliseconds));
+            _controller.Inject(_rewards, _random, _clock);
+        }
 
         // Clicks a chest and lets it run all the way to open.
         private void OpenChest(int index)
@@ -52,25 +55,21 @@ namespace Company.ChestGame.Tests.EditMode
 
         private ChestsMinigameChestModel.State StateOf(int index) => _controller.Chests[index].CurrentState;
 
-        // --- Injection ---------------------------------------------------------------------
+        // --- Configuration -----------------------------------------------------------------
 
         [Test]
-        public void Inject_BuildsOneChestPerConfiguredChestCount()
+        public void Configure_BuildsOneChestPerConfiguredChestCount()
         {
-            _config.ChestCount = 7;
-
-            Inject();
+            ConfigureAndInject(chestCount: 7);
 
             Assert.AreEqual(7, _controller.Chests.Count);
             Assert.IsTrue(_controller.Chests.All(c => c.CurrentState == ChestsMinigameChestModel.State.Closed));
         }
 
         [Test]
-        public void Inject_TakesTotalAttemptsFromConfig_AndStartsIdle()
+        public void Configure_TakesTotalAttemptsFromConfig_AndStartsIdle()
         {
-            _config.AttempsCount = 5;
-
-            Inject();
+            ConfigureAndInject(attemptsCount: 5);
 
             Assert.AreEqual(5, _controller.TotalAttempts);
             Assert.AreEqual(0, _controller.Attempts);
@@ -82,7 +81,7 @@ namespace Company.ChestGame.Tests.EditMode
         [Test]
         public void NewGame_EntersPlayingAndAnnouncesIt()
         {
-            Inject();
+            ConfigureAndInject();
             List<ChestsMinigameController.State> states = new();
             _controller.OnStateChange += states.Add;
 
@@ -95,7 +94,7 @@ namespace Company.ChestGame.Tests.EditMode
         [Test]
         public void NewGame_ResetsAttemptsAndAnnouncesTheNewCount()
         {
-            Inject();
+            ConfigureAndInject();
             _controller.NewGame();
             _random.NextValue = 1f;
             OpenChest(0);
@@ -112,7 +111,7 @@ namespace Company.ChestGame.Tests.EditMode
         [Test]
         public void NewGame_ReclosesChestsOpenedInThePreviousRound()
         {
-            Inject();
+            ConfigureAndInject();
             _controller.NewGame();
             _random.NextValue = 1f;
             OpenChest(0);
@@ -127,7 +126,7 @@ namespace Company.ChestGame.Tests.EditMode
         [Test]
         public void ClickingAChest_LeavesItOpeningUntilTheTimerElapses()
         {
-            Inject();
+            ConfigureAndInject();
             _controller.NewGame();
             _random.NextValue = 1f;
 
@@ -147,7 +146,7 @@ namespace Company.ChestGame.Tests.EditMode
         [Test]
         public void WhileOpening_ProgressAdvancesTowardsCompletion()
         {
-            Inject();
+            ConfigureAndInject();
             _controller.NewGame();
             _random.NextValue = 1f;
 
@@ -164,7 +163,7 @@ namespace Company.ChestGame.Tests.EditMode
         [Test]
         public void ClickingASecondChest_CancelsTheFirstAndReclosesIt()
         {
-            Inject();
+            ConfigureAndInject();
             _controller.NewGame();
             _random.NextValue = 1f;
 
@@ -185,7 +184,7 @@ namespace Company.ChestGame.Tests.EditMode
         public void CancellingAnOpeningChest_LeavesNoWorkRunning()
         {
             // The abandoned chest's two tasks must actually unwind, not linger and fire later.
-            Inject();
+            ConfigureAndInject();
             _controller.NewGame();
             _random.NextValue = 1f;
 
@@ -203,7 +202,7 @@ namespace Company.ChestGame.Tests.EditMode
         [Test]
         public void ReclickingTheChestAlreadyOpening_IsIgnoredAndItsTimerKeepsRunning()
         {
-            Inject();
+            ConfigureAndInject();
             _controller.NewGame();
             _random.NextValue = 1f;
 
@@ -232,7 +231,7 @@ namespace Company.ChestGame.Tests.EditMode
         public void OpeningIsUnaffectedByScheduling(bool frameWaitersResumeFirst)
         {
             _clock.FrameWaitersResumeFirst = frameWaitersResumeFirst;
-            Inject();
+            ConfigureAndInject();
             _controller.NewGame();
             _random.NextValue = 1f;
 
@@ -258,7 +257,7 @@ namespace Company.ChestGame.Tests.EditMode
         [Test]
         public void EachCompletedChest_ConsumesAnAttemptAndAnnouncesTheNewCount()
         {
-            Inject();
+            ConfigureAndInject();
             _controller.NewGame();
             _random.NextValue = 1f;
             List<int> attempts = new();
@@ -278,7 +277,7 @@ namespace Company.ChestGame.Tests.EditMode
         {
             // One prize among 4 chests: the odds run 1/4, 1/3, 1/2, then 1/1. Each draw sits just
             // above its threshold until the final chest, which holds the prize by elimination.
-            Inject();
+            ConfigureAndInject();
             _controller.NewGame();
             _random.ValueSequence.Enqueue(0.26f);  // > 1/4 -> empty
             _random.ValueSequence.Enqueue(0.34f);  // > 1/3 -> empty
@@ -302,7 +301,7 @@ namespace Company.ChestGame.Tests.EditMode
             // The prize has to be somewhere, so a player who keeps missing still finds it in the
             // last chest rather than one chest early. This is the regression guard for the divisor
             // in TryGiveChestPrize: drop its +1 and the win lands on chest N-1 instead.
-            Inject();
+            ConfigureAndInject();
             _controller.NewGame();
             _random.NextValue = 1f; // the unluckiest possible draw, every time
 
@@ -329,7 +328,7 @@ namespace Company.ChestGame.Tests.EditMode
             for (int target = 0; target < 4; target++)
             {
                 SetUp();
-                Inject();
+                ConfigureAndInject();
                 _controller.NewGame();
 
                 for (int i = 0; i < target; i++)
@@ -353,7 +352,7 @@ namespace Company.ChestGame.Tests.EditMode
         [Test]
         public void WinningAChest_EndsTheGameAndRequestsAReward()
         {
-            Inject();
+            ConfigureAndInject();
             _controller.NewGame();
             _random.NextValue = 0f;
             bool? outcome = null;
@@ -370,9 +369,7 @@ namespace Company.ChestGame.Tests.EditMode
         public void RunningOutOfAttempts_EndsTheGameWithoutAReward()
         {
             // Attempts must be scarcer than chests for a loss to be reachable at all.
-            _config.ChestCount = 10;
-            _config.AttempsCount = 2;
-            Inject();
+            ConfigureAndInject(chestCount: 10, attemptsCount: 2);
             _controller.NewGame();
             _random.NextValue = 1f;
             bool? outcome = null;
@@ -391,7 +388,7 @@ namespace Company.ChestGame.Tests.EditMode
         [Test]
         public void OnChestClicked_BeforeTheGameStarts_IsIgnored()
         {
-            Inject();
+            ConfigureAndInject();
 
             _controller.OnChestClicked(_controller.Chests[0]);
             _clock.AdvanceFrames(FramesToOpen);
@@ -403,7 +400,7 @@ namespace Company.ChestGame.Tests.EditMode
         [Test]
         public void OnChestClicked_OnAnAlreadyOpenChest_IsIgnored()
         {
-            Inject();
+            ConfigureAndInject();
             _controller.NewGame();
             _random.NextValue = 1f;
             OpenChest(0);
@@ -418,7 +415,7 @@ namespace Company.ChestGame.Tests.EditMode
         [Test]
         public void OnceTheGameEnds_FurtherClicksAreIgnored()
         {
-            Inject();
+            ConfigureAndInject();
             _controller.NewGame();
             _random.NextValue = 0f;
             OpenChest(0);
@@ -436,7 +433,7 @@ namespace Company.ChestGame.Tests.EditMode
         [Test]
         public void Dispose_DropsEveryEventSubscriber()
         {
-            Inject();
+            ConfigureAndInject();
             bool anyHandlerRan = false;
             _controller.OnStateChange += _ => anyHandlerRan = true;
             _controller.OnAttemptsChanged += _ => anyHandlerRan = true;
@@ -451,7 +448,7 @@ namespace Company.ChestGame.Tests.EditMode
         [Test]
         public void Dispose_CancelsAChestThatWasStillOpening()
         {
-            Inject();
+            ConfigureAndInject();
             _controller.NewGame();
             _random.NextValue = 1f;
             _controller.OnChestClicked(_controller.Chests[0]);

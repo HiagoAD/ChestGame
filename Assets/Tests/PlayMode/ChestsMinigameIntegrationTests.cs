@@ -2,6 +2,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using Company.ChestGame.Common;
+using Company.ChestGame.Minigame.Chests;
 using Company.ChestGame.Minigame.Chests.Internal;
 using Company.ChestGame.Tests.Common;
 using NUnit.Framework;
@@ -25,16 +26,13 @@ namespace Company.ChestGame.Tests.PlayMode
         [SetUp]
         public void SetUp()
         {
-            FakeGameConfig config = new()
-            {
-                ChestCount = 4,
-                AttempsCount = 4,
-                TimeToOpenChestMiliseconds = OpenMilliseconds
-            };
+            ChestsMinigameConfig config = ChestsMinigameConfig.Create(
+                chestCount: 4, attempsCount: 4, timeToOpenChestMiliseconds: OpenMilliseconds);
             _rewards = new FakeRewardsManager();
             _random = new FakeRandomProvider { NextValue = 1f };
             _controller = new ChestsMinigameController();
-            _controller.Inject(config, _rewards, _random, new UnityGameClock());
+            _controller.Configure(config);
+            _controller.Inject(_rewards, _random, new UnityGameClock());
         }
 
         [TearDown]

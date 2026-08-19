@@ -6,8 +6,8 @@ The README describes what the architecture is. This file covers why it landed th
 tried and rejected, how to verify changes, and which traps cost time the first time round. Read the
 README first for the map; read this before changing anything structural.
 
-Last updated after the assembly-definition and test-suite work described below. At that point the
-suites were 95 EditMode tests (~0.4 s) and 14 PlayMode tests (~14 s).
+Last updated after the config split that gave the chests minigame its own document. At that point
+the suites were 109 EditMode tests (~0.5 s) and 14 PlayMode tests (~14 s).
 
 ---
 
@@ -28,6 +28,7 @@ current design exists because a first attempt was wrong in a way worth recording
 | Two `CurrencyManager` constructors, `[Inject]` on the parameterless one | It created an extension point and sealed it in the same commit. The save handler is now registered in the scope and there is one constructor. |
 | `PopupManager` loading Resources in its constructor | Left it play-mode only and leaking canvases between tests. `IPopupCatalog` plus a lazy `IPopupParentProvider` moved most popup tests to edit mode. |
 | Catalogs building their dictionary with `ToDictionary` | Threw `NullReferenceException` on an empty inspector slot and `ArgumentException` on a duplicate. `CatalogBuilder` now skips nulls with a warning and throws `InvalidCatalogException` on duplicates. |
+| One `Data.json` and one `IGameConfig` carrying every feature's fields | A god-object: three of its five fields meant nothing outside the chests minigame, and it made that minigame permanently dependent on a shared document. Split into `GameConfig.json` (rewards) and a chests-owned `ChestsMinigameConfig.json`, with a `ConfigureController` hook as the only framework surface it needed. |
 
 The through-line: when a test needs production code bent to accommodate it, the bend is usually
 pointing at a missing seam. Prefer adding the seam.
@@ -85,7 +86,11 @@ Things that will waste your time otherwise:
   `pgrep -f "Unity.app/Contents/MacOS/Unity -projectpath"`.
 - **Do not pass `-quit` with `-runTests`.** It cuts the run short.
 - **Exit codes:** 0 all passed, 2 tests ran and some failed, 1 aborted (usually compile errors).
-  Exit 1 means you should grep the log, not the XML.
+  Exit 1 means you should grep the log, not the XML. **This applies to the Unity invocation above,
+  not to `ci/run-tests.sh`** — the script does `run_suite ... || overall=1` and exits with that, so
+  every failure mode collapses to 1. With the script, tell the two apart by whether the XML was
+  written and carries counts: results present means tests ran and failed, results absent means the
+  run aborted.
 - **A stale results XML lies.** If a run aborts, the previous XML is still on disk and looks like a
   pass. Delete it first or check the exit code before reading it.
 - **Filter to one fixture** with `-testFilter "SomeTests"` while iterating.
@@ -162,7 +167,7 @@ is `N - k`. Dropping the `+ 1` makes the odds reach certainty one chest early: w
 
 ### Why the config loss path is unreachable in production
 
-`Data.json` ships `ChestCount: 12` and `AttempsCount: 12`. With correct odds that guarantees a win
+`ChestsMinigameConfig.json` ships `ChestCount: 12` and `AttempsCount: 12`. With correct odds that guarantees a win
 by the last chest, so "Game Over! Out of attempts!" never displays. This is a config choice, not a
 bug, and it is fixable without touching code by setting `AttempsCount` below `ChestCount`. The
 losing branch is still tested, at 10 chests and 2 attempts.
@@ -202,7 +207,11 @@ Each of these was reachable in the shipped game unless noted.
    `OnValidate` from throw to log, which left the null behind instead of aborting the edit.
 6. **`SetOpening` had no guard against firing after a chest opened**, unlike `SetOpen`. Belt and
    braces; see the honest caveat in section 7.
-7. **Two stray editor-only usings in runtime files** (`UnityEditor.U2D.Aseprite` in `PopupManager`,
+7. **An unwired config document threw an engine exception, not a typed one.** `ChestsMinigameSO`
+   read `_configDocument.text` before `ChestsMinigameConfig.Parse` could reject it, so the most
+   common authoring mistake surfaced as `UnassignedReferenceException` in the editor and a plain
+   `NullReferenceException` in a build. It now throws `GameConfigException` naming the asset.
+8. **Two stray editor-only usings in runtime files** (`UnityEditor.U2D.Aseprite` in `PopupManager`,
    `Unity.Android.Gradle.Manifest` in `PopupBase`). They compiled only because `Assembly-CSharp`
    gets editor references in the editor. They would have broken any player build.
 
@@ -233,8 +242,13 @@ does not guard this.
 **`ICurrencyManager` leaking `ResourceBankCallbacks`** is unresolved. Wrapping the delegate in a
 project-owned type would let `UI` drop its `TapNation.Modules` reference.
 
-**`LocalJsonGameConfig.Initialized` is only ever `true`.** Every failure throws, so the flag is dead.
-Either remove it or introduce a non-throwing failure mode.
+**The configure-before-inject assertion is a canary, not an active check.**
+`MinigameManagerTests.Get_ConfiguresTheControllerBeforeInjectingIt` asserts three things; two of
+them (the hook ran, the controller was injected) fail under mutation, but `WasConfiguredBeforeInject`
+specifically cannot be falsified today. `ConfigureController` runs inside `GetMinigameContainer` and
+`MinigameManager.Get` injects afterwards, so "configured after injection" is not reachable without
+moving the hook out of the base class. It is there for the refactor that does move it, in the same
+sense as the dormant play-mode ordering test above.
 
 ---
 
@@ -247,12 +261,13 @@ Fakes live in `Tests/Common/` and are shared by both suites.
 | `ChestsMinigameControllerTests` | The whole chest flow through `OnChestClicked`, including both UniTasks, cancellation, attempt accounting, prize odds, end-of-game |
 | `ChestsMinigameChestModelTests` | Per-chest state machine and its guards |
 | `CurrencyManagerTests` | Add/spend guards, the spent-vs-changed sign asymmetry, persistence through the save handler |
-| `LocalJsonGameConfigTests` | Missing, empty, malformed, non-object, and out-of-range config documents |
+| `LocalJsonGameConfigTests` | Missing, empty, malformed, non-object, and out-of-range game config documents |
+| `ChestsMinigameConfigTests` | The same failure surface for the chests minigame's own document, plus its three range rules and a definition with no document wired |
 | `CatalogTests` | Empty slots and duplicate types in both catalogs |
-| `MinigameManagerTests` | Container construction, fresh instance per request, both throw paths |
+| `MinigameManagerTests` | Container construction, fresh instance per request, both throw paths, and that `ConfigureController` lands before injection |
 | `PopupManagerTests` | Catalog lookup, parent selection, data hand-off, unregistered popup |
 | `RewardsManagerTests` | Currency draw, amount from config, popup and event agreement |
-| `GameLifetimeScopeTests` | The real `RegisterServices`: every service registered, and the risky ones actually resolvable |
+| `GameLifetimeScopeTests` | The real `RegisterServices`: every service registered, the risky ones actually resolvable, and the shipped assets — including the chests config `TextAsset` reference — still wired |
 
 | PlayMode fixture | What only play mode can prove |
 |---|---|

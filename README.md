@@ -102,7 +102,10 @@ continuations resume synchronously inside that call, a test can assert the momen
 
 ### Config pipeline
 
-Three steps, each with one job:
+Config is two documents, not one, because the values had two different owners.
+
+`Resources/GameConfig.json` holds what the whole game shares, currently the two reward amounts,
+and reaches the game through three steps, each with one job:
 
 - `IGameConfigSource` fetches the raw document. `ResourcesGameConfigSource` is the only class
   that knows the asset path.
@@ -110,14 +113,29 @@ Three steps, each with one job:
 - `IGameConfig` is what the rest of the game consumes.
 
 Pointing the game at a real remote config means registering a different source and changing
-nothing else. Validation rejects `ChestCount <= 0`, `AttempsCount <= 0`, and negative times or
-rewards, throwing `GameConfigException` at the boundary — a document can parse cleanly and still
-describe a round that can never be played or never end.
+nothing else.
+
+`Prefabs/Gameplay/ChestsMinigameConfig.json` holds the chests minigame's own values — chest count,
+attempts, open time — and is owned end to end by that minigame. `ChestsMinigameSO` carries the
+document as a `TextAsset` and `ChestsMinigameConfig.Parse` validates it. Nothing outside the chests
+folder can name a field called `ChestCount`, and the chests code needs no reference to the config
+assembly at all. That is the point: a minigame that owns its own content can later ship as one unit.
+
+Both documents validate at the boundary and throw `GameConfigException`, which lives in `Common`
+so neither owner has to reach for the other's assembly. The rules are that rewards cannot be
+negative, and that a chests round cannot describe itself as unplayable: `ChestCount <= 0`,
+`AttempsCount <= 0`, and a negative open time are rejected, because a document can parse cleanly
+and still describe a round that can never be played or never end.
 
 ### Generic minigame framework
 
 `MinigameBase`, `MinigameContainer`, and `MinigameManager` register and instantiate minigames
-through ScriptableObject definitions, with VContainer resolving dependencies. The set of
+through ScriptableObject definitions, with VContainer resolving dependencies. The one extension
+point a concrete minigame gets is `ConfigureController`, an optional hook on the generic base for
+handing the controller whatever only that minigame knows about — its own config document, in the
+chests case. It runs inside `GetMinigameContainer`, so it always lands before `MinigameManager.Get`
+injects, which is what lets a controller build state from its config and still be injected on top.
+A minigame needing no config overrides nothing. The set of
 minigames sits behind `IMinigameCatalog`, so `MinigameManager` depends on a catalog rather than
 on a ScriptableObject at a particular Resources path.
 
@@ -172,11 +190,11 @@ inside the call.
 
 ## 2. Testing
 
-109 tests, split across two suites:
+123 tests, split across two suites:
 
 | Suite    | Tests | Wall time |
 |----------|-------|-----------|
-| EditMode | 95    | ~0.5 s    |
+| EditMode | 109   | ~0.5 s    |
 | PlayMode | 14    | ~14 s     |
 
 EditMode covers the logic exhaustively against fakes. PlayMode is a thin layer of integration
@@ -234,6 +252,8 @@ the 15 seconds the tests actually take.
 3. **Engine seams over the clock and the random source** — Everything asynchronous in the game reaches the player loop through `IGameClock`, and everything random through `IRandomProvider`. This is what makes the chest flow testable at all: a suite that had to wait on real timers would be slow, and one racing a real stopwatch would be flaky. Both are registered in the scope alongside everything else, so the game gets the real ones and only tests substitute.
 
 4. **Fetching split from parsing in the config** — `IGameConfigSource` fetches the document, `LocalJsonGameConfig` parses and validates it. Swapping the local JSON for a real remote config touches one registration and no parsing rules, and it makes the failure cases — missing document, malformed payload, out-of-range values — reachable from a unit test.
+
+   The document is split by owner as well: values only one minigame cares about live in that minigame's own document, parsed by that minigame. A shared config that every feature bolts its fields onto grows into a god-object, and it is the thing that stops a feature from ever being self-contained.
 
 5. **Generic minigame framework** — `MinigameBase<TController, TView, TMinigame>` uses generics and ScriptableObject definitions to make adding a new minigame a matter of creating an SO asset and a controller/view pair, without modifying the framework. Teardown is part of it: `MinigameContainer.End()` disposes the controller and destroys the view, and is safe to call unconditionally.
 
