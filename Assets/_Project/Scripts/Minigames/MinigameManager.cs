@@ -45,9 +45,11 @@ namespace Company.ChestGame.Minigame
 
         private MinigameContainer Build(MinigameBaseSO minigameSO)
         {
+            // The container only: nothing is loaded and nothing is configured yet, so injecting
+            // the controller here would land before its own content did. That ordering is the
+            // container's to keep now, inside BeginAsync.
             MinigameContainer wrapper = minigameSO.GetMinigameContainer();
             _resolver.Inject(wrapper);
-            _resolver.Inject(wrapper.ControllerInstance);
 
             return wrapper;
         }

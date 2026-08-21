@@ -152,6 +152,7 @@ MonoBehaviour:
     TypeName: 
   autoRun: 1
   autoInjectGameObjects: []
+  _bootStatus: {fileID: 825936254}
 --- !u!4 &232656149
 Transform:
   m_ObjectHideFlags: 0
@@ -178,6 +179,7 @@ GameObject:
   - component: {fileID: 825936251}
   - component: {fileID: 825936253}
   - component: {fileID: 825936252}
+  - component: {fileID: 825936254}
   m_Layer: 0
   m_Name: Status Label
   m_TagString: Untagged
@@ -304,6 +306,19 @@ CanvasRenderer:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 825936250}
   m_CullTransparentMesh: 1
+--- !u!114 &825936254
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 825936250}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9cb56621351e548ecbe876d338e9eb9d, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Company.ChestGame.Core::Company.ChestGame.Core.BootStatusLabel
+  _label: {fileID: 825936252}
 --- !u!1 &1467961059
 GameObject:
   m_ObjectHideFlags: 0

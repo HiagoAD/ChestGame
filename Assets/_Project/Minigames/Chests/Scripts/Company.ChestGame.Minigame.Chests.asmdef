@@ -3,12 +3,14 @@
     "rootNamespace": "Company.ChestGame.Minigame.Chests",
     "references": [
         "Company.ChestGame.Common",
+        "Company.ChestGame.Assets",
         "Company.ChestGame.Minigame",
         "Company.ChestGame.Rewards",
         "UniTask",
         "Unity.TextMeshPro",
         "UnityEngine.UI",
-        "VContainer"
+        "VContainer",
+        "Unity.Addressables"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

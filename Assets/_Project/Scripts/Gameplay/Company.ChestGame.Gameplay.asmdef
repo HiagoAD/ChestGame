@@ -2,9 +2,12 @@
     "name": "Company.ChestGame.Gameplay",
     "rootNamespace": "Company.ChestGame.Gameplay",
     "references": [
+        "Company.ChestGame.Popups",
+        "Company.ChestGame.Common",
         "Company.ChestGame.Minigame",
         "UnityEngine.UI",
-        "VContainer"
+        "VContainer",
+        "UniTask"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

@@ -14,3 +14,4 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::Company.ChestGame.Popups.Internal.PopupListSO
   popups:
   - {fileID: 5714188001215452088, guid: 40ed11c6a25fb4e849dc251eac56e185, type: 3}
+  - {fileID: 8711748082238257842, guid: e4470b595b1b4447589589c5858edccf, type: 3}

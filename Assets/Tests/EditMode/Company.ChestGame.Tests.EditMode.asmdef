@@ -11,6 +11,7 @@
         "UnityEngine.UI",
         "VContainer",
         "Company.ChestGame.Common",
+        "Company.ChestGame.Assets",
         "Company.ChestGame.Config",
         "Company.ChestGame.Currency",
         "Company.ChestGame.Minigame",
@@ -18,7 +19,9 @@
         "Company.ChestGame.Popups",
         "Company.ChestGame.Rewards",
         "TapNation.Modules",
-        "UniTask"
+        "UniTask",
+        "Unity.Addressables",
+        "Unity.ResourceManager"
     ],
     "includePlatforms": [
         "Editor"

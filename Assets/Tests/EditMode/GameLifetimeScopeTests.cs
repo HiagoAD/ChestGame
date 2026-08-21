@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using Company.ChestGame.Assets;
 using Company.ChestGame.Common;
 using Company.ChestGame.Config;
 using Company.ChestGame.Core;
@@ -49,6 +50,7 @@ namespace Company.ChestGame.Tests.EditMode
         {
             Assert.IsTrue(_builder.Exists(typeof(IRandomProvider), true), nameof(IRandomProvider));
             Assert.IsTrue(_builder.Exists(typeof(IGameClock), true), nameof(IGameClock));
+            Assert.IsTrue(_builder.Exists(typeof(IAssetProvider), true), nameof(IAssetProvider));
             Assert.IsTrue(_builder.Exists(typeof(IGameConfigSource), true), nameof(IGameConfigSource));
             Assert.IsTrue(_builder.Exists(typeof(IMinigameListSource), true), nameof(IMinigameListSource));
             Assert.IsTrue(_builder.Exists(typeof(IPopupListSource), true), nameof(IPopupListSource));
@@ -57,6 +59,7 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.IsTrue(_builder.Exists(typeof(ICurrencyManager), true), nameof(ICurrencyManager));
             Assert.IsTrue(_builder.Exists(typeof(GameContentLoader), true), nameof(GameContentLoader));
             Assert.IsTrue(_builder.Exists(typeof(GameBootstrapper), true), nameof(GameBootstrapper));
+            Assert.IsTrue(_builder.Exists(typeof(IBootStatus), true), nameof(IBootStatus));
         }
 
         [Test]
@@ -72,7 +75,8 @@ namespace Company.ChestGame.Tests.EditMode
         {
             // Exists() only proves a line of code was written. The loader is the core service whose
             // constructor reaches outside itself, so resolving it is the assertion that matters: it
-            // needs all four sources, and a missing one fails right here.
+            // needs all four sources, each of which now needs the asset provider, so a missing
+            // registration anywhere down that chain fails right here.
             using IObjectResolver container = _builder.Build();
 
             Assert.IsInstanceOf<GameContentLoader>(container.Resolve<GameContentLoader>());
@@ -87,10 +91,11 @@ namespace Company.ChestGame.Tests.EditMode
 
             Assert.IsInstanceOf<UnityRandomProvider>(container.Resolve<IRandomProvider>());
             Assert.IsInstanceOf<UnityGameClock>(container.Resolve<IGameClock>());
-            Assert.IsInstanceOf<ResourcesGameConfigSource>(container.Resolve<IGameConfigSource>());
-            Assert.IsInstanceOf<ResourcesMinigameListSource>(container.Resolve<IMinigameListSource>());
-            Assert.IsInstanceOf<ResourcesPopupListSource>(container.Resolve<IPopupListSource>());
-            Assert.IsInstanceOf<ResourcesPopupParentSource>(container.Resolve<IPopupParentSource>());
+            Assert.IsInstanceOf<AddressablesAssetProvider>(container.Resolve<IAssetProvider>());
+            Assert.IsInstanceOf<AddressablesGameConfigSource>(container.Resolve<IGameConfigSource>());
+            Assert.IsInstanceOf<AddressablesMinigameListSource>(container.Resolve<IMinigameListSource>());
+            Assert.IsInstanceOf<AddressablesPopupListSource>(container.Resolve<IPopupListSource>());
+            Assert.IsInstanceOf<AddressablesPopupParentSource>(container.Resolve<IPopupParentSource>());
             Assert.IsInstanceOf<DefaultResourceBankSaveHandle<CurrencyType>>(
                 container.Resolve<IResourceBankSaveHandler<CurrencyType>>());
         }
@@ -120,6 +125,49 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.IsTrue(_builder.Exists(typeof(IPopupManager), true), nameof(IPopupManager));
             Assert.IsTrue(_builder.Exists(typeof(IMinigameManager), true), nameof(IMinigameManager));
             Assert.IsTrue(_builder.Exists(typeof(IRewardsManager), true), nameof(IRewardsManager));
+            Assert.IsTrue(_builder.Exists(typeof(MinigameContentPreloader), true), nameof(MinigameContentPreloader));
+        }
+
+        [Test]
+        public void WithNoLabelToReportInto_BootStillHasSomethingToReportThrough()
+        {
+            // The bootstrapper reports unconditionally, so a boot scene whose label slot was never
+            // wired — and every container a test builds — still has to resolve one. A null here
+            // would turn a cosmetic authoring mistake into a game that cannot start.
+            using IObjectResolver container = _builder.Build();
+
+            IBootStatus status = container.Resolve<IBootStatus>();
+
+            Assert.IsInstanceOf<SilentBootStatus>(status);
+            Assert.DoesNotThrow(() => status.Report("anything"));
+        }
+
+        [Test]
+        public void ABootStatusHandedIn_IsTheOneTheGameReportsThrough()
+        {
+            // The scene's label is the one thing the root scope cannot construct for itself, so it
+            // is passed in. Registering it is what connects the bootstrapper to the boot scene.
+            ContainerBuilder builder = new();
+            RecordingBootStatus reporter = new();
+
+            GameLifetimeScope.RegisterCoreServices(builder, reporter);
+
+            using IObjectResolver container = builder.Build();
+
+            Assert.AreSame(reporter, container.Resolve<IBootStatus>());
+        }
+
+        [Test]
+        public void ThePreloader_ResolvesWithTheLoadedCatalogAndTheCoreAssetProvider()
+        {
+            // It reaches across both halves of the split — the catalog only exists once content
+            // arrived, the provider is core — which is exactly the graph that fails silently if
+            // either registration moves.
+            GameLifetimeScope.RegisterLoadedServices(_builder, ContentWithAStubParentPrefab());
+
+            using IObjectResolver container = _builder.Build();
+
+            Assert.IsInstanceOf<MinigameContentPreloader>(container.Resolve<MinigameContentPreloader>());
         }
 
         [Test]
@@ -181,6 +229,11 @@ namespace Company.ChestGame.Tests.EditMode
         {
             _parentPrefab = new GameObject("PopupParentPrefab").AddComponent<PopupParent>();
             return ContentWith(_parentPrefab);
+        }
+
+        private class RecordingBootStatus : IBootStatus
+        {
+            public void Report(string message) { }
         }
 
         private static LoadedContent ContentWith(PopupParent parentPrefab) =>

@@ -10,6 +10,7 @@
         "UnityEngine.UI",
         "VContainer",
         "Company.ChestGame.Common",
+        "Company.ChestGame.Assets",
         "Company.ChestGame.Config",
         "Company.ChestGame.Currency",
         "Company.ChestGame.Minigame",
@@ -18,7 +19,8 @@
         "Company.ChestGame.Rewards",
         "TapNation.Modules",
         "UniTask",
-        "Company.ChestGame.UI"
+        "Company.ChestGame.UI",
+        "Unity.Addressables"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

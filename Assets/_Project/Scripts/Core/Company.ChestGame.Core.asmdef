@@ -3,6 +3,7 @@
     "rootNamespace": "Company.ChestGame.Core",
     "references": [
         "Company.ChestGame.Common",
+        "Company.ChestGame.Assets",
         "Company.ChestGame.Config",
         "Company.ChestGame.Currency",
         "Company.ChestGame.Minigame",
@@ -10,7 +11,8 @@
         "Company.ChestGame.Rewards",
         "TapNation.Modules",
         "VContainer",
-        "UniTask"
+        "UniTask",
+        "Unity.TextMeshPro"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

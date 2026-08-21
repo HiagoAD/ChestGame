@@ -1,3 +1,4 @@
+using Company.ChestGame.Assets;
 using Company.ChestGame.Common;
 using Company.ChestGame.Config;
 using Company.ChestGame.Currency;
@@ -7,6 +8,7 @@ using Company.ChestGame.Popups;
 using Company.ChestGame.Popups.Internal;
 using Company.ChestGame.Rewards;
 using TapNation.Modules.ResourceBank.Saving;
+using UnityEngine;
 using VContainer;
 using VContainer.Unity;
 
@@ -27,7 +29,15 @@ namespace Company.ChestGame.Core
             DontDestroyOnLoad(gameObject);
         }
 
-        protected override void Configure(IContainerBuilder builder) => RegisterCoreServices(builder);
+        // The boot scene's status label, wired in the inspector. It is the one thing the root
+        // scope cannot construct for itself, so it is handed in rather than resolved.
+        [SerializeField] private BootStatusLabel _bootStatus;
+
+        // Unity's null, not C#'s: a missing or destroyed component compares equal to null only
+        // through the overloaded operator, and passing one of those on would register something
+        // that reports into nothing.
+        protected override void Configure(IContainerBuilder builder) =>
+            RegisterCoreServices(builder, _bootStatus != null ? _bootStatus : null);
 
         // The registration lists live apart from Configure so tests can assert against the real
         // composition root instead of a hand-copied duplicate of it.
@@ -35,18 +45,26 @@ namespace Company.ChestGame.Core
         // Everything here can be built the moment the container is, because nothing in it needs an
         // asset. That is what lets the boot scene resolve the loader and the bootstrapper before a
         // single file has been read.
-        public static void RegisterCoreServices(IContainerBuilder builder)
+        public static void RegisterCoreServices(IContainerBuilder builder, IBootStatus status = null)
         {
+            // Never null, so the bootstrapper needs no guard at any call site; see SilentBootStatus.
+            builder.RegisterInstance<IBootStatus>(status ?? new SilentBootStatus());
+
             // Engine-facing seams. Everything downstream draws randomness and time through these,
             // which is what keeps gameplay logic deterministic under test.
             builder.Register<IRandomProvider, UnityRandomProvider>(Lifetime.Singleton);
             builder.Register<IGameClock, UnityGameClock>(Lifetime.Singleton);
 
-            // Asset- and storage-facing sources, each the only place that knows a concrete path.
-            builder.Register<IGameConfigSource, ResourcesGameConfigSource>(Lifetime.Singleton);
-            builder.Register<IMinigameListSource, ResourcesMinigameListSource>(Lifetime.Singleton);
-            builder.Register<IPopupListSource, ResourcesPopupListSource>(Lifetime.Singleton);
-            builder.Register<IPopupParentSource, ResourcesPopupParentSource>(Lifetime.Singleton);
+            // How assets are fetched, registered once. Swapping the loading technology is this one
+            // line, because it is the only registration that names it and Company.ChestGame.Assets
+            // is the only assembly that references it.
+            builder.Register<IAssetProvider, AddressablesAssetProvider>(Lifetime.Singleton);
+
+            // Asset- and storage-facing sources, each the only place that knows a concrete key.
+            builder.Register<IGameConfigSource, AddressablesGameConfigSource>(Lifetime.Singleton);
+            builder.Register<IMinigameListSource, AddressablesMinigameListSource>(Lifetime.Singleton);
+            builder.Register<IPopupListSource, AddressablesPopupListSource>(Lifetime.Singleton);
+            builder.Register<IPopupParentSource, AddressablesPopupParentSource>(Lifetime.Singleton);
             builder.Register<IResourceBankSaveHandler<CurrencyType>, DefaultResourceBankSaveHandle<CurrencyType>>(Lifetime.Singleton);
 
             // Its only dependency is the save handler, so it needs nothing that has to be loaded.
@@ -70,6 +88,10 @@ namespace Company.ChestGame.Core
             builder.RegisterInstance<IMinigameCatalog>(new MinigameCatalog(content.Minigames));
             builder.RegisterInstance<IPopupCatalog>(new PopupCatalog(content.Popups));
             builder.RegisterInstance<IPopupParentProvider>(new PopupParentProvider(content.PopupParentPrefab));
+
+            // Needs the catalog, so it belongs to this half; the bootstrapper resolves it out of
+            // the scope it just built rather than reaching for the entries itself.
+            builder.Register<MinigameContentPreloader>(Lifetime.Singleton);
 
             builder.Register<IPopupManager, PopupManager>(Lifetime.Singleton);
             builder.Register<IMinigameManager, MinigameManager>(Lifetime.Singleton);

@@ -1,0 +1,19 @@
+{
+    "name": "Company.ChestGame.Editor",
+    "rootNamespace": "Company.ChestGame.Editor",
+    "references": [
+        "Unity.Addressables.Editor",
+        "Unity.Addressables"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": true,
+    "precompiledReferences": [],
+    "autoReferenced": false,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

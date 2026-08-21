@@ -1,6 +1,9 @@
 using System;
+using System.Threading;
 using Company.ChestGame.Common;
 using Company.ChestGame.Minigame.Chests;
+using Company.ChestGame.Minigame.Core;
+using Company.ChestGame.Tests.Common;
 using NUnit.Framework;
 using UnityEngine;
 
@@ -137,14 +140,21 @@ namespace Company.ChestGame.Tests.EditMode
         [Test]
         public void ADefinitionWithNoConfigDocument_FailsWithATypedException()
         {
-            // An empty inspector slot is the most common authoring mistake there is, and reading
-            // .text off one throws an engine exception naming no asset. The failure has to stay
-            // inside ChestGameException like every other, or a test asserting it proves nothing.
+            // An empty inspector slot is the most common authoring mistake there is, and an unwired
+            // AssetReference is an empty GUID that would otherwise be reported as a missing asset
+            // naming nothing a reader could look up. The failure has to stay inside
+            // ChestGameException like every other, or a test asserting it proves nothing.
+            //
+            // It surfaces from the configure hook rather than from construction now: the document
+            // is behind a reference, so nothing about it can be known until the minigame begins.
             ChestsMinigameSO definition = ScriptableObject.CreateInstance<ChestsMinigameSO>();
             try
             {
-                GameConfigException error = Assert.Throws<GameConfigException>(
-                    () => definition.GetMinigameContainer());
+                MinigameContainer container = definition.GetMinigameContainer();
+
+                GameConfigException error = Assert.Throws<GameConfigException>(() =>
+                    SynchronousUniTask.Complete(definition.ConfigureControllerAsync(
+                        container.ControllerInstance, new FakeAssetProvider(), CancellationToken.None)));
 
                 StringAssert.Contains("no config document assigned", error.Message);
             }
