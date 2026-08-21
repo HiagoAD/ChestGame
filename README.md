@@ -247,8 +247,8 @@ A definition asset **names** its content rather than holding it. The view is an
 `AssetReferenceGameObject` and the chests config document is an `AssetReferenceT<TextAsset>`, both
 of which serialize as a GUID string rather than as an object reference — which is the whole point,
 because a direct field would make loading the descriptor drag the minigame's entire bundle in
-behind it. `MinigameBaseSO` also carries a `ContentLabel` and a `MinigameLoadPolicy`, authored for
-the delivery work and read by nothing yet.
+behind it. `MinigameBaseSO` also carries a `ContentLabel` and a `MinigameLoadPolicy`, the two
+fields the delivery choices above are authored on.
 
 Because a reference cannot be resolved synchronously, nothing content-shaped can happen while the
 container is being built. `MinigameManager.Get` constructs the container and injects it, and stops
@@ -354,8 +354,9 @@ runner can't cause a spurious failure.
 Fakes live in `Tests/Common/` and are shared by both suites. There is deliberately no fake
 catalog: `PopupCatalog` and `MinigameCatalog` take plain lists, so the tests use the real ones.
 
-`GameLifetimeScopeTests` runs against `GameLifetimeScope.RegisterServices` itself rather than a
-copy of it, so dropping a registration from the composition root fails there.
+`GameLifetimeScopeTests` runs against `GameLifetimeScope.RegisterCoreServices` and
+`RegisterLoadedServices` themselves rather than a copy of them, so dropping a registration from the
+composition root fails there.
 
 ### Running the tests
 
@@ -438,7 +439,14 @@ More specific reasoning is written above key parts inside the scripts.
 
 For the reasoning behind how the code got this shape, including approaches that were tried and
 replaced, the verification workflow, Unity behaviour worth knowing before changing anything
-structural, and the current known gaps, see [docs/ENGINEERING_NOTES.md](docs/ENGINEERING_NOTES.md).
+structural, and the current known gaps, see the context files under [docs/context/](docs/context/).
+Each covers the work of one development pass, and each is kept current:
+
+- [assemblies-and-tests.md](docs/context/assemblies-and-tests.md) — how the codebase became
+  testable: the assembly definitions, the test suite, and the seams that testing revealed were
+  missing.
+- [self-contained-minigames.md](docs/context/self-contained-minigames.md) — how a minigame became a
+  unit of content delivery: the config split, its own assembly, the boot scene, and Addressables.
 
 ## 4. Instructions to Build and Run
 

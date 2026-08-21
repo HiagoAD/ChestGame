@@ -33,7 +33,7 @@ namespace Company.ChestGame.Assets
 
                 // ToUniTask rather than awaiting the handle directly: UniTask version-gates some of
                 // its awaiter extensions, so the explicit call is the form that cannot bind to the
-                // wrong overload. See the note in docs/ENGINEERING_NOTES.md section 4.
+                // wrong overload. See docs/context/self-contained-minigames.md section 6.
                 return await handle.ToUniTask(cancellationToken: ct);
             }
             catch (InvalidKeyException exception)
