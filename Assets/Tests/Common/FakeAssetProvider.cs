@@ -47,6 +47,15 @@ namespace Company.ChestGame.Tests.Common
         // that runs between the two.
         public Exception FailDownloadWith { get; set; }
 
+        // A download that neither finishes nor fails, which is the failure mode a deadline exists
+        // for and the one no other knob here can produce: a stalled request holds its socket open
+        // and answers nothing, so a caller with no deadline waits for the rest of the session.
+        //
+        // It still ends when the token it was handed is cancelled, exactly as the real provider
+        // does — without that, a deadline would have nothing to act on and could not be observed
+        // from a test at all.
+        public bool StallDownloads { get; set; }
+
         public CancellationToken LastToken { get; private set; }
 
         public FakeAssetProvider With(string key, Object asset)
@@ -139,6 +148,14 @@ namespace Company.ChestGame.Tests.Common
             if (failure != null)
             {
                 return UniTask.FromException(failure);
+            }
+
+            if (StallDownloads)
+            {
+                UniTaskCompletionSource stalled = new();
+                ct.Register(() => stalled.TrySetCanceled(ct));
+
+                return stalled.Task;
             }
 
             // A download that finishes reports that it finished. Without it a caller aggregating

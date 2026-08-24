@@ -1,3 +1,4 @@
+using System;
 using System.Collections;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -7,6 +8,7 @@ using Cysharp.Threading.Tasks;
 using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.AddressableAssets;
+using UnityEngine.ResourceManagement.AsyncOperations;
 using UnityEngine.TestTools;
 
 namespace Company.ChestGame.Tests.PlayMode
@@ -141,6 +143,63 @@ namespace Company.ChestGame.Tests.PlayMode
 
             Assert.IsNotNull(caught, "an unknown label has to arrive as MissingAssetException, not as an Addressables type");
             StringAssert.Contains("no-such-label-ships-with-this-game", caught.Message);
+        });
+
+        [UnityTest]
+        public IEnumerator AReferenceLoadCancelledBeforeItArrives_LeavesNothingLoaded() => UniTask.ToCoroutine(async () =>
+        {
+            // Addressables takes the ref-count on the call, not on the await. The provider used to
+            // record the handle only after awaiting, so a token that fired while the bytes were
+            // still coming threw straight past the bookkeeping and left a count nothing in the
+            // session could ever give back. GameManager passes GetCancellationTokenOnDestroy, so
+            // leaving the scene mid-load is exactly this.
+            //
+            // Play mode, and the real library, because the leak is a real ResourceManager's
+            // ref-count: a fake provider has no counts to leak.
+            IAssetProvider provider = new AddressablesAssetProvider();
+            AssetReference reference = new(CHESTS_VIEW_GUID);
+
+            // Warm up first, and let go again. An uninitialised Addressables answers every load
+            // with a chained operation, which is never finished on the frame it was asked for —
+            // the probe below would then read "not held" no matter what the provider did.
+            GameObject warmUp = await provider.LoadAsync<GameObject>(reference, CancellationToken.None);
+            Assert.IsNotNull(warmUp, "the warm-up load is the same one the fixture already covers");
+            provider.Release(reference);
+
+            using CancellationTokenSource cancelled = new();
+            cancelled.Cancel();
+
+            bool unwound = false;
+            try
+            {
+                await provider.LoadAsync<GameObject>(reference, cancelled.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                unwound = true;
+            }
+
+            Assert.IsTrue(unwound, "a cancelled load has to unwind as cancellation rather than as a load failure");
+
+            // The operation the cancelled load started is still running; what it does on the way
+            // out is the subject here, so it gets its frames.
+            await UniTask.DelayFrame(3);
+
+            // The probe. Addressables hands back the operation it is already holding for a key,
+            // and an operation it is already holding is finished the instant it is asked for. One
+            // it is not holding has to be started, and a load never finishes on its own frame. So
+            // "was it done immediately" reads whether the ref-count from the cancelled load is
+            // still outstanding — the leak, which has no other observer: the released and the
+            // leaked handle look identical through IAssetProvider, and the count itself is
+            // internal to the package.
+            AsyncOperationHandle<GameObject> probe = Addressables.LoadAssetAsync<GameObject>(new AssetReference(CHESTS_VIEW_GUID));
+            bool answeredFromAHandleStillHeld = probe.IsDone;
+
+            await probe.ToUniTask();
+            Addressables.Release(probe);
+
+            Assert.IsFalse(answeredFromAHandleStillHeld,
+                "the cancelled load never handed its asset to anyone and still holds its ref-count, so the asset is resident for the session");
         });
 
         [Test]

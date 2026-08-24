@@ -1,4 +1,3 @@
-using System;
 using System.Collections.Generic;
 using UnityEngine.AddressableAssets;
 using UnityEngine.ResourceManagement.AsyncOperations;
@@ -16,8 +15,18 @@ namespace Company.ChestGame.Assets
     // reference's GUID, plus the sub-object name when there is one, so two references naming the
     // same thing are one entry and a reference naming a sub-asset is not confused with its parent.
     //
-    // Every handle is kept rather than one per reference, because Addressables ref-counts per load
-    // and overwriting an entry would leak whatever it replaced.
+    // Every handle is kept rather than one per reference, because Addressables ref-counts per load:
+    // two loads of one asset are two ref-counts and need two releases, so overwriting an entry
+    // would leak whatever it replaced and handing the whole list back on the first release would
+    // drop a ref-count that a second live caller is still relying on.
+    //
+    // One take therefore pairs with one Remember. Which of the handles held for a key comes back is
+    // deliberately unspecified: they are ref-count tokens for the same runtime key, so releasing
+    // any one of them decrements exactly the one count a single load added, and the seam's Release
+    // takes a reference rather than a handle so it could not name a particular one anyway. The
+    // order is last-in-first-out, which is what makes a load that has to undo its own bookkeeping —
+    // one that was cancelled or failed after taking its ref-count — take back the handle it just
+    // added rather than someone else's.
     public class AssetHandleRegistry
     {
         private readonly Dictionary<string, List<AsyncOperationHandle>> _handles = new();
@@ -36,19 +45,25 @@ namespace Company.ChestGame.Assets
             handles.Add(handle);
         }
 
-        // Hands back everything held for that asset and stops tracking it. A reference nothing was
-        // ever loaded for yields nothing rather than failing, which is what lets the teardown paths
-        // release unconditionally without every one of them repeating the same guard.
-        public IReadOnlyList<AsyncOperationHandle> Take(AssetReference reference)
+        // Hands back one handle for that asset and stops tracking that one. A reference nothing is
+        // currently held for answers false rather than failing, which is what lets the teardown
+        // paths release unconditionally without every one of them repeating the same guard.
+        public bool TryTake(AssetReference reference, out AsyncOperationHandle handle)
         {
-            string key = KeyOf(reference);
-            if (key == null || !_handles.TryGetValue(key, out List<AsyncOperationHandle> handles))
-            {
-                return Array.Empty<AsyncOperationHandle>();
-            }
+            handle = default;
 
-            _handles.Remove(key);
-            return handles;
+            string key = KeyOf(reference);
+            if (key == null || !_handles.TryGetValue(key, out List<AsyncOperationHandle> handles)) return false;
+
+            int last = handles.Count - 1;
+            handle = handles[last];
+            handles.RemoveAt(last);
+
+            // The key goes with its last handle so an asset loaded and released over and over does
+            // not leave an empty list behind for the rest of the session.
+            if (handles.Count == 0) _handles.Remove(key);
+
+            return true;
         }
 
         private static string KeyOf(AssetReference reference) => reference?.RuntimeKey?.ToString();

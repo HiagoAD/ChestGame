@@ -1,3 +1,4 @@
+using System;
 using System.Collections;
 using System.Threading;
 using Company.ChestGame.Assets;
@@ -9,6 +10,9 @@ using UnityEngine;
 using UnityEngine.AddressableAssets;
 using UnityEngine.TestTools;
 using VContainer;
+// System is here for the exception the rejecting view throws, and it brings a second Object with
+// it; the alias keeps every existing Object.Destroy meaning what it always did.
+using Object = UnityEngine.Object;
 
 namespace Company.ChestGame.Tests.PlayMode
 {
@@ -25,6 +29,7 @@ namespace Company.ChestGame.Tests.PlayMode
     {
         private const string VIEW_GUID = "33333333333333333333333333333333";
         private const string CONTENT_GUID = "44444444444444444444444444444444";
+        private const string REJECTING_GUID = "55555555555555555555555555555555";
 
         private IObjectResolver _container;
         private FakeAssetProvider _assets;
@@ -90,6 +95,46 @@ namespace Company.ChestGame.Tests.PlayMode
         });
 
         [UnityTest]
+        public IEnumerator BeginAsync_WhenTheViewRejectsTheController_LeavesNoOrphanBehind() =>
+            UniTask.ToCoroutine(async () =>
+        {
+            // The view is instantiated before SetController runs and _running is set after it, so a
+            // throw from SetController lands in the catch with a live GameObject already parented
+            // into the scene. End cannot clean it up — it returns early while _running is false — so
+            // if the catch does not destroy it, nothing ever does and it sits there for the session.
+            //
+            // Play mode because Object.Destroy is a logged error in edit mode, and the destroy is
+            // the whole point of the test.
+            TestMinigameView rejecting = new GameObject("RejectingViewPrefab").AddComponent<RejectingView>();
+            AssetReferenceGameObject rejectingRef = new(REJECTING_GUID);
+            _assets.With(rejectingRef, rejecting.gameObject);
+
+            MinigameContainer minigame = new();
+            _container.Inject(minigame);
+            minigame.Set(_controller, rejectingRef, _definition);
+
+            try
+            {
+                await minigame.BeginAsync(_parent.transform, CancellationToken.None);
+                Assert.Fail("SetController threw, so BeginAsync had to rethrow");
+            }
+            catch (InvalidOperationException)
+            {
+                // The rejection itself. What matters is what the catch left behind.
+            }
+
+            Assert.IsFalse(minigame.Running, "a start that threw did not start anything");
+            Assert.IsNull(minigame.ViewInstance, "the container must not still be holding the instance");
+
+            await UniTask.Yield();
+
+            Assert.AreEqual(0, _parent.transform.childCount,
+                "the instance the failed start created has to be destroyed, not orphaned in the scene");
+
+            Object.Destroy(rejecting.gameObject);
+        });
+
+        [UnityTest]
         public IEnumerator End_DisposesTheControllerAndDestroysTheView() => UniTask.ToCoroutine(async () =>
         {
             await _minigame.BeginAsync(_parent.transform, CancellationToken.None);
@@ -139,6 +184,15 @@ namespace Company.ChestGame.Tests.PlayMode
             Assert.AreEqual(1, _controller.DisposeCalls);
             Assert.AreEqual(1, _definition.ReleaseContentCalls, "and releases its content only once");
         });
+
+        // Stands in for any view whose SetController fails — a missing serialized field, a bad
+        // prefab, a controller of the wrong shape. What it throws does not matter; that it throws
+        // after the instance exists is the whole scenario.
+        private class RejectingView : TestMinigameView
+        {
+            public override void SetController(MinigameControllerBase controller) =>
+                throw new InvalidOperationException("this view refuses its controller");
+        }
 
         private class TestMinigameView : MinigameViewBase
         {

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using Company.ChestGame.Assets;
+using Company.ChestGame.Common;
 using Company.ChestGame.Minigame.Core;
 using Cysharp.Threading.Tasks;
 using UnityEngine;
@@ -26,6 +27,22 @@ namespace Company.ChestGame.Minigame
             _assets = assets;
         }
 
+        // How long any single label is allowed to go without answering before boot gives up on it.
+        //
+        // Per label rather than across the whole preload, and the difference matters: a wall-clock
+        // budget for the entire walk would make boot fail for having *more* content rather than for
+        // being stuck, so every minigame added would bring the game closer to a spurious timeout.
+        // Bounding each label instead means the budget measures the thing that is actually wrong —
+        // one fetch that stopped answering — and a legitimately large preload is never killed for
+        // its size. The worst case grows with the number of labels, which is the honest trade: it
+        // is bounded, and every step of it is reported to the player.
+        //
+        // The same ninety seconds MinigameContainer allows an on-demand fetch, and for the same
+        // reason: Addressables already gives up after fifteen seconds without a byte and retries
+        // twice, so anything the package can bound reaches the player with a better message than
+        // "it timed out" long before this fires. This is the backstop for the stalls it cannot.
+        protected virtual TimeSpan LabelDownloadTimeout => TimeSpan.FromSeconds(90);
+
         // Progress is aggregate, not per label: a player watching a bar does not care that the work
         // is split by minigame, and a bar that restarts at zero for every label reads as a bug. The
         // sizes are gathered first for exactly that reason — the share each label is worth cannot
@@ -40,7 +57,8 @@ namespace Company.ChestGame.Minigame
 
             for (int i = 0; i < labels.Count; i++)
             {
-                sizes[i] = await _assets.GetDownloadSizeAsync(labels[i], ct);
+                string label = labels[i];
+                sizes[i] = await Bounded(token => _assets.GetDownloadSizeAsync(label, token), label, ct);
                 total += sizes[i];
             }
 
@@ -51,7 +69,13 @@ namespace Company.ChestGame.Minigame
             long fetched = 0;
             for (int i = 0; i < labels.Count; i++)
             {
-                await _assets.DownloadAsync(labels[i], ShareOf(progress, fetched, sizes[i], total), ct);
+                string label = labels[i];
+                IProgress<float> share = ShareOf(progress, fetched, sizes[i], total);
+
+                // AsAsyncUnitUniTask because Bounded is generic: the deadline and the two-token
+                // distinction are identical for both routes, and one of them has nothing to return.
+                await Bounded(
+                    token => _assets.DownloadAsync(label, share, token).AsAsyncUnitUniTask(), label, ct);
 
                 fetched += sizes[i];
 
@@ -71,20 +95,41 @@ namespace Company.ChestGame.Minigame
             {
                 if (minigame.LoadPolicy != MinigameLoadPolicy.Preload) continue;
 
-                if (string.IsNullOrWhiteSpace(minigame.ContentLabel))
-                {
-                    // Warned rather than thrown, following the same policy as a blank id in
-                    // CatalogBuilder: one unauthored slot should not stop the game from booting,
-                    // and the minigame is still startable — its content simply arrives late.
-                    Debug.LogWarning(
-                        $"Minigame '{minigame.name}' is set to preload but names no content label, skipping it");
-                    continue;
-                }
+                // The rule itself belongs to the descriptor, which owns the field; both delivery
+                // paths ask it the same question and get the same answer.
+                if (!minigame.TryGetContentLabel(out string label)) continue;
 
-                labels.Add(minigame.ContentLabel);
+                labels.Add(label);
             }
 
             return labels;
+        }
+
+        // A stalled fetch is not a failed one: nothing throws, nothing returns, and the boot screen
+        // sits on "Preparing content..." for as long as the player is willing to watch it. The
+        // linked source ends the wait immediately when the app is quitting, and only the deadline
+        // firing on its own becomes something the player is told about — the same distinction
+        // MinigameContainer keeps on the on-demand path, and for the same reason.
+        private async UniTask<T> Bounded<T>(
+            Func<CancellationToken, UniTask<T>> operation, string label, CancellationToken ct)
+        {
+            TimeSpan budget = LabelDownloadTimeout;
+
+            using CancellationTokenSource deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            deadline.CancelAfter(budget);
+
+            try
+            {
+                return await operation(deadline.Token);
+            }
+            // The caller's token is the only one that can be asked after the fact which end fired.
+            // Boot being cancelled is the application quitting and there is nobody left to tell, so
+            // it travels out untouched; both at once counts as the caller's, which is the safe way
+            // round.
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+            {
+                throw new ContentDownloadTimeoutException(label, budget);
+            }
         }
 
         private static IProgress<float> ShareOf(IProgress<float> outer, long already, long size, long total) =>

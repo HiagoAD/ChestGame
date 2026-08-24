@@ -1,14 +1,22 @@
+using System;
 using System.Collections.Generic;
 using System.Threading;
+using System.Threading.Tasks;
 using Company.ChestGame.Assets;
 using Company.ChestGame.Common;
 using Company.ChestGame.Minigame.Core;
 using Company.ChestGame.Tests.Common;
 using Cysharp.Threading.Tasks;
+using Company.ChestGame.Minigame;
 using NUnit.Framework;
+using System.Text.RegularExpressions;
 using UnityEngine;
 using UnityEngine.AddressableAssets;
+using UnityEngine.TestTools;
 using VContainer;
+// System is needed for TimeSpan and the deadline's own exception type, and it brings a second
+// Object with it; the alias keeps every existing use of UnityEngine's meaning what it always did.
+using Object = UnityEngine.Object;
 
 namespace Company.ChestGame.Tests.EditMode
 {
@@ -24,6 +32,19 @@ namespace Company.ChestGame.Tests.EditMode
         private const string VIEW_GUID = "11111111111111111111111111111111";
         private const string CONFIG_GUID = "22222222222222222222222222222222";
         private const string CONTENT_LABEL = "minigame.configurable";
+
+        // Short enough that a test costs milliseconds rather than the ninety seconds the game ships
+        // with, and long enough that it cannot fire before the start it is meant to bound has begun.
+        private static readonly TimeSpan SHORT_DEADLINE = TimeSpan.FromMilliseconds(50);
+
+        // Longer than any test run, so a test about caller cancellation can be sure the deadline is
+        // not what ended the wait.
+        private static readonly TimeSpan UNREACHABLE_DEADLINE = TimeSpan.FromMinutes(5);
+
+        // How long a test is willing to wait for a bounded operation to come back. Generously more
+        // than SHORT_DEADLINE so a slow machine is not a failure, and far less than the shipped
+        // budget so a deadline that never fires shows up as a failed test rather than a hung suite.
+        private static readonly TimeSpan WAIT_LIMIT = TimeSpan.FromSeconds(10);
 
         private readonly List<Object> _created = new();
 
@@ -219,7 +240,10 @@ namespace Company.ChestGame.Tests.EditMode
         public void BeginAsync_ForAnOnDemandMinigameWithNoContentLabel_DownloadsNothing()
         {
             // A blank label is not a key, the same rule the catalogs and the preloader apply. A
-            // minigame naming no content of its own is a real case, not an error.
+            // minigame naming no content of its own is a real case, not an error — but it is warned
+            // about rather than skipped in silence, which is the half this path used to get wrong.
+            LogAssert.Expect(LogType.Warning, new Regex("names no content label"));
+
             ConfigurableMinigameSO definition = Definition();
             definition.WithContent("  ", MinigameLoadPolicy.OnDemand);
 
@@ -227,6 +251,30 @@ namespace Company.ChestGame.Tests.EditMode
 
             CollectionAssert.IsEmpty(_assets.SizedLabels);
             CollectionAssert.IsEmpty(_assets.DownloadedLabels);
+        }
+
+        [Test]
+        public void BeginAsync_OnAContainerAlreadyRunning_RefusesRatherThanLoadingTwice()
+        {
+            // One release per load is what the provider counts, and End releases exactly once. A
+            // second start would take a second ref-count on the view that nothing could ever give
+            // back, so the container refuses loudly instead of quietly leaking.
+            ConfigurableMinigameSO definition = Definition();
+            MinigameContainer minigame = Build(definition);
+
+            SynchronousUniTask.Complete(minigame.BeginAsync(_parent.transform, CancellationToken.None));
+            Assert.IsTrue(minigame.Running, "the first start has to have succeeded for this to mean anything");
+
+            int loadsAfterTheFirstStart = _assets.RequestedReferences.Count;
+
+            Assert.Throws<MinigameAlreadyRunningException>(
+                () => SynchronousUniTask.Complete(minigame.BeginAsync(_parent.transform, CancellationToken.None)),
+                "a second start must be refused, and refused with something the project can catch");
+
+            Assert.AreEqual(loadsAfterTheFirstStart, _assets.RequestedReferences.Count,
+                "the refused start must not have loaded anything a second time");
+
+            Object.DestroyImmediate(minigame.ViewInstance.gameObject);
         }
 
         [Test]
@@ -246,6 +294,82 @@ namespace Company.ChestGame.Tests.EditMode
 
             Assert.IsFalse(minigame.Running);
             CollectionAssert.IsEmpty(_assets.RequestedReferences, "nothing is loaded before its bundle is there");
+        }
+
+        // The two tests below are the only ones here that cannot use SynchronousUniTask: a real
+        // deadline is a real timer on a background thread, so BeginAsync is genuinely pending when
+        // it returns. Nothing that completes it needs the main thread — the timer fires on the
+        // thread pool and the fake answers from wherever it is called — so blocking here cannot
+        // deadlock, and GetResult rethrows the original exception rather than an AggregateException.
+        private static void WaitFor(UniTask task)
+        {
+            Task completing = task.AsTask();
+
+            if (!((IAsyncResult)completing).AsyncWaitHandle.WaitOne(WAIT_LIMIT))
+            {
+                Assert.Fail("BeginAsync never finished, which is the hang the deadline exists to prevent");
+            }
+
+            completing.GetAwaiter().GetResult();
+        }
+
+        [Test]
+        public void BeginAsync_WhenTheDownloadStalls_GivesUpAndSurfacesATypedFailure()
+        {
+            // The failure the whole deadline exists for, and the one the other download test cannot
+            // reach: a request that fails at least returns. A request that stalls returns nothing at
+            // all, so without a deadline BeginAsync never comes back, the shell's finally never
+            // runs, and the start button it disabled on the way in stays dead for the rest of the
+            // session with nothing on screen to explain it.
+            //
+            // Typed under ChestGameException because that is what GameManager catches to raise the
+            // popup — a stall that arrived as anything else would be logged and forgotten.
+            ConfigurableMinigameSO definition = Definition();
+            definition.WithContent(CONTENT_LABEL, MinigameLoadPolicy.OnDemand);
+            _assets.WithDownloadSize(CONTENT_LABEL, 4096);
+            _assets.StallDownloads = true;
+
+            ConfigurableContainer minigame = (ConfigurableContainer)Build(definition);
+            minigame.Deadline = SHORT_DEADLINE;
+
+            ContentDownloadTimeoutException error = Assert.Throws<ContentDownloadTimeoutException>(
+                () => WaitFor(minigame.BeginAsync(_parent.transform, CancellationToken.None)));
+
+            Assert.IsInstanceOf<ChestGameException>(error, "or the shell would never turn it into a popup");
+            Assert.AreEqual(CONTENT_LABEL, error.Label, "the fetch that gave up has to name itself");
+            Assert.IsFalse(minigame.Running, "a minigame whose content never arrived is not running");
+            CollectionAssert.IsEmpty(_assets.RequestedReferences, "nothing is loaded before its bundle is there");
+        }
+
+        [Test]
+        public void BeginAsync_WhenTheCallerCancels_StaysACancellationRatherThanBecomingAPlayerFacingFailure()
+        {
+            // The other half of the deadline, and the half that is easy to lose: a linked token
+            // source cancels the same way whichever end fired it, so a naive implementation turns
+            // the scene going away into a popup on a scene that is going away.
+            //
+            // The deadline here is set beyond any test run, so the only thing that can end this
+            // download is the caller's own token — and what comes out has to be an ordinary
+            // cancellation that GameManager's catch deliberately does not match.
+            ConfigurableMinigameSO definition = Definition();
+            definition.WithContent(CONTENT_LABEL, MinigameLoadPolicy.OnDemand);
+            _assets.WithDownloadSize(CONTENT_LABEL, 4096);
+            _assets.StallDownloads = true;
+
+            ConfigurableContainer minigame = (ConfigurableContainer)Build(definition);
+            minigame.Deadline = UNREACHABLE_DEADLINE;
+
+            using CancellationTokenSource caller = new();
+
+            UniTask starting = minigame.BeginAsync(_parent.transform, caller.Token);
+            caller.Cancel();
+
+            OperationCanceledException error =
+                Assert.Catch<OperationCanceledException>(() => WaitFor(starting));
+
+            Assert.IsNotInstanceOf<ChestGameException>(error,
+                "a scene going away is not a delivery failure, and the player must not be told about it");
+            Assert.IsFalse(minigame.Running);
         }
 
         private ConfigurableMinigameSO Definition()
@@ -299,7 +423,15 @@ namespace Company.ChestGame.Tests.EditMode
             public override void ReleaseContent(IAssetProvider assets) => assets.Release(ConfigRef);
         }
 
-        private class ConfigurableContainer : MinigameContainer { }
+        // The seam the container already offered, used the way a real minigame would use it: a
+        // container subclass decides its own download budget. Null leaves the shipped value alone,
+        // so every other test in this fixture runs against what the game actually ships.
+        private class ConfigurableContainer : MinigameContainer
+        {
+            public TimeSpan? Deadline { get; set; }
+
+            protected override TimeSpan ContentDownloadTimeout => Deadline ?? base.ContentDownloadTimeout;
+        }
 
         private class ConfigurableView : MinigameViewBase
         {

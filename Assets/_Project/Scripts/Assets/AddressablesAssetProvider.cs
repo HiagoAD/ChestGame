@@ -27,14 +27,19 @@ namespace Company.ChestGame.Assets
 
         public async UniTask<TAsset> LoadAsync<TAsset>(string key, CancellationToken ct) where TAsset : Object
         {
+            AsyncOperationHandle<TAsset> handle = default;
+            bool delivered = false;
             try
             {
-                AsyncOperationHandle<TAsset> handle = Addressables.LoadAssetAsync<TAsset>(key);
+                handle = Addressables.LoadAssetAsync<TAsset>(key);
 
                 // ToUniTask rather than awaiting the handle directly: UniTask version-gates some of
                 // its awaiter extensions, so the explicit call is the form that cannot bind to the
                 // wrong overload. See docs/context/self-contained-minigames.md section 6.
-                return await handle.ToUniTask(cancellationToken: ct);
+                TAsset asset = await handle.ToUniTask(cancellationToken: ct);
+
+                delivered = true;
+                return asset;
             }
             catch (InvalidKeyException exception)
             {
@@ -49,6 +54,15 @@ namespace Company.ChestGame.Assets
             catch (Exception exception)
             {
                 throw new AssetLoadException(key, exception);
+            }
+            finally
+            {
+                // The ref-count is taken by LoadAssetAsync itself, before anything is awaited, so a
+                // load that was cancelled or that failed has already taken one and is about to
+                // throw past every caller that could have released it. Nothing tracks keys — see
+                // IAssetProvider on that asymmetry — so a load nobody will ever receive the asset
+                // from has to let go of its own ref-count here or it is resident for good.
+                if (!delivered && handle.IsValid()) Addressables.Release(handle);
             }
         }
 
@@ -66,6 +80,8 @@ namespace Company.ChestGame.Assets
                 throw new MissingAssetException(key, typeof(TAsset).Name);
             }
 
+            bool remembered = false;
+            bool delivered = false;
             try
             {
                 // The reference is handed over as the key rather than loaded through its own
@@ -74,10 +90,17 @@ namespace Company.ChestGame.Assets
                 // first handle. The bookkeeping belongs to the provider, which is also what lets
                 // Release take a reference and hand the caller no Addressables type.
                 AsyncOperationHandle<TAsset> handle = Addressables.LoadAssetAsync<TAsset>(reference);
+
+                // Remembered before the await, not after it. LoadAssetAsync takes the ref-count on
+                // the line above; a token that fires while the bytes are still coming makes
+                // ToUniTask throw straight past everything below, and a handle that was never
+                // recorded is one nothing in the session can ever release.
+                _handles.Remember(reference, handle);
+                remembered = true;
+
                 TAsset asset = await handle.ToUniTask(cancellationToken: ct);
 
-                _handles.Remember(reference, handle);
-
+                delivered = true;
                 return asset;
             }
             catch (InvalidKeyException exception)
@@ -92,14 +115,34 @@ namespace Company.ChestGame.Assets
             {
                 throw new AssetLoadException(key, exception);
             }
+            finally
+            {
+                // Recording early is only half of it: a tracked handle for an asset the caller
+                // never received would be released by nobody in particular, because a caller that
+                // did not get an asset has no reason to release one. So a load that did not
+                // deliver drops exactly what it took, which is the newest handle for this key —
+                // the one remembered above, since the registry hands the newest one back first.
+                //
+                // Conditioned on having recorded something rather than on having failed: a load
+                // that threw before it took a ref-count has nothing of its own to give back, and
+                // releasing anyway would take the handle out from under whoever loaded the same
+                // asset first. On the ordinary path this does nothing at all — delivered is true,
+                // and letting go is the caller's to do through Release.
+                if (!delivered && remembered) ReleaseOne(reference);
+            }
         }
 
-        public void Release(AssetReference reference)
+        // One release per load, because that is what Addressables counts. Releasing everything held
+        // for the asset would drop the ref-count a second live load is still relying on, and the
+        // framework hands out a fresh container per request, so two of them running the same
+        // minigame is a supported state rather than a hypothetical one.
+        public void Release(AssetReference reference) => ReleaseOne(reference);
+
+        private void ReleaseOne(AssetReference reference)
         {
-            foreach (AsyncOperationHandle handle in _handles.Take(reference))
-            {
-                if (handle.IsValid()) Addressables.Release(handle);
-            }
+            if (!_handles.TryTake(reference, out AsyncOperationHandle handle)) return;
+
+            if (handle.IsValid()) Addressables.Release(handle);
         }
 
         public async UniTask<long> GetDownloadSizeAsync(string label, CancellationToken ct)

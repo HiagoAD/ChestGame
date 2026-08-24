@@ -1,12 +1,15 @@
 using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using System.Text.RegularExpressions;
 using System.Threading;
 using Company.ChestGame.Assets;
+using Company.ChestGame.Common;
 using Company.ChestGame.Minigame;
 using Company.ChestGame.Minigame.Core;
 using Company.ChestGame.Minigame.Internal;
 using Company.ChestGame.Tests.Common;
+using Cysharp.Threading.Tasks;
 using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.TestTools;
@@ -117,7 +120,7 @@ namespace Company.ChestGame.Tests.EditMode
         {
             // Same policy as a blank id in CatalogBuilder: one unauthored slot should not stop the
             // game booting, and the minigame still starts — its content just arrives late.
-            LogAssert.Expect(LogType.Warning, new Regex("is set to preload but names no content label"));
+            LogAssert.Expect(LogType.Warning, new Regex("names no content label"));
 
             _assets.WithDownloadSize(PRELOAD_LABEL, 100);
 
@@ -171,13 +174,122 @@ namespace Company.ChestGame.Tests.EditMode
         {
             // A boot that was abandoned has to stop the download with it, rather than finish into
             // a scope nothing is left holding.
+            //
+            // Asserted by behaviour rather than by identity. The provider is no longer handed the
+            // caller's token itself but a token linked to it, because the fetch is deadlined — so
+            // comparing instances would now fail while the property it was protecting still holds.
+            // What has to be true is that cancelling the caller's token cancels what the provider
+            // was given, and that is what is checked.
+            // Cancelled while the fetch is still in flight, which is the only moment the linkage is
+            // observable: the linked source is disposed as soon as the fetch returns, and a disposed
+            // token stops following its parent.
             _assets.WithDownloadSize(PRELOAD_LABEL, 100);
+            _assets.StallDownloads = true;
+
+            MinigameContentPreloader preloader = new(
+                new MinigameCatalog(new List<MinigameBaseSO>
+                {
+                    Definition<FirstMinigame>(MinigameLoadPolicy.Preload, PRELOAD_LABEL)
+                }),
+                _assets);
 
             using CancellationTokenSource source = new();
+            UniTask preloading = preloader.PreloadAsync(_progress, source.Token);
 
-            Preload(source.Token, Definition<FirstMinigame>(MinigameLoadPolicy.Preload, PRELOAD_LABEL));
+            Assert.IsFalse(_assets.LastToken.IsCancellationRequested,
+                "nothing has been cancelled yet");
 
-            Assert.AreEqual(source.Token, _assets.LastToken);
+            source.Cancel();
+
+            Assert.IsTrue(_assets.LastToken.IsCancellationRequested,
+                "cancelling boot has to cancel the token the provider is actually holding");
+
+            Assert.Catch<OperationCanceledException>(() => WaitFor(preloading),
+                "and the fetch has to end rather than sit there");
+        }
+
+        [Test]
+        public void PreloadAsync_WhenALabelStalls_GivesUpAndSurfacesATypedFailure()
+        {
+            // The boot-time twin of the container's stall. A preload that fails at least returns and
+            // the bootstrapper's catch reports it; a preload that *stalls* returns nothing at all, so
+            // boot sits on "Preparing content..." for the rest of the session with no exception for
+            // anything to catch and nothing on screen that says why.
+            //
+            // Typed under ChestGameException so the bootstrapper's catch can report it the same way
+            // it reports every other boot failure.
+            _assets.WithDownloadSize(PRELOAD_LABEL, 4096);
+            _assets.StallDownloads = true;
+
+            DeadlinedPreloader preloader = new(
+                new MinigameCatalog(new List<MinigameBaseSO>
+                {
+                    Definition<FirstMinigame>(MinigameLoadPolicy.Preload, PRELOAD_LABEL)
+                }),
+                _assets)
+            {
+                Deadline = TimeSpan.FromMilliseconds(50)
+            };
+
+            ContentDownloadTimeoutException error = Assert.Throws<ContentDownloadTimeoutException>(
+                () => WaitFor(preloader.PreloadAsync(_progress, CancellationToken.None)));
+
+            Assert.IsInstanceOf<ChestGameException>(error, "or boot could not report it as a failure");
+            Assert.AreEqual(PRELOAD_LABEL, error.Label, "the fetch that gave up has to name itself");
+        }
+
+        [Test]
+        public void PreloadAsync_WhenBootIsCancelled_StaysACancellationRatherThanATimeout()
+        {
+            // The app quitting mid-preload is not a content failure and there is nobody left to tell.
+            // The deadline is set far out so only the caller's token can end the stall.
+            _assets.WithDownloadSize(PRELOAD_LABEL, 4096);
+            _assets.StallDownloads = true;
+
+            DeadlinedPreloader preloader = new(
+                new MinigameCatalog(new List<MinigameBaseSO>
+                {
+                    Definition<FirstMinigame>(MinigameLoadPolicy.Preload, PRELOAD_LABEL)
+                }),
+                _assets)
+            {
+                Deadline = TimeSpan.FromMinutes(5)
+            };
+
+            using CancellationTokenSource quitting = new();
+            UniTask preloading = preloader.PreloadAsync(_progress, quitting.Token);
+            quitting.Cancel();
+
+            Exception error = Assert.Catch(() => WaitFor(preloading));
+
+            Assert.IsInstanceOf<OperationCanceledException>(error,
+                "a quitting app must stay a cancellation all the way out");
+            Assert.IsNotInstanceOf<ChestGameException>(error,
+                "or boot would report a failure to a player who is already gone");
+        }
+
+        // The deadline is a protected seam rather than a settable property, the same shape
+        // MinigameContainer uses, so production keeps no tuning knob a test can reach into.
+        private sealed class DeadlinedPreloader : MinigameContentPreloader
+        {
+            public DeadlinedPreloader(IMinigameCatalog catalog, IAssetProvider assets)
+                : base(catalog, assets) { }
+
+            public TimeSpan? Deadline { get; set; }
+
+            protected override TimeSpan LabelDownloadTimeout => Deadline ?? base.LabelDownloadTimeout;
+        }
+
+        private static void WaitFor(UniTask task)
+        {
+            Task completing = task.AsTask();
+
+            if (!((IAsyncResult)completing).AsyncWaitHandle.WaitOne(TimeSpan.FromSeconds(10)))
+            {
+                Assert.Fail("PreloadAsync never finished, which is the hang the deadline exists to prevent");
+            }
+
+            completing.GetAwaiter().GetResult();
         }
 
         private void Preload(params MinigameBaseSO[] definitions) => Preload(CancellationToken.None, definitions);

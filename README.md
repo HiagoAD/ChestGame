@@ -45,7 +45,7 @@ The project uses the following libraries:
 - [Unity Test Framework](https://docs.unity3d.com/Packages/com.unity.test-framework@1.6/manual/index.html) — NUnit test runner for both suites
 
 Game code lives under `Assets/_Project`, tests under `Assets/Tests`, and the vendored copy of
-Resource Bank under `Assets/AssetLibrary`. The content the game loads by key lives under
+Resource Bank under `Assets/AssetLibrary`. Most of the content the game loads by key lives under
 `_Project/Content`; there is no `Resources` folder of ours any more. Dependencies are registered
 as singletons in `Assets/_Project/Scripts/Core/GameLifetimeScope.cs`.
 
@@ -124,8 +124,15 @@ which would leak the technology into every catch site, so a key or reference tha
 catalog becomes `MissingAssetException` and any other load failure becomes `AssetLoadException` —
 both under `ChestGameException`, like everything else the game throws.
 
-Shared content sits in `_Project/Content`, addressable under a single local group called `Core`. A
-minigame's own content sits with the minigame and has a group of its own — `Minigame.Chests`, whose
+Shared content sits in `_Project/Content`, addressable under a single local group called `Core` —
+with one exception worth knowing before you go looking for it: `RewardReceivedPopup.prefab` is a
+`Core` entry addressed `Popups/RewardReceivedPopup`, and it still lives at
+`_Project/Prefabs/UI/Rewards/` with the rest of the UI prefabs rather than under `_Project/Content`.
+`ContentUnavailablePopup.prefab` sits beside it and is not a group entry at all; it reaches the
+bundle as a dependency of `PopupList.asset`, which is. Group membership is what decides what ships
+where, so neither is a bug — but the folder is not the authority on it, and only the group is.
+
+A minigame's own content sits with the minigame and has a group of its own — `Minigame.Chests`, whose
 four entries all carry the label `minigame.chests`. The committed settings leave the play mode
 script on **Use Asset Database (fastest)** so both test suites run with no content build.
 

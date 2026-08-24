@@ -297,6 +297,28 @@ a fresh checkout gets the default, which is index 0, which is `BuildScriptFastMo
 test suites need. `m_ActivePlayerDataBuilderIndex: 2` in the settings asset is the *player* build
 script (packed), and is a different setting entirely.
 
+**Timeout and retry live on the group schema, not on the settings asset.**
+`AddressableAssetSettings.BundleTimeout` and `BundleRetryCount` look like the values that ship, and
+they are not: both are *setters that fan the value out* into every group's `BundledAssetGroupSchema`
+(`Editor/Settings/AddressableAssetSettings.cs`), and the packed build reads the schema. Editing
+`m_BundleTimeout` in `AddressableAssetSettings.asset` by hand skips the setter entirely, so the file
+reads 15 while the built catalog still carries 0. Both `*_BundledAssetGroupSchema.asset` files have to
+carry `m_Timeout` and `m_RetryCount` too. `m_CatalogRequestsTimeout` is the exception — the build
+script reads that one straight off the settings object.
+
+**`m_BundleTimeout` is an inactivity timeout, not a wall-clock one.** `HasTimedOut` is
+`m_TimeoutTimer >= Timeout && m_TimeoutOverFrames > 5`, and the timer resets whenever
+`downloadedBytes` changes (`Runtime/ResourceManager/ResourceProviders/AssetBundleProvider.cs`). So 15
+means "fifteen seconds in which not one byte arrived", and a slow but progressing download is never
+killed by it. This is why a low-looking number is safe here and why the deadlines in
+`MinigameContainer` and `MinigameContentPreloader` are set far above it: anything the package can
+bound reaches the player with a better message long before they fire.
+
+**Timeout and retry are baked into the catalog at content-build time.** They travel in
+`AssetBundleRequestOptions`, so changing them has no effect on bundles already sitting in
+`ServerData/` — `ci/build-addressables.sh` has to run again before the change means anything on the
+wire.
+
 **A group's remote path is not what the editor loads from.** `Minigame.Chests` points at
 `http://localhost:8080/[BuildTarget]`, and both suites still pass with nothing serving it, because
 Fast Mode never consults the group's load path at all. The remote paths are only exercised by a
@@ -335,6 +357,37 @@ to play mode.
 
 ---
 
+### Found by review, after the first four commits
+
+A code review of the branch found six more, all fixed in the tree:
+
+4. **Remote delivery had no timeout and no retry.** `m_BundleTimeout`, `m_BundleRetryCount` and
+   `m_CatalogRequestsTimeout` all shipped 0, which means *no bound*, and the on-demand fetch awaited
+   `DownloadAsync` with only the destroy token. A download that **stalled** — as opposed to failing,
+   which is the only case anything covered — never returned, so the start button the shell disabled
+   stayed dead for the session with nothing on screen. Now bounded at both levels: the package
+   retries twice on fifteen seconds of silence, and `MinigameContainer` puts a deadline over the
+   whole fetch that surfaces as `ContentDownloadTimeoutException`.
+5. **Boot could not report a failure.** `GameBootstrapper.StartAsync` had no `try`, and no
+   `EntryPointExceptionHandler` was registered, so any failure left the boot screen frozen on
+   "Loading..." forever — while the README argued that `Core` ships local *precisely* so the game can
+   say why it could not start. It now reports through the `IBootStatus` it already had, and rethrows.
+6. **`MinigameContentPreloader` had the same stall, one layer up**, and no deadline at all. Bounded
+   per label rather than across the walk, so adding minigames never moves the game closer to a
+   spurious timeout.
+7. **A cancelled load leaked its handle.** The provider recorded the handle *after* the await, so a
+   token firing mid-load left a ref-count nothing could ever release — reachable exactly when a scene
+   is left mid-download. Recorded before the await now, with a `finally` that releases what a load
+   took when it did not deliver.
+8. **`BeginAsync` had no re-entrancy guard.** Harmless while release dropped every handle for a key;
+   a leak once one release pairs with one load. It now throws `MinigameAlreadyRunningException`
+   rather than quietly starting twice.
+9. **A throw after instantiation orphaned the view.** `SetController` throwing left a live GameObject
+   in the scene that `End` could never destroy, because `_running` was still false. The `catch`
+   destroys it now.
+
+---
+
 ## 8. Test map — the fixtures this work added
 
 `FakeAssetProvider` lives in `Tests/Common/` and is what keeps the suite fast. `AssetReference` has a
@@ -345,7 +398,8 @@ public GUID-string constructor, so tests need no real assets.
 | `ChestsMinigameConfigTests` | The chests minigame's own document: missing, empty, malformed, its three range rules, and a definition with no document wired |
 | `MinigameContainerContentTests` | What `BeginAsync` loads and in what order, that the controller is configured before it is injected and injected once, that `End` releases both the view and the minigame's own content, that `End` on a container that never began releases nothing, that a failed load surfaces typed and releases what it had already taken, and the whole on-demand fetch: measured then downloaded for `OnDemand`, skipped for `Preload`, skipped for a blank label, skipped when the size is zero, typed and not running when the download fails |
 | `MinigameContentPreloaderTests` | The boot-time half of the load policies: only `Preload` entries measured and fetched, every size gathered before the first byte, aggregate progress that never goes backwards, a blank label warned and skipped, nothing fetched when there is nothing to fetch, the typed failure propagating, and the token threaded through |
-| `AssetHandleRegistryTests` | That the provider's bookkeeping has value semantics: a reference rebuilt from the same GUID takes what the authored one left, a different asset takes nothing, a sub-object is not its parent, every handle for one asset is kept, taking untracks, and taking something never loaded is safe. Also asserts, as a premise, that `AssetReference` still has no `Equals` of its own |
+| `AssetHandleRegistryTests` | That the provider's bookkeeping has value semantics: a reference rebuilt from the same GUID takes what the authored one left, a different asset takes nothing, a sub-object is not its parent, **two loads need two releases and yield both handles**, one release leaves another live load's handle alone, the take is LIFO so a load undoing its own bookkeeping takes back its own handle, an asset loaded again after its last release is tracked again, and taking something never loaded is safe. Also asserts, as a premise, that `AssetReference` still has no `Equals` of its own |
+| `GameBootstrapperFailureTests` | That boot tells the player why it could not start rather than freezing: the reason is reported, the stack trace is kept out of the UI, the typed failure still propagates, and an app being quit says nothing at all |
 | `AddressablesContentSourceTests` | The four content sources against `FakeAssetProvider`: each asks for its own key, carries the provider's answer through untouched, surfaces a missing asset as `MissingAssetException`, and threads its cancellation token |
 | `GameContentLoaderTests` | Every source read once, in order, cancellation threaded through, and a failure stopping the load rather than yielding half-built content |
 
@@ -424,6 +478,11 @@ identical — a released handle and a leaked one look the same from outside, and
 only counter (`OperationCacheCount`) is `internal`. Extracting the registry was what made the fix
 assertable at all.
 
+**A stalled fetch is bounded, but only by a deadline nobody has watched fire in a real session.**
+Both the on-demand path and the preloader translate a deadline into a typed failure, and both are
+tested against a fake that stalls on demand. Neither has been exercised against a real server that
+stops answering mid-download, which is what section 11's manual check is for.
+
 **Nothing asserts the boot status label actually updates.** `IBootStatus` is registered and resolved
 under test, and `BootStatusLabel` is three lines, but no test drives boot and reads the label back.
 
@@ -437,7 +496,7 @@ play-mode ordering test, `FakeGameClock`'s caveat, and `ICurrencyManager` leakin
 
 Stated plainly, because the gap matters more than the green suite does.
 
-**Verified.** Both suites from a clean `ci-results/`: **166 EditMode + 32 PlayMode, exit 0.** 165 of
+**Verified.** Both suites from a clean `ci-results/`: **177 EditMode + 34 PlayMode, exit 0.** 176 of
 the EditMode tests are ours; the Addressables package ships one editor test of its own
 (`AddressableAssets.DocExampleCode.TestStub.RequiredTest`) and Unity picks it up. Every new test was
 checked by mutation. The content build was verified at bundle level:
@@ -459,6 +518,11 @@ checked by mutation. The content build was verified at bundle level:
   expected to fail, and is worth confirming gives a clear message rather than a null.
 - **`GameManager`'s two new behaviours** — the start button going non-interactable while a start is
   in flight, and a `ChestGameException` becoming a `ContentUnavailablePopup` — are asserted nowhere.
+- **The new timeout and retry values are not covered by any test**, and cannot usefully be: nothing
+  in either suite reads them, because Fast Mode ignores load paths entirely. A test would only assert
+  the YAML back to itself. They are also **baked into the catalog at content-build time**, so
+  `ci/build-addressables.sh` has to run again before they mean anything on the wire — the bundles
+  currently in `ServerData/` still carry 0.
 
 Remote download stays a documented manual check rather than a CI test: a fixture that starts a web
 server is exactly the flakiness the project's testing agreements argue against.
@@ -471,7 +535,10 @@ Raised during review, none ruled on. **Do not act on these without asking.**
 
 1. **Split `IAssetProvider` in two**, so assemblies that only ever load by key stop being forced to
    reference Addressables. Nine asmdefs reference it now; one did before, and two of the nine
-   (`Config` and `Popups`) gain nothing from it. Trade-off in section 5.
+   (`Config` and `Popups`) gain nothing from it. Trade-off in section 5. Worth deciding together
+   with `Release(string)`, which the seam still does not have: everything loaded by key today has
+   session lifetime, so nothing needs it, and if the seam is ever split the key half is its natural
+   home. The asymmetry is documented on `IAssetProvider` rather than fixed.
 2. **The unused `TView` type parameter** on `MinigameBase<TController, TView, TMinigame>`. It
    constrains nothing now that the view is an `AssetReferenceGameObject`.
 3. **The untyped `NullReferenceException`** on a right-GUID-wrong-prefab, described in section 10.

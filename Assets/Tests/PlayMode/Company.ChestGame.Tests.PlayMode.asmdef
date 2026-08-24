@@ -20,7 +20,8 @@
         "TapNation.Modules",
         "UniTask",
         "Company.ChestGame.UI",
-        "Unity.Addressables"
+        "Unity.Addressables",
+        "Unity.ResourceManager"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

@@ -26,6 +26,28 @@ namespace Company.ChestGame.Minigame.Core
         public string ContentLabel => _contentLabel;
         public MinigameLoadPolicy LoadPolicy => _loadPolicy;
 
+        // The one place the blank-label rule is stated, because both delivery paths need it and
+        // they used to answer it differently: the preloader warned and the on-demand fetch skipped
+        // in silence, so whether an unauthored slot was visible depended on which policy it was
+        // paired with.
+        //
+        // Warned rather than thrown, following CatalogBuilder on a blank id: one unauthored slot
+        // should not stop the game booting, and the minigame still starts — its content simply is
+        // not fetched as a unit. Warned rather than ignored because the failure is otherwise
+        // completely silent: a minigame set to preload with no label never preloads, and nothing
+        // anywhere goes red.
+        public bool TryGetContentLabel(out string label)
+        {
+            label = _contentLabel;
+
+            if (!string.IsNullOrWhiteSpace(label)) return true;
+
+            Debug.LogWarning(
+                $"Minigame '{name}' names no content label, so none of its content can be fetched " +
+                "as a unit, skipping it");
+            return false;
+        }
+
         public abstract Type ContainerType { get; }
         public abstract MinigameContainer GetMinigameContainer();
 
