@@ -8,8 +8,8 @@ using UnityEngine.TestTools;
 namespace Company.ChestGame.Tests.EditMode
 {
     // Every CurrencyManager here is built on an in-memory save handler, so the real PlayerPrefs
-    // save is never touched. CurrencyManager logs an error on each rejected operation, which fails
-    // a test by default, hence the LogAssert.Expect calls on the negative paths.
+    // save is never touched. It logs an error on each rejected operation, which fails a test by
+    // default, hence the LogAssert.Expect calls on the negative paths.
     public class CurrencyManagerTests
     {
         private InMemoryResourceBankSaveHandler _saveHandler;
@@ -185,7 +185,7 @@ namespace Company.ChestGame.Tests.EditMode
         public void Spending_ReportsAPositiveAmountOnSpent_AndANegativeOneOnChanged()
         {
             // The asymmetry is documented on ResourceBankCallbacks: Changed always describes the
-            // delta applied to the balance, while Spent describes the size of the withdrawal.
+            // delta applied to the balance, Spent describes the size of the withdrawal.
             _currency.AddCurrency(CurrencyType.Coins, 100, "test");
             _changed.Clear();
             _collected.Clear();

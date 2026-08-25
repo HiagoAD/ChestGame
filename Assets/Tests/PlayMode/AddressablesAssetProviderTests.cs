@@ -13,30 +13,24 @@ using UnityEngine.TestTools;
 
 namespace Company.ChestGame.Tests.PlayMode
 {
-    // The provider's second job is translation: Addressables reports its own failure types, and
-    // letting those escape would leak the loading technology into every catch site and would let a
-    // test asserting "this throws" be satisfied by something unrelated.
-    //
-    // Play mode because there is no way to make real Addressables fail without real Addressables.
-    // The sources are covered in edit mode against a fake provider; this covers the one thing a
-    // fake provider cannot, which is that the real one translates what the real library throws.
+    // The provider's second job is translation, and play mode is the only place to cover it: there
+    // is no way to make real Addressables fail without real Addressables. The sources are covered
+    // in edit mode against a fake.
     public class AddressablesAssetProviderTests
     {
         // The chests view prefab, as the Minigame.Chests group holds it. A GUID rather than an
-        // address on purpose: a GUID is what an AssetReference actually carries.
+        // address, because a GUID is what an AssetReference actually carries.
         private const string CHESTS_VIEW_GUID = "fb6e7fffa2cdb4fd89d83dcbd3cf3b32";
         private const string ABSENT_GUID = "00000000000000000000000000000042";
 
-        // The label every entry in the Minigame.Chests group carries, which is what the delivery
-        // routes work in: a label names a whole minigame's content at once.
+        // The label every entry in the Minigame.Chests group carries.
         private const string CHESTS_LABEL = "minigame.chests";
 
         [UnityTest]
         public IEnumerator AKeyThatIsNotInTheCatalog_SurfacesAsAMissingAsset() => UniTask.ToCoroutine(async () =>
         {
-            // Addressables reports the miss through Debug.LogError before throwing, and an
-            // unexpected error log fails a test on its own (notes section 4). Expecting it keeps
-            // this test about the translation rather than about the library's logging.
+            // Addressables logs an error before throwing, and an unexpected error log fails a test
+            // on its own. Expecting it keeps this about the translation.
             LogAssert.Expect(LogType.Error, new Regex("No Location found for Key=no-such-key-ships-with-this-game"));
 
             IAssetProvider provider = new AddressablesAssetProvider();
@@ -69,8 +63,8 @@ namespace Company.ChestGame.Tests.PlayMode
         [UnityTest]
         public IEnumerator AReferenceToSomethingThatDoesNotShip_SurfacesAsAMissingAsset() => UniTask.ToCoroutine(async () =>
         {
-            // A well-formed GUID that no entry carries: valid enough to be looked up, absent from
-            // the catalog, so Addressables logs and throws exactly as it does for a bad key.
+            // A well-formed GUID that no entry carries: valid enough to look up, absent from the
+            // catalog.
             LogAssert.Expect(LogType.Error, new Regex("No Location found for Key=" + ABSENT_GUID));
 
             IAssetProvider provider = new AddressablesAssetProvider();
@@ -92,9 +86,8 @@ namespace Company.ChestGame.Tests.PlayMode
         [UnityTest]
         public IEnumerator AReferenceToAShippedAsset_LoadsIt() => UniTask.ToCoroutine(async () =>
         {
-            // The mechanism the whole indirection rests on: a GUID string, no object reference, and
-            // the asset still arrives. LoadAsync<GameObject> through a reference is what
-            // MinigameContainer.BeginAsync does for every view.
+            // The mechanism the indirection rests on: a GUID string, no object reference, and the
+            // asset still arrives. This is what MinigameContainer.BeginAsync does for every view.
             IAssetProvider provider = new AddressablesAssetProvider();
             AssetReference reference = new(CHESTS_VIEW_GUID);
 
@@ -108,9 +101,8 @@ namespace Company.ChestGame.Tests.PlayMode
         [UnityTest]
         public IEnumerator ALabelWithNothingLeftToFetch_ReportsZeroRatherThanFailing() => UniTask.ToCoroutine(async () =>
         {
-            // The ordinary case, and the one the whole on-demand path depends on: content that is
-            // cached, or that the running build serves locally, has nothing to come down. Reporting
-            // that as a failure would put a popup in front of every start.
+            // The ordinary case the on-demand path depends on. Reporting cached or local content as
+            // a failure would put a popup in front of every start.
             IAssetProvider provider = new AddressablesAssetProvider();
 
             long size = await provider.GetDownloadSizeAsync(CHESTS_LABEL, CancellationToken.None);
@@ -124,9 +116,8 @@ namespace Company.ChestGame.Tests.PlayMode
         [UnityTest]
         public IEnumerator ALabelThatShipsWithNothing_SurfacesAsAMissingAsset() => UniTask.ToCoroutine(async () =>
         {
-            // A label nobody authored is the same authoring mistake as a key nobody authored, and
-            // it has to arrive typed for the same reason. Addressables logs before it throws here
-            // too, so the log is expected rather than fatal.
+            // A label nobody authored is the same authoring mistake as a key nobody authored.
+            // Addressables logs before it throws here too.
             LogAssert.Expect(LogType.Error, new Regex("no-such-label-ships-with-this-game"));
 
             IAssetProvider provider = new AddressablesAssetProvider();
@@ -148,20 +139,16 @@ namespace Company.ChestGame.Tests.PlayMode
         [UnityTest]
         public IEnumerator AReferenceLoadCancelledBeforeItArrives_LeavesNothingLoaded() => UniTask.ToCoroutine(async () =>
         {
-            // Addressables takes the ref-count on the call, not on the await. The provider used to
-            // record the handle only after awaiting, so a token that fired while the bytes were
-            // still coming threw straight past the bookkeeping and left a count nothing in the
-            // session could ever give back. GameManager passes GetCancellationTokenOnDestroy, so
-            // leaving the scene mid-load is exactly this.
-            //
-            // Play mode, and the real library, because the leak is a real ResourceManager's
-            // ref-count: a fake provider has no counts to leak.
+            // Addressables takes the ref-count on the call, not on the await, so a token firing
+            // while the bytes are still coming used to throw straight past the bookkeeping.
+            // GameManager passes GetCancellationTokenOnDestroy, so leaving the scene mid-load is
+            // exactly this. Play mode because the leak is a real ResourceManager's ref-count.
             IAssetProvider provider = new AddressablesAssetProvider();
             AssetReference reference = new(CHESTS_VIEW_GUID);
 
-            // Warm up first, and let go again. An uninitialised Addressables answers every load
-            // with a chained operation, which is never finished on the frame it was asked for —
-            // the probe below would then read "not held" no matter what the provider did.
+            // Warm up first, and let go again: an uninitialised Addressables answers every load
+            // with a chained operation that never finishes on the frame it was asked for, so the
+            // probe below would read "not held" no matter what.
             GameObject warmUp = await provider.LoadAsync<GameObject>(reference, CancellationToken.None);
             Assert.IsNotNull(warmUp, "the warm-up load is the same one the fixture already covers");
             provider.Release(reference);
@@ -181,17 +168,14 @@ namespace Company.ChestGame.Tests.PlayMode
 
             Assert.IsTrue(unwound, "a cancelled load has to unwind as cancellation rather than as a load failure");
 
-            // The operation the cancelled load started is still running; what it does on the way
-            // out is the subject here, so it gets its frames.
+            // The operation the cancelled load started is still running, and what it does on the
+            // way out is the subject here.
             await UniTask.DelayFrame(3);
 
-            // The probe. Addressables hands back the operation it is already holding for a key,
-            // and an operation it is already holding is finished the instant it is asked for. One
-            // it is not holding has to be started, and a load never finishes on its own frame. So
-            // "was it done immediately" reads whether the ref-count from the cancelled load is
-            // still outstanding — the leak, which has no other observer: the released and the
-            // leaked handle look identical through IAssetProvider, and the count itself is
-            // internal to the package.
+            // The probe. Addressables hands back an operation it already holds finished, while one
+            // it does not hold has to be started and never finishes on its own frame. So "was it
+            // done immediately" reads whether the cancelled load's ref-count is still outstanding,
+            // which has no other observer.
             AsyncOperationHandle<GameObject> probe = Addressables.LoadAssetAsync<GameObject>(new AssetReference(CHESTS_VIEW_GUID));
             bool answeredFromAHandleStillHeld = probe.IsDone;
 
@@ -205,9 +189,9 @@ namespace Company.ChestGame.Tests.PlayMode
         [Test]
         public void ReleasingAReferenceThatWasNeverLoaded_IsSafe()
         {
-            // MinigameContainer.End is documented as safe to call unconditionally, and it releases
-            // whatever Begin took. Addressables warns loudly when asked to release nothing, so the
-            // provider has to know it holds nothing rather than ask.
+            // MinigameContainer.End is safe to call unconditionally, and Addressables warns loudly
+            // when asked to release nothing, so the provider has to know it holds nothing rather
+            // than ask.
             IAssetProvider provider = new AddressablesAssetProvider();
 
             Assert.DoesNotThrow(() => provider.Release(new AssetReference(ABSENT_GUID)));

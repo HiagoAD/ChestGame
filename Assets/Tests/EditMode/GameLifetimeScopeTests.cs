@@ -19,13 +19,10 @@ using VContainer.Unity;
 
 namespace Company.ChestGame.Tests.EditMode
 {
-    // These run against GameLifetimeScope's own registration methods rather than a copy of them, so
-    // dropping a registration from the composition root fails here.
-    //
-    // The root scope is deliberately everything that needs no asset, which is what keeps it
-    // assertable in edit mode: every core registration resolves the moment the container is built.
-    // What the shipped assets actually contain is proved end to end in GameBootstrapperTests,
-    // because that half now needs a boot scene to exist at all.
+    // Run against GameLifetimeScope's own registration methods rather than a copy, so dropping a
+    // registration from the composition root fails here. The root scope is everything that needs no
+    // asset, which is what keeps it assertable in edit mode. What the shipped assets contain is
+    // proved in GameBootstrapperTests.
     public class GameLifetimeScopeTests
     {
         private ContainerBuilder _builder;
@@ -66,17 +63,16 @@ namespace Company.ChestGame.Tests.EditMode
         public void TheBootstrapper_IsRegisteredAsTheEntryPointThatRunsIt()
         {
             // VContainer only runs what it can find as an IAsyncStartable. Registered as the
-            // concrete type alone, the game would build a container and then never boot.
+            // concrete type alone, the game would build a container and never boot.
             Assert.IsTrue(_builder.Exists(typeof(IAsyncStartable), true), nameof(IAsyncStartable));
         }
 
         [Test]
         public void EveryCoreServiceTheGameResolves_HasASatisfiableObjectGraph()
         {
-            // Exists() only proves a line of code was written. The loader is the core service whose
-            // constructor reaches outside itself, so resolving it is the assertion that matters: it
-            // needs all four sources, each of which now needs the asset provider, so a missing
-            // registration anywhere down that chain fails right here.
+            // Exists() only proves a line was written. The loader needs all four sources, each of
+            // which needs the asset provider, so a missing registration anywhere down that chain
+            // fails here.
             using IObjectResolver container = _builder.Build();
 
             Assert.IsInstanceOf<GameContentLoader>(container.Resolve<GameContentLoader>());
@@ -85,8 +81,8 @@ namespace Company.ChestGame.Tests.EditMode
         [Test]
         public void EveryEngineFacingSeam_HasAProductionImplementation()
         {
-            // The seams exist so tests can substitute them; the real game still has to get a real
-            // clock and a real random source out of the container.
+            // The seams exist so tests can substitute them; the real game still has to get real
+            // ones.
             using IObjectResolver container = _builder.Build();
 
             Assert.IsInstanceOf<UnityRandomProvider>(container.Resolve<IRandomProvider>());
@@ -104,12 +100,11 @@ namespace Company.ChestGame.Tests.EditMode
         public void CurrencyManager_ResolvesWithTheRegisteredSaveHandler()
         {
             // CurrencyManager takes its save handler as its only constructor argument, so this
-            // fails outright if the scope stops registering one. It sits in the core half because
-            // that argument is the only thing it needs: no asset, so no waiting.
+            // fails outright if the scope stops registering one.
             using IObjectResolver container = _builder.Build();
 
-            // Deliberately no assertion on balances: a container-built CurrencyManager reads the
-            // real PlayerPrefs save, whose contents belong to whoever is running the tests.
+            // No assertion on balances: a container-built CurrencyManager reads the real
+            // PlayerPrefs save, whose contents belong to whoever is running the tests.
             Assert.IsInstanceOf<CurrencyManager>(container.Resolve<ICurrencyManager>());
         }
 
@@ -131,9 +126,8 @@ namespace Company.ChestGame.Tests.EditMode
         [Test]
         public void WithNoLabelToReportInto_BootStillHasSomethingToReportThrough()
         {
-            // The bootstrapper reports unconditionally, so a boot scene whose label slot was never
-            // wired — and every container a test builds — still has to resolve one. A null here
-            // would turn a cosmetic authoring mistake into a game that cannot start.
+            // The bootstrapper reports unconditionally, so an unwired label slot, and every
+            // container a test builds, still has to resolve one.
             using IObjectResolver container = _builder.Build();
 
             IBootStatus status = container.Resolve<IBootStatus>();
@@ -145,8 +139,8 @@ namespace Company.ChestGame.Tests.EditMode
         [Test]
         public void ABootStatusHandedIn_IsTheOneTheGameReportsThrough()
         {
-            // The scene's label is the one thing the root scope cannot construct for itself, so it
-            // is passed in. Registering it is what connects the bootstrapper to the boot scene.
+            // The scene's label is the one thing the root scope cannot construct for itself.
+            // Registering it is what connects the bootstrapper to the boot scene.
             ContainerBuilder builder = new();
             RecordingBootStatus reporter = new();
 
@@ -160,9 +154,9 @@ namespace Company.ChestGame.Tests.EditMode
         [Test]
         public void ThePreloader_ResolvesWithTheLoadedCatalogAndTheCoreAssetProvider()
         {
-            // It reaches across both halves of the split — the catalog only exists once content
-            // arrived, the provider is core — which is exactly the graph that fails silently if
-            // either registration moves.
+            // Reaches across both halves of the split, the catalog from the loaded one and the
+            // provider from core, which is the graph that fails silently if either registration
+            // moves.
             GameLifetimeScope.RegisterLoadedServices(_builder, ContentWithAStubParentPrefab());
 
             using IObjectResolver container = _builder.Build();
@@ -173,10 +167,9 @@ namespace Company.ChestGame.Tests.EditMode
         [Test]
         public void EveryLoadedServiceTheGameResolves_HasASatisfiableObjectGraph()
         {
-            // These three are the services whose constructors reach outside themselves:
-            // PopupManager needs a catalog and a parent provider, MinigameManager needs a catalog
-            // and the container's own IObjectResolver, RewardsManager reaches across both halves
-            // for the currency manager and the random seam.
+            // The three services whose constructors reach outside themselves: PopupManager needs a
+            // catalog and a parent provider, MinigameManager needs a catalog and the resolver,
+            // RewardsManager reaches across both halves.
             GameLifetimeScope.RegisterLoadedServices(_builder, ContentWithAStubParentPrefab());
 
             using IObjectResolver container = _builder.Build();
@@ -189,8 +182,8 @@ namespace Company.ChestGame.Tests.EditMode
         [Test]
         public void TheLoadedConfig_IsBuiltFromTheDocumentThatWasLoaded()
         {
-            // The registration parses the carried document rather than fetching one of its own,
-            // which is the reason nothing downstream can observe a half-built config.
+            // The registration parses the carried document rather than fetching one, which is why
+            // nothing downstream can observe a half-built config.
             GameLifetimeScope.RegisterLoadedServices(_builder, ContentWithAStubParentPrefab());
 
             using IObjectResolver container = _builder.Build();
@@ -206,9 +199,8 @@ namespace Company.ChestGame.Tests.EditMode
         public void ResolvingPopupManager_DoesNotCreateTheSharedCanvasYet()
         {
             // The parent canvas is DontDestroyOnLoad, so building it during resolution would leak a
-            // scene object into every consumer of the container, tests included. Counting from
-            // before the registration catches an eager provider constructor as well as an eager
-            // resolve.
+            // scene object into every consumer of the container. Counting from before the
+            // registration catches an eager constructor as well as an eager resolve.
             _parentPrefab = new GameObject("PopupParentPrefab").AddComponent<PopupParent>();
 
             int before = LivePopupParents();

@@ -12,9 +12,10 @@ the description was updated rather than left to rot, so everything below is true
 it stands. What has *not* been done is widening the scope: traps, decisions and gaps belonging to
 the delivery work live in the other file, not this one.
 
-The README describes what the architecture is. This file covers why it landed that way, what was
-tried and rejected, how to verify changes, and which traps cost time the first time round. Read the
-README first for the map; read both context files before changing anything structural.
+The reference files under [docs/](../README.md) describe what the architecture is. This file covers
+why it landed that way, what was tried and rejected, how to verify changes, and which traps cost time
+the first time round. Read [architecture.md](../architecture.md) first for the map; read both context
+files before changing anything structural.
 
 ---
 

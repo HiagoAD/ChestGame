@@ -4,8 +4,8 @@ using UnityEngine;
 
 namespace Company.ChestGame.Common
 {
-    // The production clock: the Unity player loop. Both waits respect Time.timeScale, so pausing
-    // the game pauses any chest mid-open.
+    // The production clock. Both waits respect Time.timeScale, so pausing the game pauses any chest
+    // mid-open.
     public class UnityGameClock : IGameClock
     {
         public float DeltaTime => Time.deltaTime;

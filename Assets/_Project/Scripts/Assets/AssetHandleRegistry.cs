@@ -4,29 +4,14 @@ using UnityEngine.ResourceManagement.AsyncOperations;
 
 namespace Company.ChestGame.Assets
 {
-    // What the provider is holding on behalf of each authored reference, kept apart from the
-    // provider itself because it is the half that has a rule of its own rather than a translation.
+    // What the provider is holding on behalf of each authored reference.
     //
-    // The rule is the key. AssetReference overrides neither Equals nor GetHashCode, so a dictionary
-    // keyed on the reference has reference identity: it works only for as long as every caller
-    // hands back the very same serialized instance it loaded with, and any caller that rebuilds a
-    // reference from the same GUID gets a silent no-op release and a leaked handle. Keying on the
-    // runtime key instead gives the lookup the value semantics the type does not have. It is the
-    // reference's GUID, plus the sub-object name when there is one, so two references naming the
-    // same thing are one entry and a reference naming a sub-asset is not confused with its parent.
+    // Keyed on the runtime key, never on the reference: AssetReference overrides neither Equals nor
+    // GetHashCode, so a dictionary keyed on it has reference identity and any caller rebuilding a
+    // reference from the same GUID would get a silent no-op release and a leaked handle.
     //
-    // Every handle is kept rather than one per reference, because Addressables ref-counts per load:
-    // two loads of one asset are two ref-counts and need two releases, so overwriting an entry
-    // would leak whatever it replaced and handing the whole list back on the first release would
-    // drop a ref-count that a second live caller is still relying on.
-    //
-    // One take therefore pairs with one Remember. Which of the handles held for a key comes back is
-    // deliberately unspecified: they are ref-count tokens for the same runtime key, so releasing
-    // any one of them decrements exactly the one count a single load added, and the seam's Release
-    // takes a reference rather than a handle so it could not name a particular one anyway. The
-    // order is last-in-first-out, which is what makes a load that has to undo its own bookkeeping —
-    // one that was cancelled or failed after taking its ref-count — take back the handle it just
-    // added rather than someone else's.
+    // Every handle is kept, not one per reference, because Addressables ref-counts per load. One
+    // TryTake pairs with one Remember, last-in-first-out. See docs/asset-loading.md.
     public class AssetHandleRegistry
     {
         private readonly Dictionary<string, List<AsyncOperationHandle>> _handles = new();
@@ -45,9 +30,8 @@ namespace Company.ChestGame.Assets
             handles.Add(handle);
         }
 
-        // Hands back one handle for that asset and stops tracking that one. A reference nothing is
-        // currently held for answers false rather than failing, which is what lets the teardown
-        // paths release unconditionally without every one of them repeating the same guard.
+        // A reference nothing is currently held for answers false rather than failing, so the
+        // teardown paths can release unconditionally.
         public bool TryTake(AssetReference reference, out AsyncOperationHandle handle)
         {
             handle = default;
@@ -59,8 +43,7 @@ namespace Company.ChestGame.Assets
             handle = handles[last];
             handles.RemoveAt(last);
 
-            // The key goes with its last handle so an asset loaded and released over and over does
-            // not leave an empty list behind for the rest of the session.
+            // The key goes with its last handle, so repeated load-release leaves no empty lists.
             if (handles.Count == 0) _handles.Remove(key);
 
             return true;

@@ -8,11 +8,9 @@ using NUnit.Framework;
 namespace Company.ChestGame.Tests.EditMode
 {
     // Everything here goes through the real entry point, OnChestClicked, including the two
-    // concurrent UniTasks it spawns. FakeGameClock is what makes that possible in edit mode: the
-    // opening flow parks on the clock, and the test decides when time moves.
-    //
-    // The timings are chosen so a chest takes exactly two frames to open: a 100ms open at 50ms per
-    // frame. Frame 1 is mid-flight, frame 2 completes it.
+    // concurrent UniTasks it spawns. FakeGameClock is what makes that possible in edit mode.
+    // Timings are chosen so a chest takes exactly two frames to open: a 100ms open at 50ms per
+    // frame.
     public class ChestsMinigameControllerTests
     {
         private const int OpenMilliseconds = 100;
@@ -35,11 +33,9 @@ namespace Company.ChestGame.Tests.EditMode
         [TearDown]
         public void TearDown() => _controller.Dispose();
 
-        // Mirrors the framework's own order: ChestsMinigameSO configures the controller inside
-        // GetMinigameContainer, and MinigameManager.Get injects it afterwards.
-        //
-        // The real config type rather than a fake: it is a plain validated value the minigame
-        // owns, so building one through Create costs nothing and keeps the test honest.
+        // Mirrors the framework's own order: ChestsMinigameSO configures the controller,
+        // MinigameManager.Get injects it afterwards. The real config type rather than a fake,
+        // because it is a plain validated value.
         private void ConfigureAndInject(int chestCount = 4, int attemptsCount = 4)
         {
             _controller.Configure(ChestsMinigameConfig.Create(chestCount, attemptsCount, OpenMilliseconds));
@@ -183,7 +179,7 @@ namespace Company.ChestGame.Tests.EditMode
         [Test]
         public void CancellingAnOpeningChest_LeavesNoWorkRunning()
         {
-            // The abandoned chest's two tasks must actually unwind, not linger and fire later.
+            // The abandoned chest's two tasks must unwind, not linger and fire later.
             ConfigureAndInject();
             _controller.NewGame();
             _random.NextValue = 1f;
@@ -210,8 +206,8 @@ namespace Company.ChestGame.Tests.EditMode
             _clock.AdvanceFrame();
             float progressSoFar = _controller.Chests[0].Completition;
 
-            // The chest is Opening rather than Closed, so OnChestClicked rejects the second tap.
-            // An impatient double-tap must not restart the timer or queue a second open.
+            // The chest is Opening rather than Closed, so an impatient double-tap must not restart
+            // the timer or queue a second open.
             _controller.OnChestClicked(_controller.Chests[0]);
 
             Assert.AreEqual(ChestsMinigameChestModel.State.Opening, StateOf(0));
@@ -223,9 +219,8 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.AreEqual(1, _controller.Attempts, "the double-tap did not cost a second attempt");
         }
 
-        // The progress loop and the open timer come due in the same frame, and nothing in the
-        // engine promises which resumes first. Rather than assume an answer, run the flow under
-        // both orderings and require the outcome to be identical.
+        // The progress loop and the open timer come due in the same frame and nothing promises
+        // which resumes first, so the flow runs under both orderings.
         [TestCase(true, TestName = "OpeningIsUnaffectedByScheduling_WhenProgressResumesFirst")]
         [TestCase(false, TestName = "OpeningIsUnaffectedByScheduling_WhenTheTimerResumesFirst")]
         public void OpeningIsUnaffectedByScheduling(bool frameWaitersResumeFirst)
@@ -298,9 +293,8 @@ namespace Company.ChestGame.Tests.EditMode
         [Test]
         public void WithTheUnluckiestDraws_ThePrizeWaitsInTheFinalChest()
         {
-            // The prize has to be somewhere, so a player who keeps missing still finds it in the
-            // last chest rather than one chest early. This is the regression guard for the divisor
-            // in TryGiveChestPrize: drop its +1 and the win lands on chest N-1 instead.
+            // The prize has to be somewhere. Regression guard for the divisor in TryGiveChestPrize:
+            // drop its +1 and the win lands on chest N-1 instead.
             ConfigureAndInject();
             _controller.NewGame();
             _random.NextValue = 1f; // the unluckiest possible draw, every time
@@ -323,8 +317,7 @@ namespace Company.ChestGame.Tests.EditMode
         [Test]
         public void EveryChest_CanHoldThePrize()
         {
-            // The counterpart to the test above: no position is excluded from winning. Each run
-            // misses on every earlier chest, then draws 0 on the target one.
+            // The counterpart: no position is excluded from winning.
             for (int target = 0; target < 4; target++)
             {
                 SetUp();

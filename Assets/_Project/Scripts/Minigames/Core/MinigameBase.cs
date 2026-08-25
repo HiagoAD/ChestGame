@@ -9,16 +9,12 @@ namespace Company.ChestGame.Minigame.Core
 {
     public abstract class MinigameBaseSO : ScriptableObject
     {
-        // The id the game shell asks for. It is authored on the asset rather than derived from the
-        // container type, which is what lets the shell start a minigame without referencing the
-        // assembly that defines it. Serialized fields on an abstract ScriptableObject base do
-        // serialize, so every concrete definition asset carries this slot.
+        // Authored rather than derived from the container type, which is what lets the shell start
+        // a minigame without referencing the assembly that defines it.
         [SerializeField] private string _id;
 
         // The label every asset this minigame owns carries, and how its content is meant to arrive.
-        // Authored here because the descriptor is the only thing that both names a minigame and is
-        // cheap to hold: it is what makes "which content belongs to this minigame" answerable
-        // without loading any of it.
+        // See docs/content-delivery.md.
         [SerializeField] private string _contentLabel;
         [SerializeField] private MinigameLoadPolicy _loadPolicy;
 
@@ -27,15 +23,8 @@ namespace Company.ChestGame.Minigame.Core
         public MinigameLoadPolicy LoadPolicy => _loadPolicy;
 
         // The one place the blank-label rule is stated, because both delivery paths need it and
-        // they used to answer it differently: the preloader warned and the on-demand fetch skipped
-        // in silence, so whether an unauthored slot was visible depended on which policy it was
-        // paired with.
-        //
-        // Warned rather than thrown, following CatalogBuilder on a blank id: one unauthored slot
-        // should not stop the game booting, and the minigame still starts — its content simply is
-        // not fetched as a unit. Warned rather than ignored because the failure is otherwise
-        // completely silent: a minigame set to preload with no label never preloads, and nothing
-        // anywhere goes red.
+        // used to answer it differently. Warned rather than thrown, following CatalogBuilder on a
+        // blank id, and warned rather than ignored because the failure is otherwise silent.
         public bool TryGetContentLabel(out string label)
         {
             label = _contentLabel;
@@ -51,19 +40,13 @@ namespace Company.ChestGame.Minigame.Core
         public abstract Type ContainerType { get; }
         public abstract MinigameContainer GetMinigameContainer();
 
-        // The one hook a concrete minigame has for handing its controller whatever only it knows
-        // about, its own config document being the reason this exists. It runs from the container's
-        // BeginAsync, before the controller is injected, so a controller can build state from its
-        // own content and still be injected on top of it. A minigame needing nothing overrides
-        // nothing.
-        //
-        // Asynchronous because that content is behind an AssetReference now: the descriptor names
-        // it rather than holding it, so it is not there until something asks.
+        // The one hook a concrete minigame has for handing its controller what only it knows about.
+        // Runs from BeginAsync before the controller is injected, so a controller can build state
+        // from its own content and still be injected on top of it.
         public virtual UniTask ConfigureControllerAsync(
             MinigameControllerBase controller, IAssetProvider assets, CancellationToken ct) => UniTask.CompletedTask;
 
-        // The other half of the hook. Whatever ConfigureControllerAsync loaded is dropped here, so
-        // the container's End stays synchronous: it releases asset handles, never instances.
+        // The other half of the hook: whatever ConfigureControllerAsync loaded is dropped here.
         public virtual void ReleaseContent(IAssetProvider assets) { }
     }
 
@@ -72,18 +55,17 @@ namespace Company.ChestGame.Minigame.Core
     where TView : MinigameViewBase
     where TMinigame : MinigameContainer, new()
     {
-        // A reference, not the prefab. An AssetReference serializes as a GUID string rather than as
-        // an object reference, so this asset names the view without depending on it, and loading
-        // the descriptor no longer drags the minigame's whole bundle in behind it. That indirection
-        // is the entire mechanism; a direct field would undo it silently.
+        // A reference, not the prefab. It serializes as a GUID rather than an object reference, so
+        // loading the descriptor does not drag the minigame's bundle in behind it. A direct field
+        // would undo that silently.
         [SerializeField] private AssetReferenceGameObject _viewRef;
 
         public AssetReferenceGameObject ViewRef => _viewRef;
 
         public override Type ContainerType => typeof(TMinigame);
 
-        // Construction only: nothing here loads, because a reference cannot be resolved
-        // synchronously. Everything content-shaped happens together in MinigameContainer.BeginAsync.
+        // Construction only: a reference cannot be resolved synchronously, so everything
+        // content-shaped happens in MinigameContainer.BeginAsync.
         public override MinigameContainer GetMinigameContainer()
         {
             TMinigame minigame = new();

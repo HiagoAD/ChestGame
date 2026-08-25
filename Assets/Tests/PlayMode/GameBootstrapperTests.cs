@@ -22,15 +22,10 @@ using VContainer.Unity;
 
 namespace Company.ChestGame.Tests.PlayMode
 {
-    // The boot flow, run for real: the boot scene builds the root scope, the bootstrapper loads the
-    // content, and only then does the game scene open with a scope that can see it.
-    //
-    // This is also where the shipped assets get checked, rather than in GameLifetimeScopeTests:
-    // resolving IGameConfig or IMinigameCatalog means having booted, and booting means a scene.
-    //
-    // It is the integration proof for Addressables for the same reason. Every key the game ships is
-    // resolved by the boot flow, so a broken group, a missing entry or an address that does not
-    // match its constant fails here rather than in a second, loader-shaped copy of this fixture.
+    // The boot flow, run for real, and where the shipped assets get checked: resolving IGameConfig
+    // or IMinigameCatalog means having booted, and booting means a scene. It is the Addressables
+    // integration proof for the same reason, since every key the game ships is resolved by the boot
+    // flow.
     public class GameBootstrapperTests
     {
         private const string BOOT_SCENE = "Boot";
@@ -41,8 +36,8 @@ namespace Company.ChestGame.Tests.PlayMode
         {
             yield return SceneManager.LoadSceneAsync(BOOT_SCENE);
 
-            // A settled state, not a mid-flight one: the loop waits for the game scene to be the
-            // active one and everything asserted below is true once it is.
+            // A settled state, not a mid-flight one: everything asserted below is true once the
+            // game scene is active.
             float deadline = Time.realtimeSinceStartup + 30f;
             while (SceneManager.GetActiveScene().name != GAME_SCENE && Time.realtimeSinceStartup < deadline)
             {
@@ -88,7 +83,8 @@ namespace Company.ChestGame.Tests.PlayMode
             Assert.IsNotNull(sceneScope.Parent, "the game scene's scope was not parented by EnqueueParent");
             Assert.IsNotNull(sceneScope.Container, "the game scene's scope never built its container");
 
-            // The scene scope registers nothing itself, so anything it resolves came down the chain.
+            // The scene scope registers nothing itself, so anything it resolves came down the
+            // chain.
             Assert.IsInstanceOf<MinigameManager>(sceneScope.Container.Resolve<IMinigameManager>());
             Assert.IsInstanceOf<CurrencyManager>(sceneScope.Container.Resolve<ICurrencyManager>());
         }
@@ -107,9 +103,8 @@ namespace Company.ChestGame.Tests.PlayMode
         public void GameConfig_ResolvesAndParsesTheShippedConfigDocument()
         {
             // Reaches the shipped GameConfig document through the registered source and through
-            // Addressables, which makes this the one test that would catch the shipped config
-            // going missing, unaddressable or malformed.
-            // Booting at all is most of the assertion: every failure in there throws.
+            // Addressables, so this is what catches it going missing, unaddressable or malformed.
+            // Booting at all is most of the assertion.
             IGameConfig config = Resolve<IGameConfig>();
 
             Assert.IsInstanceOf<LocalJsonGameConfig>(config);
@@ -137,9 +132,8 @@ namespace Company.ChestGame.Tests.PlayMode
         public void ThePopupParentPrefab_ReachedTheProviderThroughTheContentThatWasLoaded()
         {
             // The fourth source, and the only one whose result nothing else here would notice going
-            // missing: the provider holds the prefab and does not touch it until a popup is shown,
-            // so a boot that loaded nothing would still resolve. Asking for the canvas is what
-            // forces the prefab to have been real.
+            // missing: the provider holds the prefab untouched until a popup is shown. Asking for
+            // the canvas is what forces the prefab to have been real.
             IPopupParentProvider provider = Resolve<IPopupParentProvider>();
 
             Assert.IsInstanceOf<PopupParentProvider>(provider);
@@ -150,12 +144,10 @@ namespace Company.ChestGame.Tests.PlayMode
         public IEnumerator TheShippedChestsMinigame_BeginsFromTheContentItsDefinitionNamesRatherThanHolds()
             => UniTask.ToCoroutine(async () =>
         {
-            // The chests view and config are behind AssetReferences now: the definition asset
-            // carries two GUID strings and no object reference, so a wrong GUID, an entry dropped
-            // from the group or a broken indirection surfaces nowhere until a minigame is actually
-            // begun. Beginning one for real, through real Addressables, is the proof — and it is
-            // the same proof that the whole configure-load-inject-instantiate order works outside a
-            // fixture holding fakes.
+            // The chests view and config are behind AssetReferences, so a wrong GUID or an entry
+            // dropped from the group surfaces nowhere until a minigame is begun. Beginning one for
+            // real is the proof, and the same proof that configure-load-inject-instantiate works
+            // outside a fixture holding fakes.
             IMinigameManager manager = Resolve<IMinigameManager>();
             GameObject parent = new("ChestsMinigameParent");
 
@@ -183,8 +175,7 @@ namespace Company.ChestGame.Tests.PlayMode
         public void TheShippedChestsMinigame_NamesItsOwnContent()
         {
             // The two fields the delivery paths read, pinned against the group they describe:
-            // nothing else in the suite would notice the label drifting away from the one the
-            // group's entries actually carry.
+            // nothing else would notice the label drifting from the one the entries carry.
             IMinigameCatalog catalog = Resolve<IMinigameCatalog>();
             MinigameBaseSO definition = catalog.Minigames[typeof(ChestsMinigame)];
 
@@ -196,9 +187,8 @@ namespace Company.ChestGame.Tests.PlayMode
         [Test]
         public void TheSceneObjects_AreInjectedFromBothHalvesOfTheSplit()
         {
-            // The trap in splitting the scope: the root scope cannot resolve IMinigameManager at
-            // all, so the auto-inject list has to live on the scene scope. GameManager needs the
-            // loaded half, CurrencyWatcher needs the core half, and both are injected from there.
+            // The trap in splitting the scope: the root scope cannot resolve IMinigameManager, so
+            // the auto-inject list has to live on the scene scope.
             GameManager gameManager = Object.FindAnyObjectByType<GameManager>();
             Assert.IsNotNull(gameManager, "the game scene no longer contains a GameManager");
             Assert.IsNotNull(InjectedField(gameManager, "_minigamesManager"),
@@ -220,8 +210,8 @@ namespace Company.ChestGame.Tests.PlayMode
             return scope;
         }
 
-        // The injected references are private, as they should be. Reading them back is the only way
-        // to assert that auto-injection actually reached these objects.
+        // The injected references are private, so reading them back is the only way to assert
+        // auto-injection reached these objects.
         private static object InjectedField(object target, string fieldName)
         {
             FieldInfo field = target.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic);

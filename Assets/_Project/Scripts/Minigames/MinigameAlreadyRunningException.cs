@@ -2,13 +2,9 @@ using Company.ChestGame.Common;
 
 namespace Company.ChestGame.Minigame
 {
-    // BeginAsync was called on a container that is already running. A caller bug rather than a
-    // delivery failure: the shell asks the manager for a container and starts it once, and the
-    // manager hands out a fresh one per request, so reaching this means someone kept a container
-    // and started it twice.
-    //
-    // Typed and thrown rather than skipped quietly because the quiet version leaks. Each start
-    // takes a ref-count on the view, and the single End that follows can only give one back.
+    // BeginAsync on a container that is already running: a caller bug, since the manager hands out
+    // a fresh container per request. Thrown rather than skipped quietly because the quiet version
+    // leaks: each start takes a ref-count on the view that the single End cannot give back.
     public class MinigameAlreadyRunningException : ChestGameException
     {
         public string MinigameId { get; }

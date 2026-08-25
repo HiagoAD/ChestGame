@@ -7,8 +7,8 @@ using Cysharp.Threading.Tasks;
 
 namespace Company.ChestGame.Minigame.Internal
 {
-    // Fetches the authored minigame list through the asset provider. The only place that knows the
-    // key.
+    // Fetches the authored minigame list through the asset provider, and the only place that knows
+    // the key.
     public class AddressablesMinigameListSource : IMinigameListSource
     {
         private const string LIST_KEY = "Minigames/MinigameList";

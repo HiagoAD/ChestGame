@@ -6,7 +6,8 @@ boot or on demand. That is the scope of this file.
 
 The session before it built the assembly definitions and the test suite; its context is in
 [assemblies-and-tests.md](assemblies-and-tests.md), and most of what it recorded still applies.
-Read the README first for what the architecture *is*. These two files are why it got that way.
+Read [architecture.md](../architecture.md) first for what the architecture *is*. These two files
+are why it got that way.
 
 **Kept current.** Where later work changes something described here, update the description rather
 than appending a correction. Everything below is true of the project as it stands.
@@ -102,7 +103,7 @@ than merely being configured to.
 
 ## 3. What landed
 
-Four commits on top of `main` (`26ae095`), on `feature/addressables`:
+Six commits on top of `main` (`26ae095`), on `feature/addressables`:
 
 | Commit | What landed |
 |---|---|
@@ -110,6 +111,11 @@ Four commits on top of `main` (`26ae095`), on `feature/addressables`:
 | `2db6ecd` | The chests minigame gets its own assembly; the shell stops naming it |
 | `8704733` | Boot scene, the scope split, and the async boundary — still on `Resources` |
 | `6635a9a` | Addressables replaces `Resources`; the chests group goes remote |
+| `300d170` | `ENGINEERING_NOTES.md` split into the two files under `docs/context/` |
+| `42757c0` | The review findings in section 7: the ref-count leaks, the boot failure path, and the download deadlines |
+
+The first four are the work this file was written about. The last two landed after it and are folded
+into the sections below rather than described separately.
 
 **The config split.** Two documents, not one document with sections. `GameConfig.json` keeps what the
 game owns; `ChestsMinigameConfig.json` holds the three fields only the chests minigame cares about,
@@ -543,7 +549,7 @@ Raised during review, none ruled on. **Do not act on these without asking.**
    constrains nothing now that the view is an `AssetReferenceGameObject`.
 3. **The untyped `NullReferenceException`** on a right-GUID-wrong-prefab, described in section 10.
 4. **Filter the Addressables package's own test** out of `ci/run-tests.sh` via `-assemblyNames`, so
-   the EditMode count is 165 rather than a 166 that needs explaining.
+   the EditMode count is 176 rather than a 177 that needs explaining.
 
 Also open, and deliberately kept out of scope so it would not muddy these diffs: **`ICurrencyManager`
 leaks `ResourceBankCallbacks<CurrencyType>`**, forcing every consumer — including

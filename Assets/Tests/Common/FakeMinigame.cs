@@ -15,12 +15,12 @@ namespace Company.ChestGame.Tests.Common
     {
         public int ContainersCreated { get; private set; }
 
-        // What the containers this hands out point their view at. Settable because a definition
-        // names its content rather than holding it, and every test wants to name something else.
+        // What the containers this hands out point their view at. Settable, because a definition
+        // names its content rather than holding it.
         public AssetReferenceGameObject ViewReference { get; set; }
 
-        // What its content hook loads and lets go of, when a test wants one. Left unset, the
-        // definition is a minigame that owns no content of its own, which is also a real case.
+        // What its content hook loads and lets go of. Left unset, this is a minigame that owns no
+        // content, which is also a real case.
         public AssetReference ContentReference { get; set; }
 
         public int ConfigureCalls { get; private set; }
@@ -70,8 +70,7 @@ namespace Company.ChestGame.Tests.Common
 
         public bool Disposed => DisposeCalls > 0;
 
-        // Takes the resolver rather than a game service, so any container at all can satisfy it and
-        // counting injections costs a fixture nothing.
+        // Takes the resolver rather than a game service, so any container can satisfy it.
         [Inject]
         public void Inject(IObjectResolver resolver) => InjectCalls++;
 

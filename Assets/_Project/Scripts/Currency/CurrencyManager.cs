@@ -5,18 +5,9 @@ using TapNation.Modules.ResourceBank.Saving;
 
 namespace Company.ChestGame.Currency
 {
-    // Currency Manager to handle every currency in the game, with persistency. 
-    // More currencies can be added by modifying CurrencyType enum. 
-    // Relies on the ResourceBank library that can be found on:
-    // https://gitlab.com/tn-asset-library/resource-bank
-    //
-    // Provides key places to handle events, analytics, and custom saving methods (PlayerPrefs as default)
-    //
-    // A simplification made for this project was the removal of the ResourceBank.ResourceIdMap, that maps
-    // the enum values to strings, making the project more robust, avoinding the drawbacks of using an enum,
-    // like chaing the order or the name. For more reference, check
-    // Assets/AssetLibrary/ResourceBank/Examples/CurrencyManager/CurrencyManagerExample.cs
-
+    // Every currency in the game, with persistence, over the ResourceBank library. Add currencies
+    // by extending CurrencyType. See docs/architecture.md for what was simplified against the
+    // library's own example.
     public class CurrencyManager : ICurrencyManager
     {
         public event ResourceBankCallbacks<CurrencyType>.ResourceAmountChangedDelegate OnCurrencyChanged
@@ -48,29 +39,27 @@ namespace Company.ChestGame.Currency
 
         public void AddCurrency(CurrencyType currencyType, long amount, string source, string GAItemType = "")
         {
-            // The currency manager will just reject if amount = 0
-            // and will throw a Debug.LogError and reject if amount < 0,
-            // you might want to handle any special cases, especially if you want to consider 0 as a valid case,
-            // check the returns of this function for more granular information
+            // The bank rejects 0 silently and logs an error on a negative. Check the return value
+            // if 0 has to count as valid here.
             if (!_currencyBank.TryAddResourceAmount(currencyType, amount, source))
             {
                 Debug.LogError($"Failed to add {amount} {currencyType} to the bank");
                 return;
             }
 
-            // You might want to add analytics here, example:
+            // Analytics hook, example:
             // GameAnalytics.NewResourceEvent(GAResourceFlowType.Source, currencyType.ToString(), amount, GAItemType,
             //     _currencyManager.ResourceIdMap[currencyType]);
             Debug.Log($"Added {amount} {currencyType} to the bank");
         }
 
-        // This might be used together with a debugging system, so one or all currencies can be reset for testing
+        // For a debugging system: reset one or all currencies for testing.
         public void CHEAT_ResetCurrencyAmount(CurrencyType currencyType)
         {
             _currencyBank.TryToSpendResource(currencyType, _currencyBank.GetResourceAmount(currencyType), "CHEAT");
         }
 
-        // As a suggestion, this is a good place to spawn a popup offering the player to purchase the remaining currency
+        // A good place to offer the player a purchase for the remaining currency.
         public bool TrySpendCurrency(CurrencyType currencyType, long amount, string source, bool spawnCurrencyPurchasePopup = false, bool acceptZeroAmount = false)
         {
             ResourceBankError bankError = _currencyBank.TryToSpendResource(currencyType, amount, source, acceptZeroAmount);
@@ -85,7 +74,7 @@ namespace Company.ChestGame.Currency
                 return false;
             }
 
-            // You might want to add analytics here, example:
+            // Analytics hook, example:
             // GameAnalytics.NewResourceEvent(GAResourceFlowType.Sink, currencyType.ToString(), amount, nameof(ConsumableAddedType.Coin),
             //     source);
             Debug.Log($"Spend {amount} {currencyType} from the bank");

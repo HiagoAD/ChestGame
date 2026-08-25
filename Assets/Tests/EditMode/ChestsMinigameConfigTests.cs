@@ -9,9 +9,8 @@ using UnityEngine;
 
 namespace Company.ChestGame.Tests.EditMode
 {
-    // These failures belong to the chests minigame now, not to the game-wide config. The minigame
-    // owns its document, so it owns rejecting a document that would describe a round nobody can
-    // play: no chests to open, no attempts to open them with, or a negative timer.
+    // These failures belong to the chests minigame, not the game-wide config. It owns its document,
+    // so it owns rejecting a round nobody can play: no chests, no attempts, or a negative timer.
     public class ChestsMinigameConfigTests
     {
         [Test]
@@ -36,7 +35,7 @@ namespace Company.ChestGame.Tests.EditMode
         public void AnEmptyDocument_FailsLoudly()
         {
             // The message is asserted so this cannot be satisfied by the parsed-to-nothing branch
-            // further down, which an empty string would also reach.
+            // below, which an empty string would also reach.
             GameConfigException error = Assert.Throws<GameConfigException>(() => ChestsMinigameConfig.Parse(""));
             StringAssert.Contains("No chests minigame config document", error.Message);
         }
@@ -75,7 +74,7 @@ namespace Company.ChestGame.Tests.EditMode
         public void MissingRequiredFields_AreRejected()
         {
             // Absent fields deserialize to 0, which for AttempsCount means a round that can never
-            // end. Rejected at the boundary rather than surfacing as a stuck game later.
+            // end.
             GameConfigException error = Assert.Throws<GameConfigException>(
                 () => ChestsMinigameConfig.Parse(@"{ ""ChestCount"": 4 }"));
 
@@ -129,8 +128,8 @@ namespace Company.ChestGame.Tests.EditMode
         [Test]
         public void CreateWithAnOutOfRangeValue_IsRejectedJustLikeTheDocumentRoute()
         {
-            // Create is the direct construction path, so it has to be as guarded as Parse.
-            // Without it the type would be immutable but still constructible in an invalid state.
+            // Create is the direct construction path, so it has to be as guarded as Parse, or the
+            // type would be immutable but still constructible in an invalid state.
             GameConfigException error = Assert.Throws<GameConfigException>(
                 () => ChestsMinigameConfig.Create(chestCount: 0, attempsCount: 4, timeToOpenChestMiliseconds: 1000));
 
@@ -140,13 +139,9 @@ namespace Company.ChestGame.Tests.EditMode
         [Test]
         public void ADefinitionWithNoConfigDocument_FailsWithATypedException()
         {
-            // An empty inspector slot is the most common authoring mistake there is, and an unwired
-            // AssetReference is an empty GUID that would otherwise be reported as a missing asset
-            // naming nothing a reader could look up. The failure has to stay inside
-            // ChestGameException like every other, or a test asserting it proves nothing.
-            //
-            // It surfaces from the configure hook rather than from construction now: the document
-            // is behind a reference, so nothing about it can be known until the minigame begins.
+            // An unwired AssetReference is an empty GUID that would otherwise be reported as a
+            // missing asset naming nothing a reader could look up. It surfaces from the configure
+            // hook rather than construction, because the document is behind a reference.
             ChestsMinigameSO definition = ScriptableObject.CreateInstance<ChestsMinigameSO>();
             try
             {

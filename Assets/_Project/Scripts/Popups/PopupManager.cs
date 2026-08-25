@@ -6,9 +6,8 @@ using Object = UnityEngine.Object;
 
 namespace Company.ChestGame.Popups
 {
-    // Spawns popups from prefabs. Where those prefabs come from, and where they get parented, are
-    // both supplied rather than looked up here, which keeps this class to what it is actually
-    // about: picking a prefab, picking a parent, and handing the popup its data.
+    // Spawns popups from prefabs. Where those come from and where they get parented are both
+    // supplied, which leaves this class picking a prefab, picking a parent, handing over the data.
     public class PopupManager : IPopupManager
     {
         readonly private IPopupCatalog _catalog;

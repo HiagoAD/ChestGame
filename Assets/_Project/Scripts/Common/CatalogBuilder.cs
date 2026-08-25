@@ -4,15 +4,10 @@ using UnityEngine;
 
 namespace Company.ChestGame.Common
 {
-    // Shared construction for the game's catalogs. Authoring lists are hand-maintained, so they
-    // arrive with empty slots and, occasionally, repeats. An empty slot is skipped with a warning
-    // because the rest of the game is still playable; a repeat is fatal because there is no right
-    // answer for which entry wins.
-    //
-    // Each catalog keeps its own interface and property name; only this policy is shared, with the
-    // key selector left to the caller as the one thing that genuinely differs between them. The key
-    // type is generic too, so one entry list can be indexed more than once — the minigame catalog
-    // builds both a type-keyed and an id-keyed lookup over the same entries.
+    // Shared policy for the game's catalogs: an empty slot is skipped with a warning because the
+    // rest of the game is still playable, a repeat is fatal because there is no right answer for
+    // which entry wins. The TEntry constraint makes the null check use Unity's overloaded equality,
+    // which also catches destroyed objects.
     public static class CatalogBuilder
     {
         public static IReadOnlyDictionary<TKey, TEntry> Build<TKey, TEntry>(
@@ -39,14 +34,9 @@ namespace Company.ChestGame.Common
             return byKey;
         }
 
-        // The id-keyed variant, which needs one rule the generic build cannot express: an id that
-        // was never authored is blank, and blank is not a key. Skipping it with a warning follows
-        // the same reasoning as an empty slot — the rest of the game still runs, and the entry is
-        // still reachable through its type — and it stops two unauthored entries from colliding as
-        // a false duplicate. A duplicate of a real id still throws, for the usual reason.
-        //
-        // An empty slot is passed over silently here because the type-keyed build over the same
-        // entries has already warned about it; warning twice for one authoring mistake is noise.
+        // One rule the generic build cannot express: an id that was never authored is blank, and
+        // blank is not a key, so two unauthored entries would otherwise collide as a false
+        // duplicate. An empty slot passes silently because the type-keyed build already warned.
         public static IReadOnlyDictionary<string, TEntry> BuildById<TEntry>(
             IReadOnlyList<TEntry> entries, Func<TEntry, string> idOf, string catalogName)
             where TEntry : UnityEngine.Object

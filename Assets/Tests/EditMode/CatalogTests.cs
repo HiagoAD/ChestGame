@@ -12,11 +12,8 @@ using UnityEngine.TestTools;
 namespace Company.ChestGame.Tests.EditMode
 {
     // Authored lists are hand-maintained, so the states worth covering are the authoring mistakes:
-    // an empty inspector slot, and the same type listed twice. Both used to reach LINQ and surface
-    // as a NullReferenceException or a raw ArgumentException from inside a constructor.
-    //
-    // Splitting the catalogs from their Resources loaders is what makes these reachable at all:
-    // the entries go in as a plain list, with no asset involved.
+    // an empty inspector slot, and the same type listed twice. Splitting the catalogs from their
+    // loaders is what makes these reachable, since the entries go in as a plain list.
     public class CatalogTests
     {
         private readonly List<Object> _created = new();
@@ -92,8 +89,8 @@ namespace Company.ChestGame.Tests.EditMode
         [Test]
         public void MinigameCatalog_WithTheSameTypeTwice_ThrowsInvalidCatalog()
         {
-            // OnValidate only guards edits made through the inspector; a merge or a hand-edited
-            // YAML can still produce this.
+            // OnValidate only guards inspector edits; a merge or a hand-edited YAML can still
+            // produce this.
             List<MinigameBaseSO> entries = new() { NewMinigame(), NewMinigame() };
 
             InvalidCatalogException error = Assert.Throws<InvalidCatalogException>(() => new MinigameCatalog(entries));
@@ -103,9 +100,9 @@ namespace Company.ChestGame.Tests.EditMode
 
         // --- Minigame catalog, keyed by id -------------------------------------------------
 
-        // The id lookup is what lets the game shell start a minigame without naming its type, so
-        // the same authoring mistakes have to be answered for again, and the answers differ: a
-        // duplicate id is still fatal, but an unauthored one only costs that entry its id.
+        // The id lookup is what lets the shell start a minigame without naming its type, and the
+        // answers differ here: a duplicate id is still fatal, but an unauthored one only costs that
+        // entry its id.
 
         [Test]
         public void MinigameCatalog_IndexesEntriesByAuthoredId()
@@ -122,8 +119,7 @@ namespace Company.ChestGame.Tests.EditMode
         public void MinigameCatalog_WithTheSameIdTwice_ThrowsInvalidCatalog()
         {
             // Distinct container types on purpose: the type-keyed build runs first, so two entries
-            // sharing a type would throw before the id lookup was ever reached, and this test would
-            // pass without proving anything about ids.
+            // sharing a type would throw before the id lookup was reached.
             List<MinigameBaseSO> entries = new()
             {
                 NewMinigame<FirstIdOnlyMinigameSO>("chests"),
@@ -138,9 +134,8 @@ namespace Company.ChestGame.Tests.EditMode
         [Test]
         public void MinigameCatalog_WithABlankId_SkipsItFromTheIdLookupWithoutThrowing()
         {
-            // Same reasoning as an empty slot: the entry is still reachable by type and the rest of
-            // the game runs, so this warns rather than bricking startup. It also keeps two
-            // unauthored entries from colliding as a duplicate that was never authored at all.
+            // Same reasoning as an empty slot: the entry is still reachable by type, and it keeps
+            // two unauthored entries from colliding as a duplicate nobody wrote.
             LogAssert.Expect(LogType.Warning,
                 "Minigame list has an entry with no id at index 0, skipping it from the id lookup");
 
@@ -201,8 +196,8 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.AreSame(second, catalog.Popups[typeof(OtherCatalogTestPopup)]);
         }
 
-        // Two definitions that differ only in container type, so a duplicate id can be built
-        // without the type-keyed lookup throwing first.
+        // Two definitions differing only in container type, so a duplicate id can be built without
+        // the type-keyed lookup throwing first.
         private class FirstIdOnlyMinigameSO : MinigameBaseSO
         {
             public override System.Type ContainerType => typeof(FirstIdOnlyContainer);

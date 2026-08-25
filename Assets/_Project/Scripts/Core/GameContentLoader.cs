@@ -9,11 +9,9 @@ using Cysharp.Threading.Tasks;
 
 namespace Company.ChestGame.Core
 {
-    // Pulls every piece of content the game needs before its services exist.
-    //
-    // Deliberately a plain class with no scene, scope or MonoBehaviour anywhere in it. The part of
-    // booting that cannot be tested — a scene load and a container being built from Awake — is the
-    // bootstrapper, and it is kept to three lines by everything real living here instead.
+    // Pulls every piece of content the game needs before its services exist. A plain class with no
+    // scene, scope or MonoBehaviour in it, which is what keeps the untestable part of booting down
+    // to the three lines in the bootstrapper.
     public class GameContentLoader
     {
         private readonly IGameConfigSource _configSource;
@@ -33,9 +31,8 @@ namespace Company.ChestGame.Core
             _popupParentSource = popupParentSource;
         }
 
-        // Read sequentially rather than in parallel. Nothing here is slow enough for the difference
-        // to matter yet, and one at a time means a failure names the source that caused it instead
-        // of whichever of four raced to the exception first.
+        // Sequential rather than parallel: nothing here is slow enough for the difference to
+        // matter, and a failure names the source that caused it.
         public async UniTask<LoadedContent> LoadAsync(CancellationToken ct)
         {
             string gameConfigDocument = await _configSource.ReadAsync(ct);

@@ -13,13 +13,10 @@ using UnityEngine;
 
 namespace Company.ChestGame.Tests.EditMode
 {
-    // Each of the four sources has exactly one job left: know its own key, and hand back what came
-    // out of the provider. Both halves are asserted here against FakeAssetProvider, so the whole
-    // fixture runs with no Addressables catalog, no bundle and no player loop — which is the point
-    // of there being a provider seam at all.
-    //
-    // That the shipped keys really do resolve through Addressables is GameBootstrapperTests'
-    // business, in play mode, where a real loader can exist.
+    // Each of the four sources has one job: know its own key, and hand back what came out of the
+    // provider. Both halves are asserted against FakeAssetProvider, so this runs with no catalog,
+    // no bundle and no player loop. That the shipped keys really resolve is GameBootstrapperTests'
+    // business.
     public class AddressablesContentSourceTests
     {
         private const string CONFIG_KEY = "GameConfig";
@@ -189,9 +186,9 @@ namespace Company.ChestGame.Tests.EditMode
         [Test]
         public void ThePopupParentSource_GivenAPrefabWithNoPopupParentOnIt_FailsWithATypedException()
         {
-            // The key resolving to the wrong prefab is an authoring mistake, not an engine one, so
-            // it has to arrive as this game's exception rather than as a NullReferenceException
-            // from whoever first dereferences the result.
+            // The key resolving to the wrong prefab is an authoring mistake, so it has to arrive as
+            // this game's exception rather than a NullReferenceException from whoever dereferences
+            // the result.
             GameObject wrongPrefab = Track(new GameObject("NotAPopupParent"));
             _assets.With(POPUP_PARENT_KEY, wrongPrefab);
 
@@ -224,10 +221,9 @@ namespace Company.ChestGame.Tests.EditMode
         private SourceTestPopup NewPopup() =>
             Track(new GameObject(nameof(SourceTestPopup))).AddComponent<SourceTestPopup>();
 
-        // The authoring lists keep their entries in a private serialized field, as they should:
-        // nothing in the game writes one. Filling it in is the same "reflect the field in" pattern
-        // MinigameDefinitionAuthoring uses, and it is what lets the assertion be identity rather
-        // than merely "something came back".
+        // The authoring lists keep their entries in a private serialized field, so filling it in
+        // uses the same reflect-the-field-in pattern MinigameDefinitionAuthoring does. That is what
+        // lets the assertion be identity rather than "something came back".
         private TListAsset ListAssetWith<TListAsset, TEntry>(string fieldName, List<TEntry> entries)
             where TListAsset : ScriptableObject
         {

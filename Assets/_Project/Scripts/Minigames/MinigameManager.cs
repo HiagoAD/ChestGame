@@ -31,8 +31,7 @@ namespace Company.ChestGame.Minigame
             return Build(minigameSO) as TMinigame;
         }
 
-        // Same construction, reached without naming a container type. A caller holding only an id
-        // gets the base container back and drives it through the framework's own surface.
+        // Same construction, reached without naming a container type.
         public MinigameContainer Get(string id)
         {
             if (id == null || !_minigameDefsById.TryGetValue(id, out MinigameBaseSO minigameSO))
@@ -45,9 +44,8 @@ namespace Company.ChestGame.Minigame
 
         private MinigameContainer Build(MinigameBaseSO minigameSO)
         {
-            // The container only: nothing is loaded and nothing is configured yet, so injecting
-            // the controller here would land before its own content did. That ordering is the
-            // container's to keep now, inside BeginAsync.
+            // The container only: injecting the controller here would land before its own content
+            // did. That ordering belongs to BeginAsync.
             MinigameContainer wrapper = minigameSO.GetMinigameContainer();
             _resolver.Inject(wrapper);
 

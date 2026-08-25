@@ -8,17 +8,11 @@ using Object = UnityEngine.Object;
 
 namespace Company.ChestGame.Tests.Common
 {
-    // Stands in for the whole loading technology. This is what keeps the edit-mode suite from ever
-    // touching Addressables, the same way FakeGameClock keeps it off the player loop: a source can
-    // be asked what key it wants and what it does with the answer, with no catalog, no bundle and
-    // no initialization behind it.
-    //
-    // It hands back what a test put in, records every key and reference asked for so a caller's one
-    // job — knowing what it wants — is assertable, and can be told to fail the way a real fetch
-    // fails. Releases are recorded too, because "what did teardown let go of" is otherwise
-    // invisible: a released handle leaves no trace on the caller. Downloads are recorded the same
-    // way and for the same reason: the whole point of the delivery work is what is asked for and in
-    // what order, and none of that is observable from the assets that come back.
+    // Stands in for the whole loading technology, which is what keeps the edit-mode suite off
+    // Addressables the way FakeGameClock keeps it off the player loop. It hands back what a test
+    // put in, records every key, reference, release and download asked for, and can be told to fail
+    // the way a real fetch fails. Releases and downloads are recorded because neither leaves a
+    // trace on the caller.
     public class FakeAssetProvider : IAssetProvider
     {
         private readonly Dictionary<string, Object> _assetsByKey = new();
@@ -34,26 +28,20 @@ namespace Company.ChestGame.Tests.Common
         public List<string> DownloadedLabels { get; } = new();
 
         // Both delivery routes in one ordered log, because the order between them is a design
-        // decision — every size is asked for before anything is fetched — and two separate lists
-        // cannot show whether they interleaved.
+        // decision: every size is asked for before anything is fetched.
         public List<string> ContentCalls { get; } = new();
 
-        // Delivered through the returned task rather than thrown from the call, which is how a
-        // provider that actually waits on something would report a failure.
+        // Delivered through the returned task rather than thrown from the call, the way a provider
+        // that actually waits would report a failure.
         public Exception FailWith { get; set; }
 
-        // Downloading has its own knob, so a test can let the size query succeed and fail only the
-        // fetch — which is the shape of a real delivery failure and the only way to reach the code
-        // that runs between the two.
+        // Its own knob, so a test can let the size query succeed and fail only the fetch, which is
+        // the only way to reach the code that runs between the two.
         public Exception FailDownloadWith { get; set; }
 
         // A download that neither finishes nor fails, which is the failure mode a deadline exists
-        // for and the one no other knob here can produce: a stalled request holds its socket open
-        // and answers nothing, so a caller with no deadline waits for the rest of the session.
-        //
-        // It still ends when the token it was handed is cancelled, exactly as the real provider
-        // does — without that, a deadline would have nothing to act on and could not be observed
-        // from a test at all.
+        // for. It still ends when the token it was handed is cancelled, exactly as the real
+        // provider does.
         public bool StallDownloads { get; set; }
 
         public CancellationToken LastToken { get; private set; }
@@ -70,16 +58,16 @@ namespace Company.ChestGame.Tests.Common
             return this;
         }
 
-        // How much this label still has to fetch. Zero unless a test says otherwise, because
-        // "nothing left to download" is the ordinary answer a real provider gives.
+        // Zero unless a test says otherwise, because "nothing left to download" is the ordinary
+        // answer.
         public FakeAssetProvider WithDownloadSize(string label, long size)
         {
             _downloadSizes[label] = size;
             return this;
         }
 
-        // Failing one reference rather than everything, which is the only way to reach the state
-        // where a load already succeeded and the next one did not.
+        // Failing one reference rather than everything, the only way to reach the state where a
+        // load already succeeded and the next one did not.
         public FakeAssetProvider FailingOn(AssetReference reference, Exception exception)
         {
             _failuresByReference[reference] = exception;
@@ -96,8 +84,8 @@ namespace Company.ChestGame.Tests.Common
                 return UniTask.FromException<TAsset>(FailWith);
             }
 
-            // Nothing authored at the key hands back null rather than throwing, so the guards the
-            // sources keep for an empty slot stay reachable from a test.
+            // Null rather than a throw, so the guards the sources keep for an empty slot stay
+            // reachable.
             _assetsByKey.TryGetValue(key, out Object asset);
             return UniTask.FromResult(asset as TAsset);
         }
@@ -158,8 +146,8 @@ namespace Company.ChestGame.Tests.Common
                 return stalled.Task;
             }
 
-            // A download that finishes reports that it finished. Without it a caller aggregating
-            // several labels would look correct while never having been driven at all.
+            // A download that finishes reports that it finished, or a caller aggregating several
+            // labels would look correct while never having been driven.
             progress?.Report(1f);
             return UniTask.CompletedTask;
         }

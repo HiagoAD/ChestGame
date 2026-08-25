@@ -58,8 +58,8 @@ namespace Company.ChestGame.Minigame.Chests.Internal
         private int _attempts = 0;
 
 
-        // The minigame's own config, handed over by ChestsMinigameSO before the controller is
-        // injected. It has to land first, because the chest list is sized from it.
+        // Handed over by ChestsMinigameSO before injection. It has to land first, because the chest
+        // list is sized from it.
         public void Configure(ChestsMinigameConfig config)
         {
             _timeToOpenChestMiliseconds = config.TimeToOpenChestMiliseconds;
@@ -92,9 +92,7 @@ namespace Company.ChestGame.Minigame.Chests.Internal
             OnAttemptsChanged = null;
         }
 
-        // As a new game starts, if some chest was opening, cancels it.
-        // Closes all chests, to support restart games. This approach doesn't
-        // support the number of chests changing between games.       
+        // Supports restarts, but not the number of chests changing between games.
         public override void NewGame()
         {
             CancelOpeningToken();
@@ -109,12 +107,8 @@ namespace Company.ChestGame.Minigame.Chests.Internal
             CurrentState = State.Playing;
         }
 
-        // When a chest is clicked, checks if the game is still active,
-        // and if the chest can be unlocked. If so, cancels any opening chest,
-        // and spawns the two tasks that handles its states (opening and open).
-        // A very small optimization that could be done is to save the delay at
-        // the start. Doing this way it gives support for the time varying between
-        // pulls/games
+        // Spawns the two tasks that drive the chest, opening and open, under one token. The delay is
+        // read per click rather than cached, which supports the time varying between pulls.
         public void OnChestClicked(ChestsMinigameChestModel chest)
         {
             if (CurrentState != State.Playing) return;
@@ -135,9 +129,7 @@ namespace Company.ChestGame.Minigame.Chests.Internal
             UniTask.WhenAll(tasks).Forget();
         }
 
-        // Because of the Unity archtecture, even if two touches were registered at the same time,
-        // they would be handled in series, one after the other, avoiding the need of a true multithreading
-        // solution with locks
+        // No locks needed: Unity handles two simultaneous touches in series, one after the other.
         private void CancelOpeningToken()
         {
             if (_openingCancelationTokenSource != null)
@@ -153,9 +145,8 @@ namespace Company.ChestGame.Minigame.Chests.Internal
             _openingCancelationTokenSource = null;
         }
 
-        // The task that handles the opening state. IGameClock.NextFrame lasts exactly one update
-        // loop, the same way a `yield return null` does on a Coroutine, so the time between loops
-        // is one frame's delta.
+        // IGameClock.NextFrame lasts exactly one update loop, the way `yield return null` does on a
+        // coroutine, so the time between loops is one frame's delta.
         private async UniTask UpdateOpeningProgress(ChestsMinigameChestModel chest, int millisecondsDelay, CancellationToken cancellationToken)
         {
             float totalTime = millisecondsDelay / 1000f;
@@ -169,8 +160,6 @@ namespace Company.ChestGame.Minigame.Chests.Internal
             }
         }
 
-        // The task that handles the open state, in a simple way, just setting a Delay, then
-        // calling OpenChest
         private async UniTask WaitAndOpenChest(ChestsMinigameChestModel chest, int millisecondsDelay, CancellationToken cancellationToken)
         {
             await _clock.Delay(millisecondsDelay, cancellationToken);
@@ -189,16 +178,12 @@ namespace Company.ChestGame.Minigame.Chests.Internal
             CheckEndGame(hasChestPrize);
         }
 
-        // The prize location is calculated every run to avoid memory inspection.
-        // Altho unrealistic, and if any anti-hacker efforts were to be done
-        // there would need a lot more than this, was left for demonstration purposes.
-        // The simpler approach would be to just save the winner chest index at the new game.
+        // The prize location is drawn per attempt rather than stored, to avoid memory inspection.
         //
-        // The odds model exactly one prize hidden among the chests: with N chests and k already
-        // opened empty, the one being opened now holds it with probability 1/(N - k). Attempts has
-        // already been incremented for the current chest at this point, so k is (Attempts - 1) and
-        // the divisor is (Chests.Count - Attempts + 1). Dropping the +1 would make the odds reach
-        // certainty one chest early, so the final chest could never hold the prize.
+        // The odds model exactly one prize among the chests: with N chests and k already opened
+        // empty, this one holds it with probability 1/(N - k). Attempts is already incremented by
+        // here, so k is (Attempts - 1). Dropping the +1 makes the odds reach certainty one chest
+        // early and the last chest could never hold the prize.
         private bool TryGiveChestPrize()
         {
             float prizeChance = 1 / (float)(Chests.Count - Attempts + 1);

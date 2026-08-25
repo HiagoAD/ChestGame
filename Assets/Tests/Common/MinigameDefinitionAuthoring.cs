@@ -6,9 +6,8 @@ using UnityEngine.AddressableAssets;
 namespace Company.ChestGame.Tests.Common
 {
     // MinigameBaseSO's authored fields are serialized and private, so a definition built with
-    // CreateInstance carries empty ones. Tests write them directly, the same "reflect the field in"
-    // pattern ChestElementViewLifetimeTests uses for a view's serialized references. Keeping it
-    // here means no production type has to open a setter it does not otherwise need.
+    // CreateInstance carries empty ones. Tests write them directly, which means no production type
+    // has to open a setter it does not otherwise need.
     public static class MinigameDefinitionAuthoring
     {
         private static readonly FieldInfo IdField =
@@ -17,8 +16,8 @@ namespace Company.ChestGame.Tests.Common
         public static TDefinition WithId<TDefinition>(this TDefinition definition, string id)
             where TDefinition : MinigameBaseSO
         {
-            // A rename of the field would otherwise surface as a NullReferenceException from a
-            // helper nobody suspects, in every test that authors an id.
+            // A rename would otherwise surface as a NullReferenceException from a helper nobody
+            // suspects.
             if (IdField == null)
             {
                 throw new MissingFieldException(
@@ -29,9 +28,8 @@ namespace Company.ChestGame.Tests.Common
             return definition;
         }
 
-        // The two fields the delivery work reads. Authored together because they are one decision:
-        // a label with no policy names content nothing will fetch, and a policy with no label is
-        // the mistake the preloader warns about.
+        // The two fields the delivery work reads, authored together because they are one decision:
+        // a label with no policy names content nothing will fetch.
         public static TDefinition WithContent<TDefinition>(
             this TDefinition definition, string contentLabel, MinigameLoadPolicy loadPolicy)
             where TDefinition : MinigameBaseSO
@@ -56,8 +54,8 @@ namespace Company.ChestGame.Tests.Common
             field.SetValue(definition, value);
         }
 
-        // The view reference lives on the generic base rather than on MinigameBaseSO, so the field
-        // is found by walking up from the concrete definition's own type.
+        // The view reference lives on the generic base, so the field is found by walking up from
+        // the concrete definition's own type.
         public static TDefinition WithViewReference<TDefinition>(this TDefinition definition, AssetReferenceGameObject viewRef)
             where TDefinition : MinigameBaseSO
         {

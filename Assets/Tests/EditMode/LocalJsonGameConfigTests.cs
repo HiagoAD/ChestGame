@@ -6,16 +6,10 @@ using NUnit.Framework;
 
 namespace Company.ChestGame.Tests.EditMode
 {
-    // The failure surface here is the point: a real remote config can hand back nothing, a
-    // truncated payload, or a document whose fields have moved. Splitting fetching from parsing is
-    // what makes each of those reachable without an actual network or asset.
-    //
-    // The config takes the document rather than a source, so parsing stays a synchronous
-    // constructor and none of this needs a task. That the document is fetched exactly once, from
-    // every source, is GameContentLoaderTests' business now.
-    //
-    // What this document carries is now only what the whole game shares. The chests minigame's own
-    // values, and their range rules, live in ChestsMinigameConfigTests.
+    // The failure surface is the point: a real remote config can hand back nothing, a truncated
+    // payload, or a document whose fields have moved. The config takes the document rather than a
+    // source, so parsing stays a synchronous constructor. This document carries only what the whole
+    // game shares; the chests values live in ChestsMinigameConfigTests.
     public class LocalJsonGameConfigTests
     {
         [Test]
@@ -64,7 +58,7 @@ namespace Company.ChestGame.Tests.EditMode
         public void UnknownFields_AreIgnoredSoTheConfigCanGrowServerSide()
         {
             // A server rolling out a new field must not break clients that predate it. The chests
-            // minigame's own fields are one such case now: this document no longer knows them.
+            // minigame's own fields are one such case: this document no longer knows them.
             LocalJsonGameConfig config = new(@"{
                 ""GemsReward"": 10,
                 ""CoinsReward"": 50,
@@ -79,8 +73,7 @@ namespace Company.ChestGame.Tests.EditMode
         [Test]
         public void ANegativeReward_IsRejected()
         {
-            // A negative reward would be handed to AddCurrency, which rejects and logs an error on
-            // every single win.
+            // A negative reward reaches AddCurrency, which rejects and logs an error on every win.
             GameConfigException error = Assert.Throws<GameConfigException>(
                 () => new LocalJsonGameConfig(DocumentWith(coinsReward: -50)));
 

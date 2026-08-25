@@ -5,11 +5,7 @@ using UnityEngine.UI;
 
 namespace Company.ChestGame.Minigame.Chests.Internal
 {
-    // Simple implementation of the Chest, only controlling the view based on the state,
-    // and providing a simple callback for interaction.
-    //
-    // The Opening state offer a slider to display the amount of time remaining
-
+    // Drives one chest from its model state, with a slider during the opening state.
     public class ChestsMinigameChestElementView : MonoBehaviour
     {
 
@@ -43,9 +39,8 @@ namespace Company.ChestGame.Minigame.Chests.Internal
             OnStateChanged(_model.CurrentState);
         }
 
-        // The model outlives this view: it belongs to the controller, while this object dies with
-        // the minigame's view hierarchy. Without this, a chest tearing down would leave the model
-        // holding a handler that drives a destroyed MonoBehaviour on the next state change.
+        // The model belongs to the controller and outlives this view, so without this a chest
+        // tearing down would leave it driving a destroyed MonoBehaviour.
         private void OnDestroy()
         {
             if (_model != null)

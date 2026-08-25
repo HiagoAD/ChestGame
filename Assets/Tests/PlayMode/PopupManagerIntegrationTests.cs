@@ -13,14 +13,10 @@ using UnityEngine.TestTools;
 
 namespace Company.ChestGame.Tests.PlayMode
 {
-    // PopupManager's own logic is covered in edit mode against a real catalog and a fake parent, and
-    // the sources' key handling in edit mode against a fake provider. What is left here is the part
-    // that genuinely needs the engine and the shipped content: that the Addressables-backed sources
-    // resolve the keys the game actually ships, and that a real popup prefab instantiates under the
-    // canvas the provider builds from the prefab they hand back.
-    //
-    // Everything is a UnityTest because these loads really do wait: SynchronousUniTask would
-    // refuse them, which is exactly the signal it exists to give.
+    // PopupManager's own logic and the sources' key handling are covered in edit mode. What is left
+    // here needs the engine and the shipped content: that the Addressables-backed sources resolve
+    // the keys the game ships, and that a real prefab instantiates under the canvas the provider
+    // builds. UnityTests throughout, because these loads really do wait.
     public class PopupManagerIntegrationTests
     {
         private GameObject _spawnedRoot;
@@ -91,8 +87,7 @@ namespace Company.ChestGame.Tests.PlayMode
             Assert.IsNotNull(popup.transform.parent, "popups land under the shared canvas when no parent is given");
         });
 
-        // The real provider, not a fake: the whole point of these four is that the shipped keys
-        // resolve through Addressables.
+        // The real provider, not a fake: the point of these four is that the shipped keys resolve.
         private static readonly IAssetProvider AssetProvider = new AddressablesAssetProvider();
 
         private static UniTask<IReadOnlyList<PopupBase>> ShippedPopupEntries() =>
