@@ -1,0 +1,26 @@
+{
+    "name": "Company.ChestGame.Minigame.Chests",
+    "rootNamespace": "Company.ChestGame.Minigame.Chests",
+    "references": [
+        "Company.ChestGame.Common",
+        "Company.ChestGame.Assets",
+        "Company.ChestGame.Minigame",
+        "Company.ChestGame.Rewards",
+        "UniTask",
+        "Unity.TextMeshPro",
+        "UnityEngine.UI",
+        "VContainer",
+        "Unity.Addressables"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": true,
+    "precompiledReferences": [
+        "Newtonsoft.Json.dll"
+    ],
+    "autoReferenced": false,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

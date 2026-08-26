@@ -1,0 +1,20 @@
+{
+    "name": "Company.ChestGame.Assets",
+    "rootNamespace": "Company.ChestGame.Assets",
+    "references": [
+        "Company.ChestGame.Common",
+        "UniTask",
+        "UniTask.Addressables",
+        "Unity.Addressables",
+        "Unity.ResourceManager"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": true,
+    "precompiledReferences": [],
+    "autoReferenced": false,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

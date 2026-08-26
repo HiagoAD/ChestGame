@@ -2,16 +2,26 @@ using System;
 
 namespace Company.ChestGame.Common
 {
-    // A catalog asset was found but describes something the game cannot use, such as the same type
-    // listed twice. Distinct from a missing asset: the file is there, its contents are wrong.
+    // A catalog asset was found and its contents are wrong, such as the same key listed twice. The
+    // key is carried as object because the catalogs index by different things: a container type for
+    // the type-keyed lookups, an authored string id for the id-keyed one.
     public class InvalidCatalogException : ChestGameException
     {
-        public Type OffendingType { get; }
+        public object OffendingKey { get; }
 
-        public InvalidCatalogException(string catalogName, Type offendingType)
-            : base($"{catalogName} lists {offendingType.Name} more than once")
+        // Kept for callers that only ever key by type; null when the catalog keys by something else.
+        public Type OffendingType => OffendingKey as Type;
+
+        public InvalidCatalogException(string catalogName, object offendingKey)
+            : base(MessageFor(catalogName, offendingKey))
         {
-            OffendingType = offendingType;
+            OffendingKey = offendingKey;
         }
+
+        // Anything that is not a type is quoted, because a blank-looking id would be invisible.
+        private static string MessageFor(string catalogName, object offendingKey) =>
+            offendingKey is Type type
+                ? $"{catalogName} lists {type.Name} more than once"
+                : $"{catalogName} lists '{offendingKey}' more than once";
     }
 }

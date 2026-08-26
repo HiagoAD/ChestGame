@@ -8,9 +8,9 @@ using UnityEngine.UI;
 
 namespace Company.ChestGame.Tests.PlayMode
 {
-    // A chest's model belongs to the controller and outlives the view showing it. This pins the
-    // ownership rule that makes tearing a minigame down safe: when the element view dies it must
-    // let go of the model, or the next state change drives a destroyed MonoBehaviour.
+    // A chest's model belongs to the controller and outlives the view showing it, so when the
+    // element view dies it must let go of the model or the next state change drives a destroyed
+    // MonoBehaviour.
     public class ChestElementViewLifetimeTests
     {
         private GameObject _viewObject;
@@ -21,8 +21,8 @@ namespace Company.ChestGame.Tests.PlayMode
             if (_viewObject != null) Object.Destroy(_viewObject);
         }
 
-        // The view's serialized references are wired by the prefab in the real game; here they are
-        // set directly, with the object inactive so Awake does not run before they exist.
+        // Wired by the prefab in the real game; set directly here, with the object inactive so
+        // Awake does not run before they exist.
         private ChestsMinigameChestElementView BuildView()
         {
             _viewObject = new GameObject("Chest");
@@ -30,9 +30,8 @@ namespace Company.ChestGame.Tests.PlayMode
 
             ChestsMinigameChestElementView view = _viewObject.AddComponent<ChestsMinigameChestElementView>();
 
-            // Children, as they are in the real prefab. This matters: they have to die with the
-            // view, otherwise a leaked subscription would keep working against live objects and
-            // the leak would go unnoticed.
+            // Children, as in the real prefab: they have to die with the view, or a leaked
+            // subscription would keep working against live objects and go unnoticed.
             Set(view, "_chestImage", AddChild<Image>("Image"));
             Set(view, "_timerSlider", AddChild<Slider>("Slider"));
             Set(view, "_button", AddChild<Button>("Button"));
@@ -63,8 +62,7 @@ namespace Company.ChestGame.Tests.PlayMode
             Object.Destroy(_viewObject);
             yield return null;
 
-            // If the view were still subscribed, this would reach into its destroyed Image and
-            // Slider and throw MissingReferenceException.
+            // A still-subscribed view would reach into its destroyed Image and Slider and throw.
             Assert.DoesNotThrow(() => model.SetOpening(0.5f));
             Assert.DoesNotThrow(() => model.SetOpen(true));
         }

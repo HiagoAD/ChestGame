@@ -2,7 +2,10 @@
     "name": "Company.ChestGame.Config",
     "rootNamespace": "Company.ChestGame.Config",
     "references": [
-        "Company.ChestGame.Common"
+        "Company.ChestGame.Common",
+        "Company.ChestGame.Assets",
+        "UniTask",
+        "Unity.Addressables"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

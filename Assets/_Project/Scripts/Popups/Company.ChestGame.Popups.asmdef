@@ -2,7 +2,12 @@
     "name": "Company.ChestGame.Popups",
     "rootNamespace": "Company.ChestGame.Popups",
     "references": [
-        "Company.ChestGame.Common"
+        "Company.ChestGame.Common",
+        "Company.ChestGame.Assets",
+        "UniTask",
+        "Unity.Addressables",
+        "Unity.TextMeshPro",
+        "UnityEngine.UI"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

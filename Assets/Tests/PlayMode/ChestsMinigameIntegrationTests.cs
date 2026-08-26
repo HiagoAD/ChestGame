@@ -2,6 +2,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using Company.ChestGame.Common;
+using Company.ChestGame.Minigame.Chests;
 using Company.ChestGame.Minigame.Chests.Internal;
 using Company.ChestGame.Tests.Common;
 using NUnit.Framework;
@@ -11,9 +12,8 @@ using UnityEngine.TestTools;
 namespace Company.ChestGame.Tests.PlayMode
 {
     // The chest logic is covered exhaustively in edit mode against a fake clock. What only play
-    // mode can prove is that the real clock, UnityGameClock on the player loop, drives that same
-    // flow. So these are a couple of smoke tests, and they assert settled states rather than
-    // mid-flight ones so a slow frame cannot turn into a spurious failure.
+    // mode can prove is that UnityGameClock on the player loop drives the same flow. Settled states
+    // rather than mid-flight ones, so a slow frame cannot turn into a spurious failure.
     public class ChestsMinigameIntegrationTests
     {
         private const int OpenMilliseconds = 200;
@@ -25,23 +25,20 @@ namespace Company.ChestGame.Tests.PlayMode
         [SetUp]
         public void SetUp()
         {
-            FakeGameConfig config = new()
-            {
-                ChestCount = 4,
-                AttempsCount = 4,
-                TimeToOpenChestMiliseconds = OpenMilliseconds
-            };
+            ChestsMinigameConfig config = ChestsMinigameConfig.Create(
+                chestCount: 4, attempsCount: 4, timeToOpenChestMiliseconds: OpenMilliseconds);
             _rewards = new FakeRewardsManager();
             _random = new FakeRandomProvider { NextValue = 1f };
             _controller = new ChestsMinigameController();
-            _controller.Inject(config, _rewards, _random, new UnityGameClock());
+            _controller.Configure(config);
+            _controller.Inject(_rewards, _random, new UnityGameClock());
         }
 
         [TearDown]
         public void TearDown() => _controller.Dispose();
 
-        // Ten times the open duration: enough slack that a domain reload or a cold CI runner cannot
-        // make this fail, while still bounded.
+        // Ten times the open duration: enough slack for a domain reload or a cold CI runner, still
+        // bounded.
         private static WaitForSeconds SettleTime() => new(OpenMilliseconds / 1000f * 10f);
 
         [UnityTest]
@@ -74,11 +71,9 @@ namespace Company.ChestGame.Tests.PlayMode
         [UnityTest]
         public IEnumerator OnTheRealPlayerLoop_NoProgressTickLandsAfterAChestOpens()
         {
-            // The progress loop and the open timer are two tasks resuming in the same frame, and
-            // nothing in the engine promises which goes first. If a late progress tick ever landed
-            // after the chest opened, an opened chest would flip back to Opening. The edit-mode
-            // suite cannot catch that: its clock chooses the ordering. So this records the real
-            // state sequence and asserts the chest never leaves an opened state.
+            // The progress loop and the open timer resume in the same frame and nothing promises
+            // which goes first, so a late progress tick would flip an opened chest back to Opening.
+            // The edit-mode suite cannot catch that, because its clock chooses the ordering.
             _controller.NewGame();
 
             List<ChestsMinigameChestModel.State> sequence = new();

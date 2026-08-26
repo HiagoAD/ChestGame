@@ -3,10 +3,8 @@ using Cysharp.Threading.Tasks;
 
 namespace Company.ChestGame.Common
 {
-    // Seam over the parts of the engine that make asynchronous gameplay tick: frame advance and
-    // elapsed time. Abstracting the clock is what lets the chest-opening flow, including its
-    // cancellation paths, be driven deterministically from a unit test instead of raced against a
-    // real stopwatch.
+    // Seam over frame advance and elapsed time, so the chest-opening flow and its cancellation
+    // paths can be driven from a unit test instead of raced against a real stopwatch.
     public interface IGameClock
     {
         // Seconds elapsed during the frame that just advanced.

@@ -1,0 +1,47 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: bbb281ee3bf0b054c82ac2347e9e782c, type: 3}
+  m_Name: Minigame.Chests
+  m_EditorClassIdentifier: Unity.Addressables.Editor::UnityEditor.AddressableAssets.Settings.AddressableAssetGroup
+  m_GroupName: Minigame.Chests
+  m_GUID: a87fb3b53d66e44cdac40e13a4885630
+  m_SerializeEntries:
+  - m_GUID: 128dc061435f24011abb5fd45547f77f
+    m_Address: Minigames/Chests/ChestElement
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - minigame.chests
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: 81154367956848ba80c1880b806e9a80
+    m_Address: Minigames/Chests/Config
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - minigame.chests
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: b7919230b6fce44fdac5a00b6fe576c1
+    m_Address: Minigames/Chests/Sprite
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - minigame.chests
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: fb6e7fffa2cdb4fd89d83dcbd3cf3b32
+    m_Address: Minigames/Chests/View
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - minigame.chests
+    FlaggedDuringContentUpdateRestriction: 0
+  m_ReadOnly: 0
+  m_Settings: {fileID: 11400000, guid: 4fe46cd38607b46bcba52c449df48a05, type: 2}
+  m_SchemaSet:
+    m_Schemas:
+    - {fileID: 11400000, guid: 38005d03328f54af9a5e5553e45c9860, type: 2}
+    - {fileID: 11400000, guid: 4c761248b502c43d18a945a0d80ff17a, type: 2}

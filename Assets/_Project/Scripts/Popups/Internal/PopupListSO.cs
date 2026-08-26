@@ -4,8 +4,7 @@ using UnityEngine;
 
 namespace Company.ChestGame.Popups.Internal
 {
-    // Pure authoring data: the list as the inspector holds it, holes and all. Turning that into a
-    // usable lookup, and deciding what counts as unusable, belongs to PopupCatalog.
+    // Pure authoring data, holes and all. Turning it into a lookup belongs to PopupCatalog.
     [CreateAssetMenu(menuName = "Popups/PopupList")]
     public class PopupListSO : ScriptableObject
     {
@@ -24,7 +23,7 @@ namespace Company.ChestGame.Popups.Internal
                 {
                     popups[i] = null;
                     // Reported rather than thrown: OnValidate runs during asset import and on every
-                    // inspector edit, where an exception aborts the surrounding Unity operation.
+                    // inspector edit, where an exception aborts the surrounding operation.
                     Debug.LogError($"INVALID ENTRY: Element at {i}, type already present", this);
                 }
                 else
