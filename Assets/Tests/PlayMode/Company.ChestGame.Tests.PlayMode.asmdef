@@ -15,6 +15,7 @@
         "Company.ChestGame.Currency",
         "Company.ChestGame.Minigame",
         "Company.ChestGame.Minigame.Chests",
+        "Company.ChestGame.Pooling",
         "Company.ChestGame.Popups",
         "Company.ChestGame.Rewards",
         "TapNation.Modules",

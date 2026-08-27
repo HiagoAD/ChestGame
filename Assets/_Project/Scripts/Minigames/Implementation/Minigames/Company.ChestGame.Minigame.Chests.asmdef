@@ -5,6 +5,7 @@
         "Company.ChestGame.Common",
         "Company.ChestGame.Assets",
         "Company.ChestGame.Minigame",
+        "Company.ChestGame.Pooling",
         "Company.ChestGame.Rewards",
         "UniTask",
         "Unity.TextMeshPro",

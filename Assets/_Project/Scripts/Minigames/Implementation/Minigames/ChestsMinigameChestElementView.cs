@@ -30,6 +30,10 @@ namespace Company.ChestGame.Minigame.Chests.Internal
             SetClosed();
         }
 
+        // Paired with Release, which the caller owes between two Inits. A pool hands the same
+        // instance out over and over, and the model it was showing last time has to have been let go
+        // by then. Releasing here as well would hide a caller that forgot, and would take the edge
+        // off the tests that prove the release path is the one doing the work.
         public void Init(ChestsMinigameChestModel model, Action<ChestsMinigameChestModel> callback)
         {
             _model = model;
@@ -39,14 +43,32 @@ namespace Company.ChestGame.Minigame.Chests.Internal
             OnStateChanged(_model.CurrentState);
         }
 
-        // The model belongs to the controller and outlives this view, so without this a chest
-        // tearing down would leave it driving a destroyed MonoBehaviour.
-        private void OnDestroy()
+        // The other half of Init, and what pooling needs that destruction alone did not. A released
+        // instance goes on existing - ParkedPool does not even deactivate it - so a subscription
+        // left behind would drive a chest this view is no longer showing, and a click would still
+        // reach the controller carrying the old model.
+        //
+        // Nothing visual is reset here, on purpose. Init drives the whole of it from the model it is
+        // handed, and clearing it here as well would let a broken Init still look right on whichever
+        // instance came after this one.
+        public void Release()
         {
             if (_model != null)
             {
                 _model.OnStateChanged -= OnStateChanged;
             }
+
+            _model = null;
+            _onClickCallback = null;
+        }
+
+        // The click listener is per instance, so it is added once in Awake and dropped once here.
+        // The subscription is per acquire and goes out through the same path a release takes, so a
+        // view destroyed while it was still holding a model lets go of it too - the model belongs to
+        // the controller and outlives the view showing it.
+        private void OnDestroy()
+        {
+            Release();
 
             _button.onClick.RemoveListener(OnClick);
         }

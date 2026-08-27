@@ -1,9 +1,7 @@
 {
     "name": "Company.ChestGame.Pooling",
     "rootNamespace": "Company.ChestGame.Pooling",
-    "references": [
-        "Company.ChestGame.Common"
-    ],
+    "references": [],
     "includePlatforms": [],
     "excludePlatforms": [],
     "allowUnsafeCode": false,

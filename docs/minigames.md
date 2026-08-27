@@ -102,7 +102,7 @@ rather than code:
 
 Code, in a new assembly:
 
-1. An `.asmdef`. `Company.ChestGame.Minigame.Chests` carries nine references, and a new one needs the
+1. An `.asmdef`. `Company.ChestGame.Minigame.Chests` carries ten references, and a new one needs the
    same set minus whatever it genuinely does not use.
 2. A container type: `public class YourMinigame : MinigameContainer { }`. Needed because `TMinigame`
    is constrained `new()` and the catalog keys on the container type, so two minigames cannot share
@@ -192,14 +192,61 @@ makes the odds reach certainty one chest early, so the last chest could never ho
 
 ### The views
 
-`ChestsMinigameView` instantiates chest prefabs and reacts to controller events.
+`ChestsMinigameView` owns the board and reacts to controller events.
 `ChestsMinigameChestElementView` drives one chest from its model state and offers a slider during the
 opening state.
 
-Both unsubscribe in `OnDestroy`. The models belong to the controller and outlive the views showing
-them, so without that a chest tearing down would leave its model holding a handler that drives a
-destroyed MonoBehaviour on the next state change. The controller normally clears its own events in
-`Dispose` first, but a view torn down on its own must not leave handlers behind either.
+The models belong to the controller and outlive the views showing them, so a view that stops showing
+a model has to let go of it, or the next state change drives a MonoBehaviour that is destroyed or
+parked. `ChestsMinigameView` unsubscribes in `OnDestroy`; the controller normally clears its own
+events in `Dispose` first, but a view torn down on its own must not leave handlers behind either.
+
+#### A chest has two lifetimes now
+
+Pooling splits the element view in half, because `Awake` runs once per instance while an acquire runs
+on every reuse:
+
+- The click listener is per instance. `Awake` adds it, `OnDestroy` drops it.
+- The model subscription is per acquire. `Init` subscribes, `Release` unsubscribes and drops both the
+  model and the click callback, and `OnDestroy` routes through `Release` so a destroyed view lets go
+  of its model too.
+
+`Init` does not release first. A caller owes a `Release` between two `Init`s, and guarding it there
+would hide a caller that forgot and would blunt the tests that prove the release path is the one
+doing the work. `Release` resets nothing visual either: `Init` drives the whole of it from the model
+it is handed, so clearing it twice would let a broken `Init` still look right.
+
+A released chest that kept its subscription is the pooling bug that looks like nothing: the instance
+is still alive, throws nothing, and simply follows a chest it is no longer showing. Under
+`ParkedPool` it is not even deactivated, so a button that kept its callback would still reach the
+controller.
+
+#### The board is rebuilt every game
+
+`NewGame` releases the whole board back to the pool and takes it again. The rebuild used to be skipped
+because it was expensive, and making it cheap is what the pool is for - a rebuild that never happens
+is a saving nobody can measure.
+
+The pool comes from `Company.ChestGame.Pooling` behind a `[SerializeField] PoolStrategy`, defaulting
+to `ActivationPool` because that is the conventional answer rather than because it measured best. It
+is owned by the view and disposed in `OnDestroy`: the chest prefab lives in the chests bundle, which
+`MinigameContainer.End` releases, so a pooled instance outliving the view would be holding assets that
+can be unloaded. Its bound is the board size, because the board is handed back whole and taken again
+whole.
+
+The holder the pool parks under is built at runtime as a child of the view, with a `Canvas` component
+switched off. It cannot go under `_chestsParent`, which carries the `GridLayoutGroup` - parking under
+a layout group is most of the cost pooling was meant to remove - and it cannot be deactivated, because
+`ParkedPool` refuses an inactive holder for the same reason it exists. A disabled `Canvas` draws
+nothing, keeps every GameObject under it active, cuts the subtree out of the canvas above, and carries
+no `GraphicRaycaster`, so nothing parked can be clicked.
+
+The fill runs through `FrameBudgetedLoop` (see [architecture.md](architecture.md)), so a large board
+costs a few cheap frames rather than one long one. Each fill gets a `CancellationTokenSource` linked
+to the view's destroy token, cancelled by the next fill and by teardown. The cancellation path
+deliberately hands nothing back: the only two things that cancel a fill are the next fill, which
+releases the board before it starts anyway, and teardown, where the continuation resumes after
+`OnDestroy` has already disposed the pool.
 
 `ChestsMinigameChestModel.SetOpening` and `SetOpen` are both guarded so an opened chest never walks
 back to `Opening`. The two tasks driving a chest resume in the same frame, so a progress tick arriving

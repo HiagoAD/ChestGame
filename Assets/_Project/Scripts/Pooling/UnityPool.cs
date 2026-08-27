@@ -73,9 +73,9 @@ namespace Company.ChestGame.Pooling
 
         public void Release(T instance)
         {
-            // This check has to be the one that reports: ObjectPool's own collection check throws
-            // InvalidOperationException, which is not under ChestGameException, so a test could
-            // only assert Exception against it.
+            // This check has to be the one that reports: ObjectPool's own collection check throws a
+            // bare InvalidOperationException, which names nothing and which a test could only assert
+            // loosely. PoolException is a subclass of that, so what a caller catches stays specific.
             if (instance == null || !_handedOut.Remove(instance)) throw PoolException.NotHandedOut(instance);
 
             // Past the bound ObjectPool destroys the surplus itself, through actionOnDestroy.

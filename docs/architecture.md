@@ -12,6 +12,7 @@ compile instead of quietly working.
 
 ```
 Company.ChestGame.Common      _Project/Scripts/Common/     leaf: engine seams, exceptions, catalog policy
+Company.ChestGame.Pooling     _Project/Scripts/Pooling/    leaf: the prefab pool seam and its four strategies
 Company.ChestGame.Assets      _Project/Scripts/Assets/     the only assembly that calls Addressables
 Company.ChestGame.Config      _Project/Scripts/Config/
 Company.ChestGame.Currency    _Project/Scripts/Currency/
@@ -40,6 +41,14 @@ boundary is what makes "what belongs to this minigame" a question the compiler a
 addressable group does the same job for the assets. See
 [content-delivery.md](content-delivery.md).
 
+`Company.ChestGame.Pooling` is the other leaf, and it references no other assembly at all. It knows
+nothing about chests, minigames or UI: it is a seam over where an instance comes from, with a
+hand-rolled pool, a reparenting one, a wrapper over the engine's `ObjectPool` and an
+`Instantiate`/`Destroy` baseline behind it. It is deliberately synchronous and frame-agnostic -
+spreading a large fill over frames is the caller's job, through `FrameBudgetedLoop`. The two meet at
+the call site rather than in each other, which is why `Common` has no pooling reference and `Pooling`
+has no UniTask one.
+
 `Common` is deliberately a leaf and references only UniTask. The engine seams below would otherwise
 be a natural fit for `Core`, but `Core` already depends on `Rewards`, and `Rewards` needs the seams,
 so putting them there would close a reference cycle.
@@ -55,6 +64,15 @@ frames.
 are the production implementations, registered in the root scope alongside everything else that needs
 no loaded asset to exist. Both clock waits respect `Time.timeScale`, so pausing the game pauses any
 chest mid-open.
+
+`IGameClock` answers three things, and the third is the odd one. `DeltaTime` and the two waits are
+about frames; `ElapsedMilliseconds` is a monotonic reading that also moves *within* a frame, which
+`Time.deltaTime` cannot do because it is fixed for the whole of one. `FrameBudgetedLoop` is what
+needs it: it runs N units of work and yields a frame whenever the time spent since this frame started
+passes a budget, so a screen spawning hundreds of objects costs several cheap frames instead of one
+visible hitch. A budget in time rather than a count per frame is the whole point of it - a count
+makes every caller finish in the same number of frames whatever a unit costs it, which erases exactly
+the difference a comparison between two ways of doing the work is looking for.
 
 This is the piece the rest of the testing story hangs on. Because the chest-opening flow draws time
 and randomness through these, the whole thing, two parallel UniTasks and every cancellation path,
@@ -278,6 +296,16 @@ wrong), `GameConfigException`, `MinigameNotFoundException`, `MinigameAlreadyRunn
 No bare `throw new Exception` remains in game code. A test asserting "this throws" should not be
 satisfied by an unrelated `NullReferenceException` from somewhere inside the call, and a caller
 should be able to tell a missing asset from a malformed one.
+
+Two typed failures sit deliberately **outside** that base: `PoolException` and `FrameBudgetException`,
+both under `InvalidOperationException`. Being under `ChestGameException` is not a label in this
+project, it is behaviour — `GameManager` catches exactly that base, turns whatever it caught into a
+content-unavailable popup and treats it as handled, on the understanding that anything outside it is
+a bug and is left to blow up where it can be seen. Everything those two types report is a wiring
+mistake: an unassigned prefab slot, a holder that was never built, a view that was never injected.
+Reporting one of those as a delivery failure would tell a player their connection is bad and swallow
+the bug that caused it. `PrefabPoolTests` and `FrameBudgetedLoopTests` each pin that with an
+`IsNotInstanceOf<ChestGameException>`, so a later tidy-up of the hierarchy cannot quietly undo it.
 
 `InvalidCatalogException` carries its offending key as `object`, because the catalogs index by
 different things: a container type for the type-keyed lookups, an authored string id for the

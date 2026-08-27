@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Text.RegularExpressions;
+using Company.ChestGame.Common;
 using Company.ChestGame.Pooling;
 using NUnit.Framework;
 using UnityEngine;
@@ -518,6 +519,22 @@ namespace Company.ChestGame.Tests.EditMode
             public int DisableCount;
 
             private void OnDisable() => DisableCount++;
+        }
+
+        // --- What a pool failure must not be ------------------------------------------------
+
+        [Test]
+        public void PoolException_IsDeliberatelyNotUnderChestGameException()
+        {
+            // GameManager catches ChestGameException, turns whatever it caught into "could not
+            // download this minigame", and treats it as handled. Nothing a pool reports is a delivery
+            // failure - this one is a prefab slot nobody filled - so moving this back under that base
+            // would show a player a download error for a wiring bug and swallow the bug with it.
+            PoolException failure = Assert.Throws<PoolException>(
+                () => new ActivationPool<RectTransform>(null, _holder, 4));
+
+            Assert.IsNotInstanceOf<ChestGameException>(failure,
+                "or the shell would report a wiring bug to the player as a content download failure and carry on");
         }
 
         // --- UnityPool: what the wrapper has to keep for itself ------------------------------
