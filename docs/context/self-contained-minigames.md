@@ -502,7 +502,7 @@ play-mode ordering test, `FakeGameClock`'s caveat, and `ICurrencyManager` leakin
 
 Stated plainly, because the gap matters more than the green suite does.
 
-**Verified.** Both suites from a clean `ci-results/`: **177 EditMode + 34 PlayMode, exit 0.** 176 of
+**Verified.** Both suites from a clean `ci-results/`: **255 EditMode + 50 PlayMode, exit 0.** 254 of
 the EditMode tests are ours; the Addressables package ships one editor test of its own
 (`AddressableAssets.DocExampleCode.TestStub.RequiredTest`) and Unity picks it up. Every new test was
 checked by mutation. The content build was verified at bundle level:
@@ -549,7 +549,7 @@ Raised during review, none ruled on. **Do not act on these without asking.**
    constrains nothing now that the view is an `AssetReferenceGameObject`.
 3. **The untyped `NullReferenceException`** on a right-GUID-wrong-prefab, described in section 10.
 4. **Filter the Addressables package's own test** out of `ci/run-tests.sh` via `-assemblyNames`, so
-   the EditMode count is 176 rather than a 177 that needs explaining.
+   the EditMode count is 254 rather than a 255 that needs explaining.
 
 Also open, and deliberately kept out of scope so it would not muddy these diffs: **`ICurrencyManager`
 leaks `ResourceBankCallbacks<CurrencyType>`**, forcing every consumer — including

@@ -13,6 +13,7 @@ compile instead of quietly working.
 ```
 Company.ChestGame.Common      _Project/Scripts/Common/     leaf: engine seams, exceptions, catalog policy
 Company.ChestGame.Pooling     _Project/Scripts/Pooling/    leaf: the prefab pool seam and its four strategies
+Company.ChestGame.Pooling.Demo _Project/Scripts/PoolingDemo/ the standalone race panel; nothing in the game references it
 Company.ChestGame.Assets      _Project/Scripts/Assets/     the only assembly that calls Addressables
 Company.ChestGame.Config      _Project/Scripts/Config/
 Company.ChestGame.Currency    _Project/Scripts/Currency/
@@ -48,6 +49,23 @@ hand-rolled pool, a reparenting one, a wrapper over the engine's `ObjectPool` an
 spreading a large fill over frames is the caller's job, through `FrameBudgetedLoop`. The two meet at
 the call site rather than in each other, which is why `Common` has no pooling reference and `Pooling`
 has no UniTask one.
+
+`Company.ChestGame.Pooling.Demo` races all four strategies against each other at once so the
+difference between them can be watched rather than asserted. It is a demonstration and nothing else:
+it is not referenced by the game, by the chests minigame, or by anything except the test suite, and
+deleting the folder and its prefab would leave the game working. It races whatever prefab its
+serialized field points at - the chest element included - and ships a plain tile as the default,
+because a square reads better at two thousand items than a detailed sprite does.
+
+It lives as a prefab at the root of `Game.unity`, carrying its own Canvas, its own `CanvasScaler` and
+its own `PanelSettings`, so it owns its scaling and sorting instead of inheriting whatever it was
+dropped under. Its chrome is authored - `PoolingDemo.uxml` for the tree, `PoolingDemo.uss` for the
+styling, both under `_Project/UI/PoolingDemo/` - and the panel class only binds to it: query by name,
+set text, toggle a class. The lanes stay uGUI and stay built at runtime, because they hold real pooled
+Components and a `VisualElement` can host neither a Component nor a GameObject. The two systems meet
+at one place: an empty `lanes-slot` element that the stylesheet sizes, which the panel measures and
+moves the uGUI lanes onto. That is deliberate - the alternative is a height constant kept in step with
+the stylesheet by hand.
 
 `Common` is deliberately a leaf and references only UniTask. The engine seams below would otherwise
 be a natural fit for `Core`, but `Core` already depends on `Rewards`, and `Rewards` needs the seams,

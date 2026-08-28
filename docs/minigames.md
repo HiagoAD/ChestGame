@@ -228,7 +228,9 @@ because it was expensive, and making it cheap is what the pool is for - a rebuil
 is a saving nobody can measure.
 
 The pool comes from `Company.ChestGame.Pooling` behind a `[SerializeField] PoolStrategy`, defaulting
-to `ActivationPool` because that is the conventional answer rather than because it measured best. It
+to `ParkedPool` because it measured fastest on exactly this rebuild - the numbers, and why `SetActive`
+is what costs the difference under uGUI, are in
+[design-decisions.md](design-decisions.md#why-parkedpool-is-the-default). It
 is owned by the view and disposed in `OnDestroy`: the chest prefab lives in the chests bundle, which
 `MinigameContainer.End` releases, so a pooled instance outliving the view would be holding assets that
 can be unloaded. Its bound is the board size, because the board is handed back whole and taken again
@@ -240,6 +242,12 @@ a layout group is most of the cost pooling was meant to remove - and it cannot b
 `ParkedPool` refuses an inactive holder for the same reason it exists. A disabled `Canvas` draws
 nothing, keeps every GameObject under it active, cuts the subtree out of the canvas above, and carries
 no `GraphicRaycaster`, so nothing parked can be clicked.
+
+The view uses the pool and knows nothing about the demonstration of it. The four-way race lives in
+`Company.ChestGame.Pooling.Demo` as its own prefab in `Game.unity`, and this assembly does not
+reference it - see [architecture.md](architecture.md#assembly-layout). It used to be an overlay this
+view built, which meant the minigame carried a reference to a demo it did not need and the demo could
+only be seen by entering the minigame.
 
 The fill runs through `FrameBudgetedLoop` (see [architecture.md](architecture.md)), so a large board
 costs a few cheap frames rather than one long one. Each fill gets a `CancellationTokenSource` linked

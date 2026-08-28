@@ -162,6 +162,38 @@ engine's, and it is kept visible rather than papered over.
 The default was `ActivationPool` until these numbers existed, on the grounds that a comparison rather
 than a guess should choose it. The comparison chose `ParkedPool`.
 
+### The demonstration is separate from the thing it demonstrates
+
+The chests minigame uses a pool. The four-way race that shows why lives in
+`Company.ChestGame.Pooling.Demo`, as its own prefab at the root of `Game.unity`, and the minigame does
+not reference it.
+
+It began as an overlay `ChestsMinigameView` built, which is the arrangement that seems obvious and is
+wrong in both directions. The minigame carried an assembly reference to a demonstration it did not
+need, so "what does the chests minigame depend on" stopped having an honest answer. And the demo could
+only be reached by starting a minigame, which made a general claim about pooling look like a fact
+about chests. Splitting them costs one prefab in a scene and buys a minigame whose dependencies are
+all load-bearing, and a demo that races whatever prefab it is handed.
+
+### Why the demo's UI is authored rather than built in code
+
+The panel was built entirely in C# first, and that was a real constraint rather than a preference:
+while it attached itself to an already-authored minigame prefab, referencing a `.uxml` or a
+`PanelSettings` meant either re-authoring that prefab or loading assets the game does not otherwise
+need. Building the tree in code was the only way to cost the prefab nothing.
+
+Once the demo owned its own prefab that constraint was gone, and what it had been costing was worth
+naming. Inline styles have no selectors, so every rule is repeated per element; no pseudo-classes, so
+no control could have a hover or a press state at all; and no live preview, so every visual change
+meant a recompile, a play, and a screenshot. The chrome is now `PoolingDemo.uxml` and
+`PoolingDemo.uss` with a token palette, and the panel class only names states the stylesheet reacts
+to.
+
+The trade that replaces it: a stylesheet fails silently. A selector USS does not support - `:nth-child`
+is one - discards the entire file with nothing logged, and the panel renders in stock theme controls.
+That is why the play-mode fixture instantiates the real prefab and asks whether a tap actually lands
+on a control, rather than only whether the control exists.
+
 ### What the tests do and do not prove
 
 Every assertion about pooling in the suite is a **count**, never a duration: what a rebuild
