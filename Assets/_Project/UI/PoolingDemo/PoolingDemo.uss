@@ -1,0 +1,291 @@
+/* Design tokens. Everything below refers to these and never to a literal colour, so the whole
+   panel is re-themed by editing this one block. Sizes are against the 1080x1920 reference the
+   PanelSettings and the demo's own CanvasScaler both use. */
+:root {
+    --backdrop: rgb(14, 16, 22);
+    --surface: rgb(23, 26, 35);
+    --surface-raised: rgb(35, 39, 53);
+    --surface-hover: rgb(46, 51, 68);
+    --border: rgb(46, 52, 68);
+
+    --accent: rgb(59, 130, 246);
+    --accent-hover: rgb(96, 155, 250);
+    --accent-press: rgb(37, 99, 235);
+
+    --text: rgb(233, 236, 243);
+    --text-muted: rgb(138, 147, 168);
+    --on-accent: rgb(255, 255, 255);
+
+    /* One colour per lane, so a race reads as four things rather than one list. The last is the
+       no-pool baseline and is deliberately the odd one out. */
+    --lane-0: rgb(56, 189, 248);
+    --lane-1: rgb(52, 211, 153);
+    --lane-2: rgb(167, 139, 250);
+    --lane-3: rgb(251, 113, 133);
+
+    --radius: 14px;
+    --space: 8px;
+    --gutter: 24px;
+}
+
+/* --- Shell ------------------------------------------------------------------------------- */
+
+/* Absolute against all four edges rather than flex-grow: the document root holds two absolutely
+   positioned children, so nothing is in flow to size it and a grown child would resolve against
+   nothing. */
+.chrome {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    flex-direction: column;
+    background-color: var(--backdrop);
+    padding: var(--gutter);
+}
+
+.row {
+    flex-direction: row;
+    align-items: center;
+    height: 96px;
+    margin-bottom: 16px;
+    overflow: hidden;
+}
+
+.row--title {
+    height: 84px;
+    margin-bottom: var(--gutter);
+    justify-content: space-between;
+}
+
+.row--lanes {
+    height: 250px;
+    margin-bottom: var(--gutter);
+    align-items: stretch;
+}
+
+/* The lanes' own region. flex-grow takes whatever the rows above leave, and PoolingDemoPanel
+   moves the uGUI fill slots onto whatever rectangle that turns out to be. */
+.lanes-slot {
+    flex-grow: 1;
+}
+
+/* --- Type -------------------------------------------------------------------------------- */
+
+.heading {
+    flex-direction: column;
+}
+
+.title {
+    font-size: 38px;
+    color: var(--text);
+    -unity-font-style: bold;
+    letter-spacing: 1px;
+}
+
+.caption {
+    font-size: 19px;
+    color: var(--text-muted);
+    -unity-font-style: bold;
+    letter-spacing: 2px;
+}
+
+/* --- Buttons ----------------------------------------------------------------------------- */
+
+/* The base every control shares. min-height is the touch floor nothing may go under; the
+   transition is what makes a press read as a press rather than as a colour swap. */
+.btn {
+    min-height: 96px;
+    padding-left: 20px;
+    padding-right: 20px;
+    margin: 0;
+    margin-right: 12px;
+    border-width: 0;
+    border-radius: var(--radius);
+    white-space: nowrap;
+    -unity-text-align: middle-center;
+    transition-property: background-color, scale;
+    transition-duration: 0.12s;
+}
+
+.btn:active {
+    scale: 0.97 0.97;
+}
+
+/* The one filled control on the screen. On a page where everything else is a surface, the single
+   accent block is the call to action. */
+.btn--primary {
+    font-size: 30px;
+    min-width: 150px;
+    background-color: var(--accent);
+    color: var(--on-accent);
+    -unity-font-style: bold;
+}
+
+.btn--primary:hover {
+    background-color: var(--accent-hover);
+}
+
+.btn--primary:active {
+    background-color: var(--accent-press);
+}
+
+/* Outlined rather than filled: a secondary action that stays legible next to the primary one
+   without arguing with it. */
+.btn--ghost {
+    font-size: 26px;
+    min-width: 150px;
+    background-color: var(--surface-raised);
+    color: var(--text);
+    border-width: 1px;
+    border-color: var(--border);
+}
+
+.btn--ghost:hover {
+    background-color: var(--surface-hover);
+}
+
+.btn--wide { min-width: 210px; }
+.btn--wider { min-width: 230px; }
+
+/* One control made of several buttons, joined: no gaps, radius only on the outer corners, a
+   hairline at each seam. That reads as a single pick-one control, where the same four buttons
+   spaced apart read as four unrelated ones. */
+.segmented {
+    flex-direction: row;
+    overflow: hidden;
+    border-radius: var(--radius);
+    border-width: 1px;
+    border-color: var(--border);
+    margin-right: 12px;
+}
+
+.btn--segment {
+    font-size: 24px;
+    background-color: var(--surface-raised);
+    color: var(--text-muted);
+    border-radius: 0;
+    margin-right: 0;
+    border-left-width: 1px;
+    border-left-color: var(--border);
+}
+
+/* The group's own border already draws this edge. Carried by an explicit class rather than by
+   :nth-child or :first-child - USS supports neither, and a selector it cannot parse takes the whole
+   stylesheet down with it rather than just the one rule. */
+.btn--segment--first {
+    border-left-width: 0;
+}
+
+.btn--segment:hover {
+    background-color: var(--surface-hover);
+    color: var(--text);
+}
+
+/* Selection carried by fill and weight together, not by colour alone - this accent against this
+   surface is not a big enough step to be the only signal. */
+.btn--segment.is-selected {
+    background-color: var(--accent);
+    color: var(--on-accent);
+    -unity-font-style: bold;
+}
+
+/* The one control a collapsed demo leaves on screen, placed clear of the game's own currency HUD.
+   160px is a fixed constant with margin to spare, not a measurement of it. */
+.toggle {
+    position: absolute;
+    top: 160px;
+    right: var(--gutter);
+    min-width: 240px;
+    font-size: 26px;
+}
+
+/* --- Cards ------------------------------------------------------------------------------- */
+
+.card {
+    flex-direction: column;
+    background-color: var(--surface);
+    border-radius: var(--radius);
+    border-width: 1px;
+    border-color: var(--border);
+    padding: 16px;
+    overflow: hidden;
+}
+
+.readout {
+    height: 170px;
+    margin-bottom: var(--gutter);
+}
+
+.readout__text {
+    font-size: 22px;
+    color: var(--text);
+    white-space: normal;
+    margin-bottom: var(--space);
+}
+
+.readout__meta {
+    font-size: 20px;
+    color: var(--text-muted);
+    white-space: normal;
+}
+
+.lane-card {
+    flex-grow: 1;
+    flex-basis: 0;
+    flex-direction: column;
+    margin-right: 12px;
+    background-color: var(--surface);
+    border-radius: var(--radius);
+    border-width: 1px;
+    border-color: var(--border);
+    overflow: hidden;
+}
+
+/* Otherwise the row carries a trailing gutter its first card does not, and reads as shifted left
+   against the fill slots under it. */
+.lane-card--last {
+    margin-right: 0;
+}
+
+.lane-card__rule {
+    height: 5px;
+}
+
+.lane-card__rule--0 { background-color: var(--lane-0); }
+.lane-card__rule--1 { background-color: var(--lane-1); }
+.lane-card__rule--2 { background-color: var(--lane-2); }
+.lane-card__rule--3 { background-color: var(--lane-3); }
+
+.lane-card__body {
+    flex-direction: column;
+    flex-grow: 1;
+    padding: 12px;
+}
+
+.lane-card__name {
+    font-size: 22px;
+    -unity-font-style: bold;
+    white-space: normal;
+}
+
+.lane-card__name--0 { color: var(--lane-0); }
+.lane-card__name--1 { color: var(--lane-1); }
+.lane-card__name--2 { color: var(--lane-2); }
+.lane-card__name--3 { color: var(--lane-3); }
+
+/* The figure a race is actually watched for, promoted out of the list under it. Read off the
+   third line of four, every lane looked identical until it was actually read. */
+.lane-card__headline {
+    font-size: 34px;
+    color: var(--text);
+    -unity-font-style: bold;
+    margin-top: 4px;
+    margin-bottom: 4px;
+}
+
+.lane-card__metrics {
+    font-size: 20px;
+    color: var(--text-muted);
+    white-space: normal;
+}

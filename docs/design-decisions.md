@@ -111,3 +111,64 @@ A download that stalls never fails, so nothing throws and nothing returns. Both 
 the wait and turn only a deadline that fired on its own into a typed failure the player is told about.
 Caller cancellation stays cancellation. The reasoning, including why the preloader bounds each label
 rather than the whole walk, is in [content-delivery.md](content-delivery.md).
+
+## 14. Pooling, and why the board is rebuilt rather than kept
+
+`ChestsMinigameView` used to build its chests once and keep them, guarded by a null check. It now
+hands the whole board back and takes it again on every `NewGame`. That is the change pooling pays
+for: a rebuild that was skipped because it was expensive is a saving nobody can measure, and the
+board never reflecting a changed chest count was a latent bug hiding inside the optimisation.
+
+`Company.ChestGame.Pooling` is a leaf assembly with no project references at all. It knows nothing
+about chests, minigames or UI: it is a seam over where an instance comes from, with four
+implementations behind it. The baseline that pools nothing is one of them, deliberately, because a
+comparison against nothing is the only way "pooling helps" stops being an assertion.
+
+### Why ParkedPool is the default
+
+Measured on this machine, 500 instances of a four-object uGUI prefab, in `PoolBenchmark`:
+
+| strategy | first fill | rebuild | rebuild instantiates |
+|---|---|---|---|
+| DirectSpawner | 58.5 ms | 65.2 ms | 500 |
+| ActivationPool | 56.2 ms | 35.8 ms | 0 |
+| ParkedPool | 56.3 ms | **21.9 ms** | 0 |
+| UnityPool | 76.1 ms | 39.5 ms | 0 |
+
+Three things in that table are worth more than the headline.
+
+**A first fill buys nothing.** Every strategy pays for the same instantiations the first time, and the
+column shows it. A demonstration that hid this would be lying about when pooling starts helping.
+
+**`ParkedPool` beats `ActivationPool` by about 40% on the rebuild**, and that gap is its entire reason
+for existing. Both reuse the same instances; the only difference is that `ActivationPool` toggles
+`SetActive` and `ParkedPool` reparents instead. Under uGUI that toggle runs `OnEnable`/`OnDisable`
+down the whole instance and dirties the canvas and every layout group above it, twice per reuse. The
+cost of `SetActive` in UI is the thing most pool implementations never account for.
+
+The price is that a parked instance stays live: it still renders and still ticks. Hiding it is the
+holder's job, which is why the view builds one with a `Canvas` component switched off — that hides a
+subtree without deactivating a single GameObject, and an inactive holder is refused outright, because
+the hierarchy would deactivate everything parked under it and fire exactly the `OnDisable` the class
+exists to avoid. Away from a Canvas that trade is worse than the one it replaces, so `ActivationPool`
+is the right pick in world space.
+
+**`UnityPool` is the slowest cold**, ~35% behind the hand-rolled pools. `ObjectPool`'s factory
+callback is handed no context, so it cannot know whether the instance it is building is about to be
+handed out or parked — it has to park it, and the wrapper then undoes that. The other two branch on
+the miss and skip it. This is the one place where writing the pool yourself measurably beats the
+engine's, and it is kept visible rather than papered over.
+
+The default was `ActivationPool` until these numbers existed, on the grounds that a comparison rather
+than a guess should choose it. The comparison chose `ParkedPool`.
+
+### What the tests do and do not prove
+
+Every assertion about pooling in the suite is a **count**, never a duration: what a rebuild
+instantiates, whether a released instance was reused, whether a released chest stopped listening to
+its model. Counts are exact. A stopwatch on a shared machine is not, and a timing assertion is the
+flaky test that `docs/testing.md`'s play-mode rule exists to prevent.
+
+The table above therefore comes from `PoolBenchmark`, which measures and **logs** without asserting on
+any duration. Its only assertion is the deterministic one the timings are a consequence of: a pooled
+rebuild instantiates nothing and the baseline instantiates a full board.

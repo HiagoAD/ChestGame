@@ -24,9 +24,9 @@ namespace Company.ChestGame.Minigame.Chests.Internal
         [SerializeField] private TextMeshProUGUI _attemptsText;
         [SerializeField] private TextMeshProUGUI _controlMessage;
 
-        // ActivationPool because it is the conventional answer, not because it measured best. What
-        // should argue for changing it is a comparison, not a guess made before there was one.
-        [SerializeField] private PoolStrategy _poolStrategy = PoolStrategy.ActivationPool;
+        // Measured fastest on the rebuild this view does every NewGame. Numbers and reasoning in
+        // docs/design-decisions.md.
+        [SerializeField] private PoolStrategy _poolStrategy = PoolStrategy.ParkedPool;
 
         private readonly List<ChestsMinigameChestElementView> _chestInstances = new();
 
