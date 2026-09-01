@@ -8,10 +8,9 @@ using NUnit.Framework;
 
 namespace Company.ChestGame.Tests.EditMode
 {
-    // What this class has to get right is where the frames land, so every test here is about the
-    // split rather than about the work. FakeGameClock decides when a frame happens and Spend is how
-    // a unit of work is made to cost time, which is the only way a time budget can be made to run
-    // out with no player loop under it.
+    // What this class has to get right is where the frames land, so every test is about the split
+    // rather than the work. FakeGameClock decides when a frame happens and Spend makes a unit cost
+    // time, which is the only way a time budget can run out with no player loop under it.
     public class FrameBudgetedLoopTests
     {
         // Three units to a frame: four milliseconds each against a budget of ten, and the budget is
@@ -78,11 +77,10 @@ namespace Company.ChestGame.Tests.EditMode
         [Test]
         public void RunAsync_PlacesMoreOfACheaperUnitInTheSameFrame()
         {
-            // The reason the budget is time and not a count per frame, and the reason the whole class
-            // exists. Two loops with the same budget and the same number of units, differing in
-            // nothing but what a unit costs them, have to come out of their first frame in different
-            // places. A count would put them both at the same one and there would be nothing left to
-            // compare. A clock each, because Spend moves the clock the other loop is reading.
+            // Why the budget is time and not a count per frame. Two loops with the same budget and
+            // unit count, differing only in what a unit costs, have to come out of their first frame
+            // in different places; a count would put them both at the same one. A clock each,
+            // because Spend moves the clock the other loop is reading.
             List<int> cheap = new();
             FakeGameClock cheapClock = new();
             new FrameBudgetedLoop(cheapClock, BudgetMilliseconds)
@@ -187,9 +185,9 @@ namespace Company.ChestGame.Tests.EditMode
         [Test]
         public void RunAsync_WithNoUnitOrANegativeCount_ThrowsAtTheCallSiteRatherThanIntoTheTask()
         {
-            // Assert.Throws is the assertion here. An async method captures what it throws into the
-            // task it returns, and the caller this is written for forgets that task, so a mistake
-            // reported that way would surface nowhere at all.
+            // Assert.Throws is the assertion. An async method captures what it throws into the task
+            // it returns, and the caller this is written for forgets that task, so a mistake
+            // reported that way would surface nowhere.
             Assert.Throws<FrameBudgetException>(() => Loop().RunAsync(1, null, CancellationToken.None));
             Assert.Throws<FrameBudgetException>(() => Loop().RunAsync(-1, FreeStep, CancellationToken.None));
             CollectionAssert.IsEmpty(_ran);
@@ -198,9 +196,9 @@ namespace Company.ChestGame.Tests.EditMode
         [Test]
         public void FrameBudgetException_IsDeliberatelyNotUnderChestGameException()
         {
-            // The rule PoolException follows, for the same reason. GameManager catches
-            // ChestGameException, turns it into a content-download popup and treats it as handled; a
-            // loop handed no clock is a view that was never injected, which has to reach a developer.
+            // The rule PoolException follows, for the same reason: a loop handed no clock is a view
+            // that was never injected, and it has to reach a developer rather than become a
+            // content-download popup. See docs/architecture.md.
             FrameBudgetException failure = Assert.Throws<FrameBudgetException>(
                 () => new FrameBudgetedLoop(null, BudgetMilliseconds));
 

@@ -11,8 +11,8 @@ namespace Company.ChestGame.Common
         float DeltaTime { get; }
 
         // Milliseconds since the game started, moving forward inside a frame as well as between
-        // them. DeltaTime cannot answer that question: it is fixed for the whole of a frame, so work
-        // measuring how much of the current frame it has already spent has nothing to read from it.
+        // them. DeltaTime cannot answer that: it is fixed for the whole of a frame, so work
+        // measuring how much of the current frame it has spent has nothing to read from it.
         double ElapsedMilliseconds { get; }
 
         // Completes on the next frame, the async equivalent of `yield return null`.

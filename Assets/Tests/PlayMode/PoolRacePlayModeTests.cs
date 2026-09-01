@@ -10,11 +10,10 @@ using Object = UnityEngine.Object;
 
 namespace Company.ChestGame.Tests.PlayMode
 {
-    // PoolRaceTests proves the frame-budget orchestration against a fake clock; what only a real
-    // player loop, real Instantiate and a real Canvas can prove is that a race drives actual Unity
-    // object lifecycles correctly. The second test here is the one Phase 2 never ran: the chests
-    // board defaults to ActivationPool, so the disabled-Canvas ParkedPool holder this demo depends on
-    // has never been exercised against a real engine until now.
+    // PoolRaceTests proves the frame-budget orchestration against a fake clock; only a real player
+    // loop, real Instantiate and a real Canvas can prove a race drives actual Unity object
+    // lifecycles correctly. The second test covers the disabled-Canvas ParkedPool holder, which
+    // nothing else exercises against a real engine.
     public class PoolRacePlayModeTests
     {
         private const double BudgetMilliseconds = 2d;
@@ -55,9 +54,8 @@ namespace Company.ChestGame.Tests.PlayMode
 
             Assert.IsTrue(race.LastResult.HasValue, "the race did not settle within the frames allotted");
 
-            // The headline claim: every one of the four times twelve chest objects the race says it
-            // placed is a real object the engine actually built, not four pool counters that agree
-            // with each other and nothing else.
+            // The headline claim: every one of the four times twelve objects the race says it placed
+            // is one the engine actually built, not four pool counters agreeing with each other.
             Assert.AreEqual(BoardSize * lanes.Length, SpawnProbe.Instantiations,
                 "a cold race across four lanes has to instantiate the full board on every lane - fewer real Awake calls than that means a lane silently reused something it should have built fresh");
 
@@ -111,8 +109,8 @@ namespace Company.ChestGame.Tests.PlayMode
         }
 
         // Counts how many probe objects the engine was actually asked to build, the way
-        // ChestBoardPoolingTests.SpawnProbe does: a pool's own CreatedCount only proves a field
-        // moved, an Awake proves Instantiate really ran.
+        // ChestBoardPoolingTests.SpawnProbe does: CreatedCount only proves a field moved, an Awake
+        // proves Instantiate ran.
         public class SpawnProbe : MonoBehaviour
         {
             public static int Instantiations;

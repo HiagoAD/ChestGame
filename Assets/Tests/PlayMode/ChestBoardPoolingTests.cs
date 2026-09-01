@@ -13,22 +13,20 @@ using UnityEngine.UI;
 
 namespace Company.ChestGame.Tests.PlayMode
 {
-    // The board is rebuilt from scratch on every new game, which is the change pooling is supposed
-    // to pay for. This is where that claim is turned into an assertion: the same view, the same
-    // rounds, one serialized field different, and a count of how many chest objects the engine
-    // actually had to build.
+    // The board is rebuilt from scratch on every new game, which is what pooling pays for. This
+    // turns that claim into an assertion: the same view, the same rounds, one serialized field
+    // different, and a count of how many chest objects the engine actually had to build.
     //
-    // Play mode rather than edit mode because Object.Destroy is deferred to end of frame here, and
-    // "how many of these exist" is a question with a wrong answer until it has landed. Every count
-    // is read after the fill and the destroys have settled.
+    // Play mode rather than edit mode because Object.Destroy is deferred to end of frame, and "how
+    // many of these exist" has a wrong answer until it has landed. Every count is read after the
+    // fill and the destroys have settled.
     public class ChestBoardPoolingTests
     {
         private const int BoardSize = 6;
         private const int Rounds = 3;
 
-        // The worst a time-budgeted fill can do is one chest a frame, which is what a cold first
-        // frame after a domain reload could actually produce, plus room for the deferred destroys to
-        // land afterwards. Bounded rather than generous: a count read early is a wrong count.
+        // The worst a time-budgeted fill can do is one chest a frame, which a cold first frame after
+        // a domain reload can actually produce, plus room for the deferred destroys to land.
         private const int SettleFrames = BoardSize + 4;
 
         private GameObject _prefabObject;
@@ -69,9 +67,8 @@ namespace Company.ChestGame.Tests.PlayMode
         [UnityTest]
         public IEnumerator UnderTheBaseline_ReplayingTheBoardRebuildsItEveryTime()
         {
-            // The other half, and what makes the number above mean anything. If this ever comes back
-            // equal to a single board, the comparison the whole demonstration rests on is a pool
-            // measured against a pool.
+            // What makes the number above mean anything: if this ever comes back equal to a single
+            // board, the comparison rests on a pool measured against a pool.
             BuildView(PoolStrategy.DirectSpawner);
 
             yield return PlayRounds(Rounds);
@@ -85,10 +82,10 @@ namespace Company.ChestGame.Tests.PlayMode
         [UnityTest]
         public IEnumerator AfterARebuild_EachChestModelStillDrivesExactlyOneView()
         {
-            // The pooling bug this is all really about, and the reason a released view has to let go
-            // of its model rather than relying on being destroyed. The pool hands instances back in
-            // reverse order, so an instance that kept its old subscription ends up showing one chest
-            // while still listening to another, and one model then lights up two views.
+            // Why a released view has to let go of its model rather than rely on being destroyed.
+            // The pool hands instances back in reverse order, so an instance that kept its old
+            // subscription shows one chest while still listening to another, and one model then
+            // lights up two views.
             BuildView(PoolStrategy.ActivationPool);
 
             yield return PlayRounds(2);
@@ -141,9 +138,8 @@ namespace Company.ChestGame.Tests.PlayMode
             Set(chest, "_timerSlider", AddChild<Slider>(_prefabObject, "Slider"));
             Set(chest, "_button", AddChild<Button>(_prefabObject, "Button"));
 
-            // Left active, like the real prefab's root. Only ActivationPool and UnityPool switch a
-            // fresh instance on, so an inactive source would hand the other two inactive chests and
-            // this would be measuring the rig rather than the pools.
+            // Left active, like the real prefab's root: an inactive source would measure the rig
+            // rather than the pools.
             _prefabObject.SetActive(true);
             return chest;
         }
@@ -190,8 +186,7 @@ namespace Company.ChestGame.Tests.PlayMode
                 .SetValue(target, value);
 
         // Counts how many chest objects the engine was actually asked to build. A pool's own
-        // CreatedCount would only prove a field moved; an Awake proves Instantiate ran, and running
-        // Instantiate is the cost this whole thing is about.
+        // CreatedCount would only prove a field moved; an Awake proves Instantiate ran.
         public class SpawnProbe : MonoBehaviour
         {
             public static int Instantiations;

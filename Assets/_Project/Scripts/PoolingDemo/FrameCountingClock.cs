@@ -4,14 +4,11 @@ using Cysharp.Threading.Tasks;
 
 namespace Company.ChestGame.Pooling.Demo
 {
-    // Wraps a clock to count the frames one lane's own fill actually yielded on, without touching
-    // FrameBudgetedLoop or IGameClock to get it. Every lane gets its own instance over the same
-    // underlying clock, so four lanes sharing one player loop each still answer "how many frames did
-    // my own fill use" independently - which is exactly the number that differs between a cheap
-    // strategy and an expensive one running under the same budget.
+    // Wraps a clock to count the frames one lane's own fill yielded on, without touching
+    // FrameBudgetedLoop or IGameClock. Every lane gets its own instance over the same underlying
+    // clock, so four lanes sharing one player loop each answer that independently.
     //
-    // Starts at one rather than zero: a fill that never yields still ran inside the first frame, and
-    // a lane that placed everything without ever waiting has not used zero frames of it.
+    // Starts at one rather than zero: a fill that never yields still ran inside the first frame.
     internal sealed class FrameCountingClock : IGameClock
     {
         private readonly IGameClock _inner;

@@ -12,19 +12,13 @@ using Object = UnityEngine.Object;
 
 namespace Company.ChestGame.Tests.EditMode
 {
-    // One fixture rather than four near-identical ones. What the seam promises is written once and
-    // run against every implementation through a factory, and the places an implementation
-    // genuinely answers differently - the baseline pooling nothing, ParkedPool never deactivating -
-    // get their own tests at the bottom.
+    // One fixture rather than four near-identical ones: what the seam promises is written once and
+    // run against every implementation through a factory, and the places an implementation answers
+    // differently get their own tests at the bottom.
     //
-    // TestCaseSource rather than a generic fixture because the four constructors do not agree:
+    // TestCaseSource rather than a generic fixture because the four constructors do not agree -
     // DirectSpawner takes no holder and no bound, so there is nothing a new() constraint or a
-    // typeof() fixture argument could build. A factory delegate per implementation states that
-    // difference in one line, and PoolCase.ToString keeps the failing case named.
-    //
-    // The instances are RectTransforms because that is what the chests minigame will pool in phase
-    // two, and because it needs no test-only MonoBehaviour: the properties worth asserting here are
-    // parenting, activeSelf and the pool's own counters.
+    // typeof() fixture argument could build. PoolCase.ToString keeps the failing case named.
     public class PrefabPoolTests
     {
         private readonly List<Object> _created = new();
@@ -63,20 +57,17 @@ namespace Company.ChestGame.Tests.EditMode
 
         // Object.Destroy in edit mode destroys nothing and logs an error instead, once per call, and
         // an unhandled error log fails the test. Naming the exact number turns that nuisance into
-        // the one assertion the counters cannot make: DestroyedCount only proves a field moved,
-        // while an expectation that goes unmatched, or a destroy log that goes unexpected, proves
-        // Object.Destroy itself was called exactly this many times and on nothing else. A test that
-        // calls this with nothing, or not at all, is asserting that it destroyed nothing.
+        // the assertion the counters cannot make: DestroyedCount only proves a field moved, while an
+        // unmatched expectation or an unexpected destroy log proves Object.Destroy was called
+        // exactly this many times and on nothing else. A test that does not call this is asserting
+        // that it destroyed nothing.
         //
-        // Matched by regex because the real message is two lines and an exact match on it is
-        // brittle. Expectations are matched against the log history in queue order, so identical
-        // ones are interchangeable and only the count matters. Declared before the act because the
-        // framework says to and because it reads as part of the arrange: this is what the test is
-        // about to cause.
+        // Matched by regex because the real message is two lines. Declared before the act, because
+        // the framework requires it and because it reads as part of the arrange.
         //
-        // LogAssert.ignoreFailingMessages is not the tool for this. SetUp, the test body and
-        // TearDown each run inside their own LogScope, so a flag set in SetUp is written to a scope
-        // that is gone before the test body starts.
+        // LogAssert.ignoreFailingMessages is not the tool for this: SetUp, the test body and
+        // TearDown each run inside their own LogScope, so a flag set in SetUp is gone before the
+        // test body starts.
         private static void ExpectDestroys(int count)
         {
             for (int i = 0; i < count; i++) LogAssert.Expect(LogType.Error, EditModeDestroy);
@@ -92,10 +83,10 @@ namespace Company.ChestGame.Tests.EditMode
             private readonly string _name;
             private readonly Func<RectTransform, Transform, int, IPrefabPool<RectTransform>> _create;
 
-            // Whether a release destroys the instance instead of parking it. Only the baseline does,
-            // and how many edit-mode destroy logs a shared test has to expect follows from it. Read
-            // off the strategy rather than off DestroyedCount on purpose: deriving the expectation
-            // from the counter it is there to check would make the check prove nothing.
+            // Whether a release destroys the instance instead of parking it, which is what a shared
+            // test's expected destroy-log count follows from. Declared per case rather than read
+            // off DestroyedCount: deriving the expectation from the counter under test would make
+            // the check prove nothing.
             public bool ReleaseDestroys { get; }
 
             public PoolCase(string name, bool releaseDestroys, Func<RectTransform, Transform, int, IPrefabPool<RectTransform>> create)
@@ -139,6 +130,54 @@ namespace Company.ChestGame.Tests.EditMode
             yield return Activation;
             yield return Parked;
             yield return Engine;
+        }
+
+        // --- Contract: the two cases the review found the four disagreeing on ---------------
+
+        [TestCaseSource(nameof(EveryImplementation))]
+        public void Get_OfAPrefabWithAnInactiveRoot_StillHandsBackSomethingVisible(PoolCase implementation)
+        {
+            // Two of the four once never called SetActive(true) at all, so swapping the serialized
+            // strategy silently emptied the screen - permanently, not just for a frame.
+            _prefab.gameObject.SetActive(false);
+
+            IPrefabPool<RectTransform> pool = implementation.Create(_prefab, _holder, 8);
+
+            RectTransform first = pool.Get(_parent);
+            Assert.IsTrue(first.gameObject.activeSelf,
+                "a miss handed back an inactive instance - nothing the caller does would make it appear");
+
+            // The baseline parks nothing, so there is no hit to check, and returning before the
+            // release keeps this test out of the edit-mode destroy logging ExpectDestroys accounts
+            // for.
+            if (implementation.ReleaseDestroys) return;
+
+            pool.Release(first);
+
+            Assert.IsTrue(pool.Get(_parent).gameObject.activeSelf,
+                "a hit handed back an inactive instance");
+        }
+
+        [TestCaseSource(nameof(PoolingImplementations))]
+        public void Prewarm_AgainstAPoolThatAlreadyHoldsStock_CreatesTheFullCount(PoolCase implementation)
+        {
+            // A fresh pool is the case that hides this: warming by get-then-release would pop the k
+            // instances already parked and put them straight back, creating only count - k, because
+            // ObjectPool.Get pops existing stock before it calls the factory.
+            IPrefabPool<RectTransform> pool = implementation.Create(_prefab, _holder, 8);
+
+            RectTransform a = pool.Get(_parent);
+            RectTransform b = pool.Get(_parent);
+            pool.Release(a);
+            pool.Release(b);
+
+            Assert.AreEqual(2, pool.AvailableCount, "guard: the pool should be holding two before it is warmed");
+
+            pool.Prewarm(3);
+
+            Assert.AreEqual(5, pool.AvailableCount,
+                "warming a pool that already held two should leave five parked, not overwrite what was there");
+            Assert.AreEqual(5, pool.CreatedCount, "warming three against two parked has to instantiate three more");
         }
 
         // --- Contract: every implementation ------------------------------------------------
@@ -381,8 +420,8 @@ namespace Company.ChestGame.Tests.EditMode
         [Test]
         public void DirectSpawner_Get_AfterRelease_ReturnsANewInstanceRatherThanTheOldOne()
         {
-            // The test that makes the baseline a baseline. If this ever comes back AreSame, the
-            // comparison the whole demonstration rests on is a pool measured against a pool.
+            // What makes the baseline a baseline: if this ever comes back AreSame, the comparison
+            // the whole demonstration rests on is a pool measured against a pool.
             //
             // Exactly one destroy, from the single release.
             ExpectDestroys(1);
@@ -423,8 +462,8 @@ namespace Company.ChestGame.Tests.EditMode
         [Test]
         public void ParkedPool_AcrossAGetAndRelease_NeverDeactivatesTheInstance()
         {
-            // The one property that separates this from ActivationPool. Without it pinned the two
-            // are the same class written twice and the comparison has nothing to show.
+            // The one property that separates this from ActivationPool. Unpinned, the two are the
+            // same class written twice.
             ParkedPool<RectTransform> pool = new(_prefab, _holder, 4);
 
             RectTransform instance = pool.Get(_parent);
@@ -476,17 +515,15 @@ namespace Company.ChestGame.Tests.EditMode
         [Test]
         public void ParkedPool_ParksWithoutFiringOnDisable_WhereActivationPoolFiresIt()
         {
-            // The activeSelf pair above pins the difference you can see in the object's state. This
-            // pins the thing that actually costs frames: the callback, and the canvas and layout
-            // rebuild that ride on it.
+            // The activeSelf pair above pins the difference visible in the object's state. This pins
+            // what actually costs frames: the callback, and the canvas and layout rebuild riding on
+            // it.
             //
-            // ActivationPool is measured first and it is the control. A plain MonoBehaviour's
-            // OnDisable is play-mode only, and whether ExecuteAlways brings it back for an
-            // edit-mode test is the assumption this whole test rests on. If the control comes back
-            // zero, that assumption is false, the ParkedPool half below would pass for every
-            // implementation including one that deactivates on every release, and the right move is
-            // to delete this test rather than repair it - the activeSelf pair already covers the
-            // observable difference.
+            // ActivationPool is measured first, as the control. A plain MonoBehaviour's OnDisable is
+            // play-mode only, and whether ExecuteAlways brings it back in edit mode is the
+            // assumption this test rests on. A control of zero means that assumption is false and
+            // the ParkedPool half below would pass for any implementation - delete this test rather
+            // than repair it, since the activeSelf pair already covers the observable difference.
             _prefab.gameObject.AddComponent<DisableProbe>();
 
             ActivationPool<RectTransform> activation = new(_prefab, _holder, 4);
@@ -526,10 +563,9 @@ namespace Company.ChestGame.Tests.EditMode
         [Test]
         public void PoolException_IsDeliberatelyNotUnderChestGameException()
         {
-            // GameManager catches ChestGameException, turns whatever it caught into "could not
-            // download this minigame", and treats it as handled. Nothing a pool reports is a delivery
-            // failure - this one is a prefab slot nobody filled - so moving this back under that base
-            // would show a player a download error for a wiring bug and swallow the bug with it.
+            // Nothing a pool reports is a delivery failure - this one is a prefab slot nobody filled
+            // - so moving it under ChestGameException would show a player a download error for a
+            // wiring bug and swallow the bug with it. See docs/architecture.md.
             PoolException failure = Assert.Throws<PoolException>(
                 () => new ActivationPool<RectTransform>(null, _holder, 4));
 
@@ -542,9 +578,9 @@ namespace Company.ChestGame.Tests.EditMode
         [Test]
         public void UnityPool_AfterATrim_StillReportsWhatIsStillHandedOut()
         {
-            // ObjectPool.Clear resets the total its own active count is derived from, so an
-            // ActiveCount read off the wrapped pool would say zero here with one instance still out.
-            // That is why the wrapper keeps its own set rather than forwarding the question.
+            // ObjectPool.Clear resets the total its active count derives from, so an ActiveCount read
+            // off the wrapped pool would say zero here with one instance still out. Hence the
+            // wrapper's own set.
             //
             // Exactly one, from the Trim. The release afterwards parks rather than destroying,
             // because the trimmed pool has room again.

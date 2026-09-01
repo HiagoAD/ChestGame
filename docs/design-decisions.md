@@ -162,6 +162,92 @@ engine's, and it is kept visible rather than papered over.
 The default was `ActivationPool` until these numbers existed, on the grounds that a comparison rather
 than a guess should choose it. The comparison chose `ParkedPool`.
 
+### The seam itself
+
+`IPrefabPool<T> : IDisposable where T : Component` is what all four implement, in
+`Assets/_Project/Scripts/Pooling/IPrefabPool.cs`. Four counters - `CreatedCount` and
+`DestroyedCount` as lifetime totals that keep counting across a trim, `ActiveCount` and
+`AvailableCount` as instantaneous readings - then `Get`, `Release`, `ReleaseAll`, `Prewarm`,
+`Trim` and `Dispose`.
+
+Four rules on it are not visible in any signature, and a new implementation has to honour every
+one:
+
+- **Disposal is asymmetric.** Disposing destroys everything the pool owns, parked and handed out
+  alike. `Get` and `Prewarm` throw `PoolException` afterwards. `Release`, `ReleaseAll` and `Trim`
+  are deliberately left unguarded, because an implementation's own `Dispose` calls them after it
+  has marked itself disposed - `DirectSpawner.Dispose` is nothing but a `ReleaseAll`. `ReleaseAll`
+  and `Trim` then find nothing to do, since `Dispose` has already emptied the handed-out set; a
+  `Release` naming a specific instance reports `NotHandedOut` for the same reason.
+- **`Prewarm` throws rather than warming fewer than asked**, so `Prewarm(n)` creating `n` is not
+  conditional on a bound the caller cannot see. The one carve-out is `DirectSpawner`, which has
+  nowhere to park anything: it warms zero and returns, which is what lets code written against the
+  seam still run on the baseline. A disposed pool still refuses on all four.
+- **The bound limits the parked stack, not the number of live instances.** Prewarming while
+  instances are handed out can legally take a pool past its `maxSize`. It is "how many it parks",
+  not "how large this pool gets".
+- **`Trim` goes to zero**, not down to `maxSize`. `Release` and `Prewarm` both refuse to park past
+  the bound, so there is never a surplus above it for a trim-to-max-size to find.
+
+`Release` reports a foreign instance and an already-released one with the same `PoolException`.
+That is on purpose: once an instance is out of the pool's hands, it cannot tell the two apart.
+
+### One place that constructs a pool
+
+`PoolFactory.Create` is the only thing that turns a `PoolStrategy` into a pool, and
+`PoolFactory.CreateHolder` the only thing that builds the disabled-`Canvas` holder. Both existed
+twice for a while - once in `ChestsMinigameView`, once in `PoolRaceLaneFactory` - and the second
+carried a comment saying it mirrored the first *exactly*. That comment was the tell: mirroring by
+hand is the duplication, a fifth strategy would have meant editing both, and nothing would have
+failed if only one got edited.
+
+It is the only place that *constructs* one, which is not the same as the only place that reads the
+enum. Three switches take a `PoolStrategy` - `PoolFactory.Create`, `PoolingDemoPanel.ShortNameOf`
+for the segmented control's labels, and `PoolBenchmark.Build` - and a fourth site,
+`PoolRaceLaneFactory.AllStrategies`, is the array whose length drives the demo's lane count. Every
+one of the three switches has a `_ =>` arm that keeps working on an unrecognised member rather than
+throwing, which is right for a serialized field and is also why forgetting one is silent. See the
+step list below.
+
+The strategy the chests board uses is carried by the prefab rather than left to the field
+initializer. A `[SerializeField]` with an initializer keeps that value only while the key is
+absent from the asset; the first time anything re-saves the prefab, whatever the inspector was
+showing wins instead. `ChestsMinigamePrefabTests` asserts the authored value against the real
+asset, in the same shape as the `GameLifetimeScopeTests` assertions against the real composition
+root.
+
+### What adding a pool strategy actually takes
+
+Ten steps, and an eleventh only if the chests board is to use the new strategy. The first three are
+the ones people expect; the rest are why this is written down.
+
+1. Write the implementation in `_Project/Scripts/Pooling/`, honouring the seam rules above.
+2. Add the enum member to `PoolStrategy`, **appending it after `DirectSpawner`**. The values are
+   serialized by index - `ChestsMinigame.prefab` stores `_poolStrategy: 1` for `ParkedPool` - so
+   inserting in the middle silently repoints every authored value at a different strategy. That
+   constraint overrides the file's own "the baseline is last" preference, which exists only so a
+   freshly serialized field does not land on the strategy that pools nothing.
+3. Add the arm to `PoolFactory.Create`. Skipping this compiles cleanly and quietly hands back an
+   `ActivationPool`.
+4. Add it to `PoolRaceLaneFactory.AllStrategies`. That array's length is the demo's lane count.
+5. Add its short label to `PoolingDemoPanel.ShortNameOf`, or the button falls back to the full
+   enum name, which does not fit a phone-width row.
+6. Add `strategy-4` and a lane card carrying `lane-name-4`, `lane-headline-4` and
+   `lane-metrics-4` to `PoolingDemo.uxml`. A missing name throws `MissingElement` at bind time.
+7. Add the matching lane colour token and lane-card rules to `PoolingDemo.uss`.
+8. Add a fifth `_laneSlots` entry, and its GameObject, to `PoolingDemo.prefab`. Without it `Start`
+   throws `LaneSlotCountMismatch`.
+9. Add a `PoolCase` to `PrefabPoolTests` and yield it from `EveryImplementation`, and from
+   `PoolingImplementations` if it actually parks. One case multiplies into eight or sixteen.
+10. Add it to `PoolBenchmark`'s `MeasureOne` calls and its `Build` switch. Miss the switch and the
+    benchmark measures an `ActivationPool` under the new name and passes.
+11. Only if the chests board is to use it: set `_poolStrategy` on `ChestsMinigame.prefab` and
+    update `ChestsMinigamePrefabTests`, which hard-asserts the shipped value.
+
+Nothing in `IPrefabPool`, `PoolException`, `PoolRace` or `ChestsMinigameView` needs to change:
+`PoolRace` sizes itself from the lane list it is handed, and the view goes through
+`PoolFactory.Create`.
+
 ### The demonstration is separate from the thing it demonstrates
 
 The chests minigame uses a pool. The four-way race that shows why lives in

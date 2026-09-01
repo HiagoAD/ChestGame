@@ -5,16 +5,12 @@ using Cysharp.Threading.Tasks;
 namespace Company.ChestGame.Common
 {
     // Runs a fixed number of units of work across as many frames as they take, yielding whenever the
-    // work done since this frame started has passed a time budget. What a screen filling itself with
-    // hundreds of objects uses so the fill costs several cheap frames instead of one visible hitch.
+    // work done since this frame started has passed a time budget, so a large fill costs several
+    // cheap frames instead of one visible hitch.
     //
-    // Budgeted by elapsed time rather than by a count per frame, and that is the whole reason it
-    // exists rather than a detail of it. A count makes every caller finish in the same number of
-    // frames whatever a unit costs it, which is exactly the difference anyone comparing two ways of
-    // doing the same work is trying to see.
-    //
-    // It knows nothing about what the work is: a unit is an index and an Action, so pools, prefabs
-    // and UI all stay on the caller's side of the line.
+    // Budgeted by elapsed time rather than by a count per frame, and that is the point rather than a
+    // detail: a count makes every caller finish in the same number of frames whatever a unit costs,
+    // which is exactly the difference anyone comparing two ways of doing the same work wants to see.
     public class FrameBudgetedLoop
     {
         private readonly IGameClock _clock;
@@ -30,8 +26,8 @@ namespace Company.ChestGame.Common
         }
 
         // Split from the async half below so a bad call throws where it was made. An async method
-        // captures everything it throws into the task it returns, and a caller that forgets that
-        // task - which is what a fill started from a MonoBehaviour does - would never see it.
+        // captures what it throws into the task it returns, and a fill started from a MonoBehaviour
+        // forgets that task.
         public UniTask RunAsync(int count, Action<int> step, CancellationToken cancellationToken)
         {
             if (step == null) throw FrameBudgetException.NoStep();
@@ -55,9 +51,9 @@ namespace Company.ChestGame.Common
                 // Nothing left to place, so a yield here would buy a frame to do nothing in.
                 if (index + 1 == count) break;
 
-                // The budget is read after a unit has run and never before, which is what makes
-                // every frame place at least one. The other order would let a unit that costs more
-                // than the whole budget yield for ever and place nothing.
+                // The budget is read after a unit has run and never before, which is what makes every
+                // frame place at least one. The other order would let a unit costing more than the
+                // whole budget yield for ever and place nothing.
                 if (_clock.ElapsedMilliseconds - frameStarted < _budgetMilliseconds) continue;
 
                 await _clock.NextFrame(cancellationToken);

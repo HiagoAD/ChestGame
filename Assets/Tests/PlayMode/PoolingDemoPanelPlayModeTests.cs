@@ -29,9 +29,8 @@ namespace Company.ChestGame.Tests.PlayMode
         }
 
         // Loaded through the AssetDatabase rather than Resources or Addressables: this suite only
-        // ever runs inside the editor (ci/run-tests.sh drives a batch-mode editor), and the
-        // alternatives would each mean shipping the demo prefab somewhere the game itself does not
-        // need it just so a test could reach it.
+        // runs inside the editor, and the alternatives each mean shipping the demo prefab somewhere
+        // the game does not need it just so a test can reach it.
         private static GameObject LoadPrefab()
         {
 #if UNITY_EDITOR
@@ -61,9 +60,9 @@ namespace Company.ChestGame.Tests.PlayMode
         private Button Toggle() => Root().Q<Button>("toggle-button");
         private Button CloseButton() => Root().Q<Button>("close-button");
 
-        // The panel's own extent, taken from the visual tree PanelSettings sizes to the screen rather
-        // than from anything the demo builds. It has to come from outside the demo: a chrome that
-        // collapsed to nothing would otherwise be measured against itself and report a perfect fit.
+        // The panel's own extent, taken from the visual tree PanelSettings sizes to the screen
+        // rather than from anything the demo builds. It has to come from outside the demo, or a
+        // chrome collapsed to nothing would be measured against itself and report a perfect fit.
         private VisualElement PanelRoot() => Root().panel.visualTree;
 
         private IEnumerator Expand()
@@ -121,9 +120,9 @@ namespace Company.ChestGame.Tests.PlayMode
             Rect panel = PanelRoot().worldBound;
             Assert.Greater(panel.height, 0f, "guard: the panel itself never got a size");
 
-            // .chrome is absolute against all four edges for exactly this reason: the document root
-            // holds only absolutely positioned children, so nothing is in flow to size it and a
-            // chrome that grew instead would resolve against nothing and collapse to its contents.
+            // .chrome is absolute against all four edges for this reason: the document root holds
+            // only absolutely positioned children, so nothing is in flow to size it and a chrome
+            // that grew instead would collapse to its contents.
             Assert.AreEqual(panel.height, Chrome().worldBound.height, 0.5f,
                 "the chrome does not fill the panel - it sized to its contents, which is a band across the top with the controls clipped out of it");
         }
@@ -156,13 +155,13 @@ namespace Company.ChestGame.Tests.PlayMode
         [UnityTest]
         public IEnumerator EitherWayRound_ExactlyOneToggleIsOnScreen_AndThePanelCanActuallyHitIt()
         {
-            // Asked through the panel's own hit test rather than through display flags, because the
-            // failure this pins is invisible to flags. Both the toggle and the chrome are absolutely
-            // positioned children of one root with no z-index between them, so the later child wins
-            // the pixel: a toggle behind an opaque backdrop is display:Flex, has a real resolved
-            // size, and answers a forced-target SendEvent, while being unhittable. On top of that,
-            // the toggle's band runs through a control row, so being painted last is not enough
-            // either - it would sit on that row's last button instead.
+            // Asked through the panel's own hit test rather than display flags, because the failure
+            // this pins is invisible to flags: the toggle and the chrome are absolutely positioned
+            // children of one root with no z-index between them, so the later child wins the pixel.
+            // A toggle behind an opaque backdrop is display:Flex, has a real resolved size, and
+            // answers a forced-target SendEvent, while being unhittable. Painting it last is not the
+            // fix either - the toggle's band runs through a control row, so it would sit on that
+            // row's last button.
             yield return BuildPanel();
 
             Button toggle = Toggle();
@@ -186,15 +185,14 @@ namespace Company.ChestGame.Tests.PlayMode
             yield return Expand();
 
             // Matching on height against a 1080x1920 reference makes the panel 1920 logical px tall
-            // on every device and 1920*(w/h) wide - so the reference's own 1080 is the width of a
+            // on every device and 1920*(w/h) wide, so the reference's own 1080 is the width of a
             // 9:16 phone, not a floor. A 9:20 phone gives 864, and the control rows do not wrap.
             const float narrowestPanelWidth = 1920f * 9f / 20f;
             const float chromePadding = 24f;
 
-            // Pinned to that width directly, because the panel's own width comes from the real screen
-            // and a test cannot resize it. Measuring the rows at whatever width this run happens to
-            // have and comparing against 864 would prove nothing: these controls shrink, so a right
-            // edge measured at one width does not transfer to another.
+            // Pinned to that width directly, because the panel's width comes from the real screen and
+            // a test cannot resize it. These controls shrink, so a right edge measured at whatever
+            // width this run happens to have would not transfer to 864.
             VisualElement chrome = Chrome();
             chrome.style.right = StyleKeyword.Auto;
             chrome.style.width = narrowestPanelWidth;
@@ -222,11 +220,10 @@ namespace Company.ChestGame.Tests.PlayMode
             yield return BuildPanel();
 
             // The chrome is UI Toolkit and the lanes are uGUI, laid out by two systems that only
-            // agree if both are told to scale the same way. Nothing else would notice them drifting:
-            // each looks right on its own, and the chrome only starts covering the lanes on hardware
-            // whose resolution happens not to match the reference. The demo owns both components, so
-            // this is now an authoring guarantee rather than something reconciled at runtime - which
-            // is exactly why it needs a test.
+            // agree if both scale the same way. Nothing else would notice them drifting: each looks
+            // right on its own, and the chrome only starts covering the lanes on hardware whose
+            // resolution does not match the reference. It is an authoring guarantee rather than
+            // something reconciled at runtime, which is why it needs a test.
             CanvasScaler scaler = _instance.GetComponent<CanvasScaler>();
             PanelSettings settings = _panel.GetComponent<UIDocument>().panelSettings;
 
@@ -260,17 +257,17 @@ namespace Company.ChestGame.Tests.PlayMode
 
             // Smallest board on purpose: this only cares that a real click reaches the race.
             //
-            // SendEvent does not run the handler inline - it enqueues, and the panel drains its queue
-            // on its own next update - so both clicks below land in that queue and are drained
+            // SendEvent does not run the handler inline - it enqueues, and the panel drains the
+            // queue on its next update - so both clicks below land in that queue and are drained
             // together, in order, with nothing having run yet on this line.
             Click(root.Q<Button>("size-0"));
             Click(root.Q<Button>("run-button"));
 
             // No assertion on the transient "Running..." text: an 8-item board against a 2ms budget
-            // can finish inside the same frame the queued clicks are drained in. Metrics only leaves
+            // can finish inside the same frame the queued clicks are drained in. Metrics only leave
             // "not run yet" from inside OnRaceCompleted, which only runs after a full race, which
-            // only starts from OnRunClicked - so this single wait covers both "the click never
-            // reached the handler" and "the handler ran but never started a race".
+            // only starts from OnRunClicked - so this one wait covers both "the click never reached
+            // the handler" and "the handler ran but never started a race".
             const int settleFrames = 8 + 20;
             for (int frame = 0; frame < settleFrames && metrics.text == "not run yet"; frame++) yield return null;
 
@@ -304,7 +301,7 @@ namespace Company.ChestGame.Tests.PlayMode
         }
 
         // A PointerDown/PointerUp pair does not work here: Clickable only fires on the up event if
-        // the panel's own picking still reports the element as the one under the pointer, and forcing
+        // the panel's picking still reports the element as the one under the pointer, and forcing
         // target on a synthetic event skips the picking that state depends on. NavigationSubmitEvent
         // is the real alternative rather than a workaround - Button's constructor registers
         // OnNavigationSubmit, which calls clickable.SimulateSingleClick directly. Confirmed by

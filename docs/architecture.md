@@ -11,7 +11,7 @@ split is what keeps the dependency directions honest: a reference that would cre
 compile instead of quietly working.
 
 ```
-Company.ChestGame.Common      _Project/Scripts/Common/     leaf: engine seams, exceptions, catalog policy
+Company.ChestGame.Common      _Project/Scripts/Common/     leaf: engine seams, FrameBudgetedLoop, exceptions, catalog policy
 Company.ChestGame.Pooling     _Project/Scripts/Pooling/    leaf: the prefab pool seam and its four strategies
 Company.ChestGame.Pooling.Demo _Project/Scripts/PoolingDemo/ the standalone race panel; nothing in the game references it
 Company.ChestGame.Assets      _Project/Scripts/Assets/     the only assembly that calls Addressables
@@ -43,9 +43,11 @@ addressable group does the same job for the assets. See
 [content-delivery.md](content-delivery.md).
 
 `Company.ChestGame.Pooling` is the other leaf, and it references no other assembly at all. It knows
-nothing about chests, minigames or UI: it is a seam over where an instance comes from, with a
-hand-rolled pool, a reparenting one, a wrapper over the engine's `ObjectPool` and an
-`Instantiate`/`Destroy` baseline behind it. It is deliberately synchronous and frame-agnostic -
+nothing about chests, minigames or UI: it is a seam over where an instance comes from - the
+interface is `IPrefabPool<T>` - with a hand-rolled pool, a reparenting one, a wrapper over the
+engine's `ObjectPool` and an `Instantiate`/`Destroy` baseline behind it. The contract rules that a
+signature does not carry are in
+[design-decisions.md](design-decisions.md#the-seam-itself). It is deliberately synchronous and frame-agnostic -
 spreading a large fill over frames is the caller's job, through `FrameBudgetedLoop`. The two meet at
 the call site rather than in each other, which is why `Common` has no pooling reference and `Pooling`
 has no UniTask one.
@@ -56,6 +58,12 @@ it is not referenced by the game, by the chests minigame, or by anything except 
 deleting the folder and its prefab would leave the game working. It races whatever prefab its
 serialized field points at - the chest element included - and ships a plain tile as the default,
 because a square reads better at two thousand items than a detailed sprite does.
+
+It ships in the player build, deliberately: `Game.unity` is an enabled build scene, the prefab is
+an active root in it, and the assembly carries no define constraints. This project is a technical
+demonstration, so a player being able to open the race panel is the point rather than a leak. If
+that ever changes, gating the assembly alone is not enough - it would leave a missing-script
+reference in the shipped scene, so the prefab has to come out of the scene in the same change.
 
 It lives as a prefab at the root of `Game.unity`, carrying its own Canvas, its own `CanvasScaler` and
 its own `PanelSettings`, so it owns its scaling and sorting instead of inheriting whatever it was

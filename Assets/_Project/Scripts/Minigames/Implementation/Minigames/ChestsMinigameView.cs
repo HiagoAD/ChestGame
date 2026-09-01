@@ -13,10 +13,8 @@ namespace Company.ChestGame.Minigame.Chests.Internal
 {
     public class ChestsMinigameView : MinigameViewBase
     {
-        // How much of a frame the board fill may spend before it yields. Small enough that a fill
-        // never reads as a hitch, large enough that a board this size still lands within a frame or
-        // two on a phone. A constant rather than an authored field: nothing is measured yet, and a
-        // serialized zero would be a board that takes one frame per chest.
+        // How much of a frame the board fill may spend before it yields. A constant rather than an
+        // authored field, because a serialized zero would be a board that takes one frame per chest.
         private const double FillBudgetMilliseconds = 2d;
 
         [SerializeField] private ChestsMinigameChestElementView _chestPrefab;
@@ -36,9 +34,8 @@ namespace Company.ChestGame.Minigame.Chests.Internal
         private CancellationTokenSource _fillCancellation;
         private ChestsMinigameController _controller;
 
-        // The view is instantiated through the resolver, so it is injected the way everything else
-        // in the game is. The clock is here rather than on the controller's because the fill is this
-        // view's, and it is the seam that lets a test decide when a frame happens.
+        // The clock is injected here rather than on the controller because the fill is this view's,
+        // and it is the seam that lets a test decide when a frame happens.
         [Inject]
         public void Inject(IGameClock clock)
         {
@@ -57,13 +54,13 @@ namespace Company.ChestGame.Minigame.Chests.Internal
 
             _controller = (ChestsMinigameController)controller;
 
-            // Here rather than in Awake because the bound is the board size and that comes off the
-            // controller. Injection has landed by now too: the container instantiates and injects
-            // this view before it hands the controller over.
+            // Here rather than in Awake because the bound is the board size, which comes off the
+            // controller. Injection has landed by now: the container instantiates and injects this
+            // view before it hands the controller over.
             _pool = CreatePool(_controller.Chests.Count);
 
-            // Built here rather than per fill so a view that was never injected says so at the one
-            // moment a developer is looking, instead of from inside a forgotten async task later.
+            // Built here rather than per fill, so a view that was never injected says so now rather
+            // than from inside a forgotten async task later.
             _fill = new FrameBudgetedLoop(_clock, FillBudgetMilliseconds);
 
             _controller.OnStateChange += OnControllerStateChanged;
@@ -77,9 +74,9 @@ namespace Company.ChestGame.Minigame.Chests.Internal
         {
             CancelFill();
 
-            // Now rather than at end of frame. Object.Destroy is deferred, so an instance the pool
-            // is about to destroy goes on living and goes on listening for the rest of this frame,
-            // and the models outlive the whole view.
+            // Now rather than at end of frame: Object.Destroy is deferred, so an instance the pool
+            // is about to destroy goes on listening for the rest of this frame, and the models
+            // outlive the view.
             foreach (ChestsMinigameChestElementView instance in _chestInstances)
             {
                 if (instance != null) instance.Release();
@@ -106,9 +103,8 @@ namespace Company.ChestGame.Minigame.Chests.Internal
             }
         }
 
-        // Every new game hands the whole board back and takes it again. The rebuild used to be
-        // skipped because it was expensive; making it cheap is what the pool is for, and a rebuild
-        // that never happens is a saving nobody can measure.
+        // Every new game hands the whole board back and takes it again, rather than keeping the
+        // board it built the first time - see docs/design-decisions.md for why that trade changed.
         private void StartGame()
         {
             RebuildBoard();
@@ -124,7 +120,7 @@ namespace Company.ChestGame.Minigame.Chests.Internal
 
             // One source per fill, cancelled by the next one and by teardown, and linked to the
             // destroy token so a view torn down mid-fill unwinds instead of filling into a board
-            // that is going away. The shape mirrors the controller's opening token.
+            // that is going away.
             _fillCancellation = CancellationTokenSource.CreateLinkedTokenSource(this.GetCancellationTokenOnDestroy());
             FillBoardAsync(_fillCancellation.Token).Forget();
         }
@@ -139,13 +135,12 @@ namespace Company.ChestGame.Minigame.Chests.Internal
             }
             catch (OperationCanceledException)
             {
-                // Deliberately nothing, and this is the part worth being explicit about. Handing
-                // back what a cancelled fill had already placed is the obvious move and it is the
-                // wrong one: the only two things that cancel a fill are the next fill, which
-                // releases the whole board before it starts anyway, and teardown, where this resumes
-                // after OnDestroy has already disposed the pool. Nothing promises an order between
-                // OnDestroy and the destroy token, so a release from here would be a release against
-                // a disposed pool, which throws, or against destroyed instances, which is worse.
+                // Deliberately nothing, and handing back what a cancelled fill had already placed
+                // would be wrong. The only two things that cancel a fill are the next fill, which
+                // releases the whole board before it starts anyway, and teardown, where this
+                // resumes after OnDestroy has disposed the pool. Nothing promises an order between
+                // OnDestroy and the destroy token, so a release from here would hit a disposed pool
+                // or destroyed instances.
             }
         }
 
@@ -158,8 +153,8 @@ namespace Company.ChestGame.Minigame.Chests.Internal
         }
 
         // The model goes first and the instance second. A parked instance is still alive - under
-        // ParkedPool it is not even deactivated - so one handed back still holding its model would
-        // go on following a chest it is no longer showing.
+        // ParkedPool not even deactivated - so one handed back still holding its model would go on
+        // following a chest it is no longer showing.
         private void ReleaseBoard()
         {
             foreach (ChestsMinigameChestElementView instance in _chestInstances)
@@ -181,56 +176,11 @@ namespace Company.ChestGame.Minigame.Chests.Internal
         }
 
         // The bound is the board size: the board is handed back whole and taken again whole, so
-        // there is never more than one board's worth to park.
-        private IPrefabPool<ChestsMinigameChestElementView> CreatePool(int boardSize)
-        {
-            // The baseline holds nothing between a release and the next get, so it needs nowhere to
-            // hold it. Building a holder for it anyway would leave an empty object in the hierarchy
-            // saying this screen parks something.
-            if (_poolStrategy == PoolStrategy.DirectSpawner)
-            {
-                return new DirectSpawner<ChestsMinigameChestElementView>(_chestPrefab);
-            }
-
-            Transform holder = CreatePoolHolder();
-
-            switch (_poolStrategy)
-            {
-                case PoolStrategy.ParkedPool:
-                    return new ParkedPool<ChestsMinigameChestElementView>(_chestPrefab, holder, boardSize);
-                case PoolStrategy.UnityPool:
-                    return new UnityPool<ChestsMinigameChestElementView>(_chestPrefab, holder, boardSize);
-
-                // The fall-through is the default strategy rather than a throw, so a field left on an
-                // enum member this switch has not heard of still comes up with a working board.
-                default:
-                    return new ActivationPool<ChestsMinigameChestElementView>(_chestPrefab, holder, boardSize);
-            }
-        }
-
-        // Built at runtime, and deliberately not under _chestsParent: that carries the
-        // GridLayoutGroup, and parking under a layout group makes every release and every get dirty
-        // a rebuild, which is most of what pooling was supposed to save.
-        //
-        // Hidden with a Canvas component switched off. Deactivating it is not available at all -
-        // ParkedPool refuses an inactive holder, because the hierarchy would deactivate everything
-        // parked under it and fire exactly the OnDisable that pool exists to avoid. Moving it
-        // off-screen would work, but it leaves the parked instances inside the parent canvas's batch
-        // and rebuilding with it, and it rests on a coordinate no resolution can be trusted to keep
-        // off the screen. A disabled Canvas draws nothing, keeps every GameObject under it active,
-        // and cuts the subtree out of the canvas above. It carries no GraphicRaycaster either, so
-        // nothing parked under it can be clicked.
-        private Transform CreatePoolHolder()
-        {
-            GameObject holder = new("ChestPool", typeof(RectTransform), typeof(Canvas));
-
-            // Under this view rather than at the scene root, so the holder and anything still parked
-            // in it die with the view instead of outliving the bundle the prefab came from.
-            holder.transform.SetParent(transform, false);
-            holder.GetComponent<Canvas>().enabled = false;
-
-            return holder.transform;
-        }
+        // there is never more than one board's worth to park. The holder goes under this view rather
+        // than under _chestsParent, which carries the GridLayoutGroup - see PoolFactory.CreateHolder
+        // for why parking under a layout group is most of the cost pooling was meant to remove.
+        private IPrefabPool<ChestsMinigameChestElementView> CreatePool(int boardSize) =>
+            PoolFactory.Create(_poolStrategy, _chestPrefab, transform, boardSize, "ChestPool");
 
         private void OnGameFinished(bool won)
         {

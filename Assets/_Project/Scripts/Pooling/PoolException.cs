@@ -9,18 +9,12 @@ namespace Company.ChestGame.Pooling
     // releasing a foreign instance throws must not be satisfied by a NullReferenceException from
     // somewhere inside the release path.
     //
-    // Deliberately not under ChestGameException, and that is not an oversight for a later tidy-up to
-    // correct. In this project that base is a behavioural signal rather than a label: GameManager
-    // catches exactly it, turns whatever it caught into a content-unavailable popup and treats it as
-    // handled, on the understanding that anything outside it is a bug and is left to blow up where it
-    // can be seen. Every failure named below is a wiring mistake - a prefab slot nobody filled, a
-    // holder that was never built, a pool used after it was disposed - and none of them is something
-    // to tell a player their connection is bad about. InvalidOperationException instead, which is
-    // already what "you cannot ask this object for that right now" means everywhere else in .NET.
+    // Deliberately not under ChestGameException, and not an oversight for a later tidy-up to
+    // correct: every failure named below is a wiring mistake rather than a delivery failure. See
+    // the exception hierarchy in docs/architecture.md for what that base means here.
     //
-    // The wording lives here rather than in each implementation: all four reject the same mistakes,
-    // and one set of messages keeps a failure naming the mistake instead of whichever implementation
-    // happened to catch it.
+    // The wording lives here rather than in each implementation, so a failure names the mistake
+    // instead of whichever of the four implementations happened to catch it.
     public class PoolException : InvalidOperationException
     {
         public PoolException(string message) : base(message) { }
@@ -31,24 +25,22 @@ namespace Company.ChestGame.Pooling
         public static PoolException NoHolder() =>
             new("A pool needs a holder to park instances under, and was handed none or a destroyed one");
 
-        // ParkedPool only. The failure it describes is silent otherwise: a child reparented under an
-        // inactive object is deactivated by the hierarchy, firing exactly the OnDisable that pool
-        // exists to avoid, and nothing about the result looks wrong.
+        // ParkedPool only, and the failure is silent otherwise: a child reparented under an inactive
+        // object is deactivated by the hierarchy, firing exactly the OnDisable that pool exists to
+        // avoid, with nothing about the result looking wrong.
         public static PoolException InactiveHolder(Transform holder) =>
             new($"ParkedPool's holder '{holder.name}' is inactive, so parking an instance under it would deactivate the instance anyway");
 
         public static PoolException MaxSizeBelowOne(int maxSize) =>
             new($"A pool's max size has to be at least 1, got {maxSize}");
 
-        // Asking past the bound is a call site to fix, not a number to quietly shrink. Warming fewer
-        // than asked would make "Prewarm(n) creates n" conditional on a bound the caller cannot see
-        // from the call.
+        // Asking past the bound is a call site to fix, not a number to quietly shrink: warming fewer
+        // than asked would make "Prewarm(n) creates n" conditional on a bound the caller cannot see.
         public static PoolException PrewarmPastMaxSize(int count, int alreadyParked, int maxSize) =>
             new($"Prewarming {count} on top of {alreadyParked} already parked would pass the max size of {maxSize}");
 
-        // One message for both halves on purpose. Once an instance is out of the pool's hands the
-        // pool cannot tell "never mine" from "already given back", and naming both is more honest
-        // than picking one.
+        // One message for both halves: once an instance is out of the pool's hands it cannot tell
+        // "never mine" from "already given back".
         public static PoolException NotHandedOut(Object instance) =>
             new(instance == null
                 ? "A null or already destroyed instance cannot be released"

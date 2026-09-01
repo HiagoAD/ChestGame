@@ -12,11 +12,10 @@ using Object = UnityEngine.Object;
 
 namespace Company.ChestGame.Tests.EditMode
 {
-    // PoolRace<T> is the orchestration Phase 3 is about: one FrameBudgetedLoop per lane, all reading
-    // the same clock and the same budget, started together and cancelled together. What has to be
-    // proven here is that shape, not what a real pool costs - FakeGameClock cannot see a real engine,
-    // so the cost-sensitive tests race FakePrefabPool lanes with a chosen cost instead, the same way
-    // FrameBudgetedLoopTests races synthetic steps rather than real work.
+    // PoolRace<T>'s orchestration: one FrameBudgetedLoop per lane, all reading the same clock and
+    // budget, started together and cancelled together. What is proven here is that shape, not what a
+    // real pool costs - FakeGameClock cannot see a real engine, so the cost-sensitive tests race
+    // FakePrefabPool lanes with a chosen cost, the way FrameBudgetedLoopTests races synthetic steps.
     public class PoolRaceTests
     {
         private const double BudgetMilliseconds = 10d;
@@ -58,9 +57,8 @@ namespace Company.ChestGame.Tests.EditMode
         public void StartRace_EveryLaneAdvancesInTheSameFrames()
         {
             // Same shape as FrameBudgetedLoopTests: four milliseconds a unit against a ten
-            // millisecond budget places three a frame. All four lanes cost the same here on purpose
-            // - this test is about whether the same clock pumps every lane together, not about which
-            // one gets further.
+            // millisecond budget places three a frame. All four lanes cost the same on purpose -
+            // this is about whether one clock pumps every lane, not about which gets further.
             PoolRaceLane<RectTransform>[] lanes =
             {
                 FakeLane(PoolStrategy.ActivationPool, 4d),
@@ -103,11 +101,10 @@ namespace Company.ChestGame.Tests.EditMode
                 "if the cheaper lane does not visibly get further in the same frame, the race is counting items per lane rather than budgeting time, and the whole demonstration shows nothing");
         }
 
-        // The other half of the same claim, read off the metrics rather than off the pool: a lane
-        // that finishes its own board sooner has to report a smaller elapsed time than one that is
-        // still going. This is only true if each lane's finish is timestamped inside that lane's own
-        // task - stamping it once after every lane has been awaited together would read the slowest
-        // lane's finish time for all of them, which is exactly the bug this test exists to catch.
+        // The same claim read off the metrics rather than the pool: a lane that finishes sooner has
+        // to report a smaller elapsed time. Only true if each lane's finish is timestamped inside
+        // its own task - stamping it after every lane has been awaited together would give them all
+        // the slowest lane's finish time.
         [Test]
         public void StartRace_ACheaperLaneReportsLessElapsedTime_ThanAnExpensiveOneAtTheSameBudget()
         {
@@ -205,8 +202,7 @@ namespace Company.ChestGame.Tests.EditMode
         public void StartRace_Prewarmed_InstantiatesNothingDuringTheRace()
         {
             // The baseline is left out on purpose: DirectSpawner has nowhere to hold a prewarmed
-            // instance, so it always instantiates on Get regardless of this flag. That is real,
-            // correct behaviour for it, not something this test is about.
+            // instance, so it always instantiates on Get. That is correct behaviour for it.
             RectTransform prefab = NewRect("Prefab");
             const int boardSize = 10;
 
@@ -235,11 +231,10 @@ namespace Company.ChestGame.Tests.EditMode
         [Test]
         public void StartRace_Reuse_InstantiatesNothingOnPooledLanes_ButTheFullBoardOnTheBaseline()
         {
-            // The demonstration Cold and Prewarmed cannot show: a second race that finds what the
-            // first one placed already parked, the way Phase 2's own NewGame finds the board it
-            // released last time still there to reuse. DirectSpawner has nowhere to have parked
-            // anything - its own release is a real destroy - so it is the one lane that pays the
-            // same instantiate cost again, and that contrast is exactly what this test is about.
+            // What Cold and Prewarmed cannot show: a second race finding what the first one placed
+            // already parked, the way ChestsMinigameView's NewGame finds the board it released last
+            // time. DirectSpawner has nowhere to have parked anything - its release is a real
+            // destroy - so it is the one lane that pays the instantiate cost again.
             RectTransform prefab = NewRect("Prefab");
             const int boardSize = 10;
 
@@ -256,9 +251,8 @@ namespace Company.ChestGame.Tests.EditMode
             _clock.AdvanceUntilIdle();
             Assert.IsTrue(race.LastResult.HasValue, "guard: the first race has to have settled");
 
-            // Releasing the baseline's board back before the second race starts destroys it for
-            // real in edit mode - see PrefabPoolTests.ExpectDestroys for why this is pinned rather
-            // than silenced.
+            // Releasing the baseline's board before the second race starts destroys it for real in
+            // edit mode - see PrefabPoolTests.ExpectDestroys for why this is pinned, not silenced.
             ExpectDestroys(boardSize);
             race.StartRace(boardSize, FillMode.Reuse, solo: false, PoolStrategy.ActivationPool);
             _clock.AdvanceUntilIdle();
@@ -281,10 +275,9 @@ namespace Company.ChestGame.Tests.EditMode
             }
         }
 
-        // Matched by regex rather than an exact message for the reason PrefabPoolTests does the
-        // same: the real message is two lines and an exact match on it is brittle. Declared before
-        // the act that causes it, because a release the baseline is about to make is part of the
-        // arrange here, not a side effect to react to afterwards.
+        // Matched by regex rather than an exact message, for the reason PrefabPoolTests gives.
+        // Declared before the act that causes it: a release the baseline is about to make is part
+        // of the arrange, not a side effect to react to afterwards.
         private static void ExpectDestroys(int count)
         {
             for (int i = 0; i < count; i++) LogAssert.Expect(LogType.Error, EditModeDestroy);

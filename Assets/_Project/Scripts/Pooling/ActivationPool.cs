@@ -4,11 +4,10 @@ using UnityEngine;
 namespace Company.ChestGame.Pooling
 {
     // The hand-rolled pool, and the version most projects end up writing: parked instances are
-    // deactivated under a holder, and a get reactivates one under the caller's parent.
-    //
-    // What it costs is easy to miss. Every get and every release runs OnEnable and OnDisable down
-    // the whole instance and dirties the canvas and every layout group above it. ParkedPool is the
-    // same idea with that removed, which is the comparison the two are here to make.
+    // deactivated under a holder, and a get reactivates one under the caller's parent. Every get
+    // and every release therefore runs OnEnable and OnDisable down the whole instance and dirties
+    // the canvas and every layout group above it. ParkedPool is the same idea with that removed -
+    // docs/design-decisions.md has what the difference measures.
     public class ActivationPool<T> : IPrefabPool<T> where T : Component
     {
         private readonly T _prefab;
@@ -18,6 +17,7 @@ namespace Company.ChestGame.Pooling
         private readonly Stack<T> _parked = new();
         private readonly HashSet<T> _handedOut = new();
 
+        private readonly List<T> _scratch = new();
         private bool _disposed;
 
         public int CreatedCount { get; private set; }
@@ -46,22 +46,19 @@ namespace Company.ChestGame.Pooling
                 instance = _parked.Pop();
 
                 // Reparent before activating, so OnEnable and the first layout pass already see the
-                // parent the instance is going to live under. The other order rebuilds twice and
-                // shows the instance for a frame wherever it was parked.
+                // parent the instance will live under. The other order rebuilds twice and shows the
+                // instance for a frame wherever it was parked.
                 instance.transform.SetParent(parent, false);
                 instance.gameObject.SetActive(true);
             }
             else
             {
-                // A miss goes straight to the caller's parent. Building it parked first would
-                // reparent it to the holder and deactivate it, only for the two lines above to undo
-                // both - and the first fill of a screen is nothing but misses, which is exactly the
-                // stretch the comparison against DirectSpawner measures.
+                // A miss goes straight to the caller's parent: building it parked first would
+                // reparent and deactivate it only for the two lines above to undo both.
                 instance = Create(parent);
 
-                // Instantiate already hands back an active clone when the prefab root is active, so
-                // in the normal case this fires nothing at all. It is here so a prefab authored
-                // with an inactive root still comes out visible.
+                // Here so a prefab authored with an inactive root still comes out visible.
+                // Instantiate already returns an active clone in the normal case.
                 instance.gameObject.SetActive(true);
             }
 
@@ -71,10 +68,11 @@ namespace Company.ChestGame.Pooling
 
         public void Release(T instance)
         {
-            if (instance == null || !_handedOut.Remove(instance)) throw PoolException.NotHandedOut(instance);
+            // Remove before the null check, not after. Unity's overloaded equality makes a
+            // destroyed instance read as null, so the other order short-circuits past Remove and
+            // strands the dead entry in the set forever.
+            if (!_handedOut.Remove(instance) || instance == null) throw PoolException.NotHandedOut(instance);
 
-            // The bound is a bound. A pool that grew on every release would be a leak that reads
-            // like a feature, because nothing about a pool holding too much ever looks wrong.
             if (_parked.Count >= _maxSize)
             {
                 DestroyInstance(instance);
@@ -88,8 +86,27 @@ namespace Company.ChestGame.Pooling
 
         public void ReleaseAll()
         {
-            // Snapshot, because Release edits the set being walked.
-            foreach (T instance in new List<T>(_handedOut)) Release(instance);
+            // Snapshot, because Release edits the set being walked. The list is reused rather than
+            // allocated per call: PoolRace.PrepareLanes does four of these per Run press.
+            _scratch.Clear();
+            _scratch.AddRange(_handedOut);
+
+            // Every instance, then the first failure. A bare foreach would strand every instance
+            // after the first bad entry.
+            PoolException failure = null;
+            foreach (T instance in _scratch)
+            {
+                try
+                {
+                    Release(instance);
+                }
+                catch (PoolException e)
+                {
+                    failure ??= e;
+                }
+            }
+
+            if (failure != null) throw failure;
         }
 
         public void Prewarm(int count)
@@ -100,9 +117,8 @@ namespace Company.ChestGame.Pooling
             for (int i = 0; i < count; i++) _parked.Push(CreateIdle());
         }
 
-        // To zero rather than down to max size. Release and Prewarm both refuse to park past the
-        // bound, so there is never a surplus above it for a trim-to-max-size to find, and a method
-        // that cannot do anything by construction is worse than no method.
+        // To zero rather than down to max size: Release and Prewarm both refuse to park past the
+        // bound, so there is never a surplus for a trim-to-max-size to find.
         public void Trim()
         {
             while (_parked.Count > 0) DestroyInstance(_parked.Pop());
@@ -122,20 +138,16 @@ namespace Company.ChestGame.Pooling
         {
             T instance = Object.Instantiate(_prefab);
 
-            // Parented here rather than through the Instantiate overload, so worldPositionStays is
-            // visibly false and a RectTransform keeps the anchored layout it was authored with.
+            // worldPositionStays is false, so a RectTransform keeps the anchored layout it was
+            // authored with.
             instance.transform.SetParent(parent, false);
 
             CreatedCount++;
             return instance;
         }
 
-        // An instance in this pool's idle state: under the holder and switched off, which is where
-        // Release leaves one too. Named for what it produces rather than for Prewarm, its only
-        // caller today, so anything later wanting a spare instance is not reading someone else's
-        // intent. It hands the instance back rather than pushing it, because the caller owns
-        // _parked and a Create that quietly added to it would do two things under a name that
-        // promises one.
+        // This pool's idle state: under the holder and switched off, which is where Release leaves
+        // one too. Hands the instance back rather than pushing it, so _parked stays the caller's.
         private T CreateIdle()
         {
             T instance = Create(_holder);
@@ -147,6 +159,10 @@ namespace Company.ChestGame.Pooling
         // behind, and on a Transform the engine refuses outright.
         private void DestroyInstance(T instance)
         {
+            // An instance handed out can be destroyed behind the pool's back, and .gameObject on a
+            // destroyed Component throws MissingReferenceException.
+            if (instance == null) return;
+
             DestroyedCount++;
             Object.Destroy(instance.gameObject);
         }

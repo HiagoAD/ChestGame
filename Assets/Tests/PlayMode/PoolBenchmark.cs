@@ -11,16 +11,14 @@ using Object = UnityEngine.Object;
 
 namespace Company.ChestGame.Tests.PlayMode
 {
-    // A measurement, not a behaviour test, and the distinction is deliberate. Everything this suite
-    // asserts about pooling is a count, because a count is exact and a stopwatch on a shared CI
-    // machine is not - a timing assertion here would be the flaky test the project's own play-mode
-    // rule exists to prevent.
+    // A measurement, not a behaviour test. Everything this suite asserts about pooling is a count,
+    // because a count is exact and a stopwatch on a shared CI machine is not - a timing assertion
+    // would be the flaky test docs/testing.md's play-mode rule exists to prevent.
     //
-    // But "pooling is worth doing" is a claim about time, and the docs should not make it with
-    // nothing behind it. So this runs the real strategies against a real prefab on the real player
-    // loop and writes the numbers to the log for a human to read and quote. The only assertions are
-    // the deterministic ones: what a rebuild instantiates, which is the mechanism the timings are a
-    // consequence of.
+    // But "pooling is worth doing" is a claim about time, so this runs the real strategies against a
+    // real prefab on the real player loop and writes the numbers to the log for a human to quote
+    // into docs/design-decisions.md. The only assertions are deterministic ones: what a rebuild
+    // instantiates, which is the mechanism the timings follow from.
     public class PoolBenchmark
     {
         // Big enough that the difference is real rather than noise, small enough that the play-mode
@@ -35,8 +33,8 @@ namespace Company.ChestGame.Tests.PlayMode
         public void SetUp()
         {
             // Shaped like the real chest prefab rather than a bare Transform: an Image, a Slider and
-            // a Button under a root. What Instantiate costs is a whole object graph, so measuring a
-            // one-component prefab would measure the wrong thing and flatter the baseline.
+            // a Button under a root. What Instantiate costs is a whole object graph, so a
+            // one-component prefab would flatter the baseline.
             _prefabObject = new GameObject("BenchChest", typeof(RectTransform), typeof(Image));
             AddChild<Image>(_prefabObject, "Icon");
             AddChild<Slider>(_prefabObject, "Timer");
@@ -82,9 +80,8 @@ namespace Company.ChestGame.Tests.PlayMode
             Debug.Log(report.ToString());
         }
 
-        // First fill is every strategy's cold case and nobody should expect a pool to win it. The
-        // rebuild is the one the game actually does on every NewGame, and it is where a pool stops
-        // paying Instantiate at all.
+        // First fill is every strategy's cold case and no pool should be expected to win it. The
+        // rebuild is what the game does on every NewGame, and where a pool stops paying Instantiate.
         private IEnumerator MeasureOne(PoolStrategy strategy, StringBuilder report)
         {
             IPrefabPool<RectTransform> pool = Build(strategy);
@@ -112,9 +109,9 @@ namespace Company.ChestGame.Tests.PlayMode
             report.AppendLine(
                 $"{strategy,-15} {firstFill.Elapsed.TotalMilliseconds,13:F1}   {rebuild.Elapsed.TotalMilliseconds,12:F1}   {instantiatedByRebuild,20}");
 
-            // The deterministic half, and the only thing asserted. The timings above are a
-            // consequence of this: a pool that stops calling Instantiate on a rebuild is the whole
-            // mechanism, and unlike a stopwatch this cannot come out differently on a slow machine.
+            // The deterministic half, and the only thing asserted: a pool that stops calling
+            // Instantiate on a rebuild is the whole mechanism behind the timings, and unlike a
+            // stopwatch it cannot come out differently on a slow machine.
             int expected = strategy == PoolStrategy.DirectSpawner ? BoardSize : 0;
             Assert.AreEqual(expected, instantiatedByRebuild,
                 $"{strategy} instantiated {instantiatedByRebuild} on a rebuild of an already-filled board");

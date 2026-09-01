@@ -8,26 +8,24 @@ using Button = UnityEngine.UIElements.Button;
 
 namespace Company.ChestGame.Pooling.Demo
 {
-    // A self-contained demonstration of what the pooling assembly does, and deliberately nothing to
-    // do with the chest game: it is dropped into a scene as a prefab, races whatever prefab it is
-    // given, and nothing in the game holds a reference to it. The minigame uses IPrefabPool the same
-    // way anything else would; this shows the four strategies against each other, and the two are
-    // not wired together in either direction.
+    // A self-contained demonstration of the pooling assembly, deliberately unconnected to the chest
+    // game: it is dropped into a scene as a prefab, races whatever prefab it is given, and nothing
+    // in the game holds a reference to it. See docs/design-decisions.md for why they are split.
     //
     // The chrome is authored - PoolingDemo.uxml for the tree, PoolingDemo.uss for the styling - and
-    // this class only binds to it: query by name, set text, add and remove a class. Nothing here
-    // decides what anything looks like. The lanes stay uGUI and stay built at runtime, because they
-    // hold real pooled Components and a VisualElement can host neither a Component nor a GameObject.
+    // this class only binds to it: query by name, set text, add and remove a class. The lanes stay
+    // uGUI and stay built at runtime, because they hold real pooled Components and a VisualElement
+    // can host neither a Component nor a GameObject.
     public sealed class PoolingDemoPanel : MonoBehaviour
     {
         private static readonly int[] BoardSizes = { 8, 100, 500, 2000 };
 
-        // Small enough that a fill never reads as a hitch on its own, and the same number every lane
-        // races under - see PoolRace<T> for why that equality is the whole point.
+        // The same number every lane races under - see PoolRace<T> for why that equality is the
+        // whole point.
         private const double FillBudgetMilliseconds = 2d;
 
-        // The largest selectable board size. Every lane's pool is bounded to this once, at build
-        // time, so switching board size between races never has to rebuild a pool - only trim it.
+        // The largest selectable board size. Every lane's pool is bounded to this once, so switching
+        // board size between races never has to rebuild a pool, only trim it.
         private const int MaxBoardSize = 2000;
 
         private const string SelectedClass = "is-selected";
@@ -43,10 +41,8 @@ namespace Company.ChestGame.Pooling.Demo
         // and its fill parent.
         [SerializeField] private RectTransform[] _laneSlots;
 
-        // What the race spawns. Typed as RectTransform rather than as a concrete component so any UI
-        // prefab can be dropped in - the chest element included - without this class knowing what it
-        // is. The tile it ships with is a plain square, which reads better at two thousand items than
-        // any detailed sprite does.
+        // What the race spawns. Typed as RectTransform rather than a concrete component so any UI
+        // prefab can be dropped in without this class knowing what it is.
         [Header("What to race")]
         [SerializeField] private RectTransform _itemPrefab;
 
@@ -74,38 +70,45 @@ namespace Company.ChestGame.Pooling.Demo
 
         private float _peakFrameSeconds;
 
-        // Start, not Awake: UIDocument creates its rootVisualElement in OnEnable, and component
-        // Awake runs before any OnEnable on the same object - so binding any earlier than this reads
-        // a null tree. Nothing here needs to happen before the first frame; the panel is collapsed
-        // at the end of it either way.
+        // Start, not Awake: UIDocument creates its rootVisualElement in OnEnable, and Awake runs
+        // before any OnEnable on the same object, so binding earlier reads a null tree.
         private void Start()
         {
             _laneOrder = PoolRaceLaneFactory.AllStrategies;
 
-            if (_document == null) throw new PoolRaceException("PoolingDemoPanel has no UIDocument assigned.");
-            if (_itemPrefab == null) throw new PoolRaceException("PoolingDemoPanel has no item prefab assigned - there is nothing to race.");
+            if (_document == null) throw PoolRaceException.NoDocument();
+            if (_itemPrefab == null) throw PoolRaceException.NoItemPrefab();
             if (_laneSlots == null || _laneSlots.Length != _laneOrder.Length)
             {
-                throw new PoolRaceException(
-                    $"PoolingDemoPanel needs one lane slot per strategy ({_laneOrder.Length}); it has {(_laneSlots == null ? 0 : _laneSlots.Length)}.");
+                throw PoolRaceException.LaneSlotCountMismatch(_laneOrder.Length, _laneSlots?.Length ?? 0);
             }
 
             BindChrome();
             BuildRace();
 
-            // Collapsed before the first frame anyone could see. Set through the same path a tap
-            // takes, so there is one definition of what collapsed means.
+            // Collapsed before the first frame anyone could see, through the same path a tap takes
+            // so there is one definition of what collapsed means.
             _expanded = true;
             ToggleExpanded();
         }
 
-        private void OnDestroy() => _race?.Dispose();
+        // Both of these die with the prefab in practice, so this is teardown discipline rather than
+        // a live leak.
+        private void OnDestroy()
+        {
+            if (_lanesSlot != null) _lanesSlot.UnregisterCallback<GeometryChangedEvent>(OnLanesSlotGeometryChanged);
+            if (_race != null) _race.OnRaceCompleted -= OnRaceCompleted;
+
+            _race?.Dispose();
+        }
+
+        private void OnLanesSlotGeometryChanged(GeometryChangedEvent _) => PlaceLanes();
 
         private void Update()
         {
-            // Time.unscaledDeltaTime rather than the clock the race runs on, on purpose: this is a
-            // real-engine measurement of the frame this MonoBehaviour is actually living in, and the
-            // orchestration must not depend on it to stay testable against a fake clock.
+            // Time.unscaledDeltaTime rather than the clock the race runs on: this measures the real
+            // frame this MonoBehaviour is living in, and the orchestration has to stay testable
+            // against a fake clock.
             if (_race == null || !_race.IsRunning) return;
 
             _peakFrameSeconds = Mathf.Max(_peakFrameSeconds, Time.unscaledDeltaTime);
@@ -119,8 +122,8 @@ namespace Company.ChestGame.Pooling.Demo
             VisualElement root = _document.rootVisualElement;
 
             // A full-screen root with the default picking mode would swallow every tap meant for the
-            // game underneath even while collapsed and nothing is drawn. pickingMode is per-element,
-            // not inherited, so this opts the root itself out while the chrome and toggle keep theirs.
+            // game underneath, even collapsed with nothing drawn. pickingMode is per-element, not
+            // inherited, so this opts out the root while the chrome and toggle keep theirs.
             root.pickingMode = PickingMode.Ignore;
 
             _chrome = Required<VisualElement>(root, "chrome");
@@ -159,27 +162,26 @@ namespace Company.ChestGame.Pooling.Demo
                 _strategyButtons[i].clicked += () => SetSoloStrategy(index);
 
                 // Written from the enum rather than trusted from the UXML, so a reordering of
-                // AllStrategies can never leave a card labelled as the wrong strategy.
+                // AllStrategies cannot leave a card labelled as the wrong strategy.
                 Required<Label>(root, $"lane-name-{i}").text = _laneOrder[i].ToString();
                 _headlineLabels[i] = Required<Label>(root, $"lane-headline-{i}");
                 _metricsLabels[i] = Required<Label>(root, $"lane-metrics-{i}");
             }
 
-            // The uGUI lanes follow whatever the stylesheet decides is left over, rather than being
-            // offset by a hard-coded height that has to be kept in step with it by hand.
-            _lanesSlot.RegisterCallback<GeometryChangedEvent>(_ => PlaceLanes());
+            // The uGUI lanes follow whatever the stylesheet leaves over, rather than a hard-coded
+            // height kept in step with it by hand.
+            _lanesSlot.RegisterCallback<GeometryChangedEvent>(OnLanesSlotGeometryChanged);
 
             RefreshControlLabels();
             ShowIdleReadout();
         }
 
-        // A missing name is a broken .uxml, not a state to limp along in: every one of these is
-        // wired on the next line, so the alternative is a NullReferenceException from somewhere
-        // further away with nothing in it naming the element that went missing.
+        // A missing name is a broken .uxml, not a state to limp along in: the alternative is a
+        // NullReferenceException further away with nothing naming the element that went missing.
         private static T Required<T>(VisualElement root, string name) where T : VisualElement
         {
             T element = root.Q<T>(name);
-            if (element == null) throw new PoolRaceException($"PoolingDemo.uxml has no {typeof(T).Name} named '{name}'.");
+            if (element == null) throw PoolRaceException.MissingElement(typeof(T).Name, name);
 
             return element;
         }
@@ -191,20 +193,17 @@ namespace Company.ChestGame.Pooling.Demo
 
             PoolRaceLane<RectTransform>[] lanes = PoolRaceLaneFactory.BuildAll(_itemPrefab, laneRoots, MaxBoardSize);
 
-            // Its own clock, not an injected one: this panel is dropped into a scene and is not part
-            // of anything's object graph. Linked to its own destroy token the way the minigame's
-            // board fill is, so a race still in flight when this is torn down unwinds instead of
-            // filling into lanes that are going away.
+            // Its own clock, not an injected one: this panel is dropped into a scene and is not
+            // part of anything's object graph. Linked to its own destroy token, so a race in flight
+            // when this is torn down unwinds instead of filling into lanes that are going away.
             PoolRace<RectTransform> race = new(lanes, new UnityGameClock(), FillBudgetMilliseconds, this.GetCancellationTokenOnDestroy());
             race.OnRaceCompleted += OnRaceCompleted;
             _race = race;
         }
 
-        // The stylesheet owns the layout, including how much room is left under the cards; this only
-        // copies the answer onto the uGUI side. Both are laid out against the same reference
-        // resolution - the prefab's CanvasScaler and its PanelSettings are authored to match - so a
-        // logical pixel here is a canvas pixel there, and the panel's top-left origin is the
-        // canvas's too.
+        // The stylesheet owns the layout; this only copies the answer onto the uGUI side. Both are
+        // laid out against the same reference resolution - the prefab's CanvasScaler and its
+        // PanelSettings are authored to match - so a logical pixel here is a canvas pixel there.
         private void PlaceLanes()
         {
             if (_lanesRoot == null) return;
@@ -221,14 +220,13 @@ namespace Company.ChestGame.Pooling.Demo
 
         // --- Collapsing and expanding ------------------------------------------------------------
 
-        // display:None takes the chrome out of both layout and picking, and disabling the lanes' own
-        // Canvas hides the uGUI side without deactivating a single GameObject - which matters,
-        // because ParkedPool refuses an inactive holder and everything parked under one would fire
-        // exactly the OnDisable that pool exists to avoid.
+    // display:None takes the chrome out of both layout and picking, and disabling the lanes' own
+        // Canvas hides the uGUI side without deactivating a single GameObject - which matters, because
+        // ParkedPool refuses an inactive holder.
         //
-        // The floating toggle and the Close button in the title bar are the same control in two
-        // states, and exactly one is ever on screen: the toggle's band runs through a control row,
-        // so a demo showing both would have it sitting on that row's last button.
+        // The floating toggle and the Close button are the same control in two states, and exactly one
+        // is ever on screen: the toggle's band runs through a control row, so showing both would have
+        // it sitting on that row's last button.
         private void ToggleExpanded()
         {
             _expanded = !_expanded;
@@ -248,8 +246,7 @@ namespace Company.ChestGame.Pooling.Demo
             RefreshControlLabels();
         }
 
-        // Cycles Cold -> Prewarmed -> Reuse -> Cold. Three states on one button rather than a fourth
-        // control, since only one is ever active at a time.
+        // Cycles Cold -> Prewarmed -> Reuse -> Cold.
         private void CycleFillMode()
         {
             _fillMode = _fillMode switch
@@ -284,9 +281,8 @@ namespace Company.ChestGame.Pooling.Demo
             _race.StartRace(BoardSizes[_boardSizeIndex], _fillMode, _solo, _soloStrategy);
         }
 
-        // Selection is a class the stylesheet reacts to, not a colour set from here - which is the
-        // whole point of the chrome being authored: this file names a state, PoolingDemo.uss decides
-        // what that state looks like.
+        // Selection is a class the stylesheet reacts to, not a colour set from here: this file names
+        // a state, PoolingDemo.uss decides what it looks like.
         private void RefreshControlLabels()
         {
             for (int i = 0; i < _boardSizeButtons.Length; i++)
@@ -306,8 +302,7 @@ namespace Company.ChestGame.Pooling.Demo
         }
 
         // The segmented control's labels. Written out, the four enum names run to 46 characters and
-        // no phone-width row holds them; the full name still leads each lane card, so nothing is only
-        // ever shown abbreviated.
+        // no phone-width row holds them; the full name still leads each lane card.
         private static string ShortNameOf(PoolStrategy strategy) => strategy switch
         {
             PoolStrategy.ActivationPool => "Activation",
@@ -342,9 +337,8 @@ namespace Company.ChestGame.Pooling.Demo
             {
                 int index = Array.IndexOf(_laneOrder, lane.Strategy);
 
-                // Elapsed is promoted out of the list and into the card's one large figure: it is the
-                // number a race is watched for, and reading it off the third line of four made every
-                // lane look the same until it was actually read.
+                // Elapsed is promoted into the card's one large figure: it is the number a race is
+                // watched for.
                 _headlineLabels[index].text = $"{lane.ElapsedMilliseconds:F1} ms";
                 _metricsLabels[index].text =
                     $"Placed {lane.PlacedCount}/{lane.RequestedCount}\n" +
@@ -353,18 +347,17 @@ namespace Company.ChestGame.Pooling.Demo
                     $"Frames {lane.FramesUsed}";
             }
 
-            // The honest caveat, stated where it is read: four lanes sharing one clock means no
-            // lane's elapsed time here is what it would cost running alone.
+            // The caveat, stated where it is read: four lanes sharing one clock means no lane's
+            // elapsed time here is what it would cost running alone.
             string modeCaveat = result.Solo
                 ? $"Solo mode - {result.Lanes[0].Strategy} ran alone. These figures are its own, uncontended."
                 : "All four, simultaneous - four lanes share these frames, so no lane's elapsed time here " +
                   "is what it would cost running alone. This proves the ordering between strategies, not " +
                   "any one standalone number; switch to solo for that.";
 
-            // Named here too, and not only on the Run button: Reuse is the one mode that shows what
-            // pooling is actually for, and it only means anything read against what a second press
-            // just did.
-            _readoutLabel.text = $"[{_fillMode}] {modeCaveat}";
+            // result.FillMode, not the field: tapping Fill while a race is in flight would otherwise
+            // label the figures that land with a mode that did not produce them.
+            _readoutLabel.text = $"[{result.FillMode}] {modeCaveat}";
         }
     }
 }

@@ -5,10 +5,9 @@ using UnityEngine.Pool;
 namespace Company.ChestGame.Pooling
 {
     // ActivationPool's strategy over the engine's own ObjectPool instead of a hand-rolled stack.
-    // It is here to make the point that the hand-rolled one is usually not worth writing: once
-    // ObjectPool owns the stack, the bound and the create/destroy callbacks, what is left is the
-    // parenting, the counters and the two rejections the seam promises. ObjectPool ships with
-    // UnityEngine.CoreModule, so this costs no package reference.
+    // Once ObjectPool owns the stack, the bound and the create/destroy callbacks, what is left here
+    // is the parenting, the counters and the two rejections the seam promises. ObjectPool ships
+    // with UnityEngine.CoreModule, so this costs no package reference.
     public class UnityPool<T> : IPrefabPool<T> where T : Component
     {
         private readonly T _prefab;
@@ -16,12 +15,12 @@ namespace Company.ChestGame.Pooling
         private readonly int _maxSize;
         private readonly ObjectPool<T> _pool;
 
-        // ObjectPool tracks an active count of its own, but Clear resets the total it derives that
-        // from, so reading ActiveCount off the wrapped pool would report zero after a Trim with
-        // instances still out. This set has to exist anyway to answer "did this pool hand that
-        // out", so the count comes from here.
+        // ObjectPool's own active count reads zero after a Clear with instances still handed out,
+        // because Clear resets the total it derives that from. This set has to exist anyway to
+        // answer "did this pool hand that out", so ActiveCount comes from here.
         private readonly HashSet<T> _handedOut = new();
 
+        private readonly List<T> _scratch = new();
         private bool _disposed;
 
         public int CreatedCount { get; private set; }
@@ -39,14 +38,9 @@ namespace Company.ChestGame.Pooling
             _holder = holder;
             _maxSize = maxSize;
 
-            // collectionCheck stays on as a second net under this class's own release check. It
-            // costs a linear scan of the parked instances per release, which against a bounded UI
-            // pool is a handful of reference compares, and it is what would catch a double release
-            // this class somehow let through.
-            //
-            // There is no actionOnGet because activating has to happen after the parent is set, and
-            // ObjectPool fires that callback before it hands the instance back. defaultCapacity is
-            // the bound, since the stack can never hold more than that.
+            // collectionCheck stays on as a second net under this class's own release check. No
+            // actionOnGet, because activating has to happen after the parent is set and ObjectPool
+            // fires that callback before it hands the instance back.
             _pool = new ObjectPool<T>(Create, actionOnRelease: Park, actionOnDestroy: DestroyInstance,
                 collectionCheck: true, defaultCapacity: maxSize, maxSize: maxSize);
         }
@@ -57,11 +51,10 @@ namespace Company.ChestGame.Pooling
 
             T instance = _pool.Get();
 
-            // A miss here pays for a park it does not need. ObjectPool's factory callback is handed
-            // no context, so it cannot know whether the instance it is building is about to be
-            // handed out or parked, which means Create has to park it and these two lines have to
-            // undo that. ActivationPool avoids it by branching on the miss; the wrapper cannot, and
-            // that is worth leaving visible when the numbers come out rather than papering over.
+            // A miss here pays for a park it does not need: ObjectPool's factory callback is handed
+            // no context, so Create has to park the instance and these two lines undo it.
+            // ActivationPool avoids that by branching on the miss; the wrapper cannot, and
+            // docs/design-decisions.md keeps what it costs visible.
             //
             // Reparent before activating, for the reason ActivationPool.Get gives.
             instance.transform.SetParent(parent, false);
@@ -74,18 +67,49 @@ namespace Company.ChestGame.Pooling
         public void Release(T instance)
         {
             // This check has to be the one that reports: ObjectPool's own collection check throws a
-            // bare InvalidOperationException, which names nothing and which a test could only assert
-            // loosely. PoolException is a subclass of that, so what a caller catches stays specific.
-            if (instance == null || !_handedOut.Remove(instance)) throw PoolException.NotHandedOut(instance);
+            // bare InvalidOperationException, which names nothing. PoolException subclasses it, so
+            // what a caller catches stays specific.
+            //
+            // Remove before the null check, not after. Unity's overloaded equality makes a
+            // destroyed instance read as null, so the other order short-circuits past Remove and
+            // strands the dead entry in the set forever.
+            if (!_handedOut.Remove(instance) || instance == null) throw PoolException.NotHandedOut(instance);
 
-            // Past the bound ObjectPool destroys the surplus itself, through actionOnDestroy.
+            // Past the bound ObjectPool destroys the surplus itself, but fires actionOnRelease
+            // first - so the instance gets parked, switched off and reparented, on its way to being
+            // destroyed. Checking here skips that and matches what the hand-rolled pools do.
+            if (_pool.CountInactive >= _maxSize)
+            {
+                DestroyInstance(instance);
+                return;
+            }
+
             _pool.Release(instance);
         }
 
         public void ReleaseAll()
         {
-            // Snapshot, because Release edits the set being walked.
-            foreach (T instance in new List<T>(_handedOut)) Release(instance);
+            // Snapshot, because Release edits the set being walked. The list is reused rather than
+            // allocated per call: PoolRace.PrepareLanes does four of these per Run press.
+            _scratch.Clear();
+            _scratch.AddRange(_handedOut);
+
+            // Every instance, then the first failure. A bare foreach would strand every instance
+            // after the first bad entry.
+            PoolException failure = null;
+            foreach (T instance in _scratch)
+            {
+                try
+                {
+                    Release(instance);
+                }
+                catch (PoolException e)
+                {
+                    failure ??= e;
+                }
+            }
+
+            if (failure != null) throw failure;
         }
 
         public void Prewarm(int count)
@@ -96,17 +120,15 @@ namespace Company.ChestGame.Pooling
                 throw PoolException.PrewarmPastMaxSize(count, _pool.CountInactive, _maxSize);
             }
 
-            // ObjectPool has no prewarm, so warming is taking count instances and giving them all
-            // back. All of them first: getting and releasing one at a time would hand the same
-            // instance back every time and warm exactly one.
-            T[] warming = new T[count];
-            for (int i = 0; i < count; i++) warming[i] = _pool.Get();
-            for (int i = 0; i < count; i++) _pool.Release(warming[i]);
+            // Created directly rather than taken and given back. ObjectPool.Get pops existing stock
+            // before it calls the factory, so get-then-release on a pool already holding k pops
+            // those k and puts them straight back, creating only count - k. The other three always
+            // create.
+            for (int i = 0; i < count; i++) _pool.Release(Create());
         }
 
         // Clear destroys everything parked through actionOnDestroy and leaves what is handed out
-        // alone, which is a trim exactly. To zero rather than down to max size, for the reason
-        // ActivationPool.Trim gives.
+        // alone. To zero rather than down to max size, for the reason ActivationPool.Trim gives.
         public void Trim() => _pool.Clear();
 
         public void Dispose()
@@ -115,8 +137,8 @@ namespace Company.ChestGame.Pooling
 
             _disposed = true;
 
-            // The handed-out ones are destroyed directly rather than released first, which would
-            // park them under the holder only for the next line to destroy them.
+            // Destroyed directly rather than released first, which would park them under the
+            // holder only for the next line to destroy them.
             foreach (T instance in new List<T>(_handedOut)) DestroyInstance(instance);
             _handedOut.Clear();
 
@@ -133,7 +155,7 @@ namespace Company.ChestGame.Pooling
             return instance;
         }
 
-        // Also ObjectPool's actionOnRelease. worldPositionStays is false so a RectTransform keeps
+        // Also ObjectPool's actionOnRelease. worldPositionStays is false, so a RectTransform keeps
         // the anchored layout it was authored with.
         private void Park(T instance)
         {
@@ -145,6 +167,10 @@ namespace Company.ChestGame.Pooling
         // behind, and on a Transform the engine refuses outright.
         private void DestroyInstance(T instance)
         {
+            // An instance handed out can be destroyed behind the pool's back, and .gameObject on a
+            // destroyed Component throws MissingReferenceException.
+            if (instance == null) return;
+
             DestroyedCount++;
             Object.Destroy(instance.gameObject);
         }

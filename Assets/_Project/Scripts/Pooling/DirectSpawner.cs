@@ -5,16 +5,17 @@ namespace Company.ChestGame.Pooling
 {
     // The baseline: Instantiate on the way out, Destroy on the way back, nothing kept in between.
     // It exists so the comparison against the three pools is measured rather than asserted, which
-    // only works if it implements the same contract honestly - the same counters, the same loud
-    // rejection of a release it never handed out - and differs in nothing but pooling nothing.
+    // only works if it honours the same contract - the same counters, the same loud rejection of a
+    // release it never handed out - and differs in nothing but pooling nothing.
     public class DirectSpawner<T> : IPrefabPool<T> where T : Component
     {
         private readonly T _prefab;
 
-        // Handed out and not yet given back. The baseline keeps this for the same reason the pools
-        // do: without it, releasing a foreign instance would destroy something it never owned.
+        // Handed out and not yet given back. Without it, releasing a foreign instance would
+        // destroy something this class never owned.
         private readonly HashSet<T> _handedOut = new();
 
+        private readonly List<T> _scratch = new();
         private bool _disposed;
 
         public int CreatedCount { get; private set; }
@@ -25,12 +26,11 @@ namespace Company.ChestGame.Pooling
         // whole of what this class is.
         public int AvailableCount => 0;
 
-        // No holder and no max size, because it parks nothing and bounds nothing. Taking either
-        // would be a parameter that does not do anything.
+        // No holder and no max size, because it parks nothing and bounds nothing.
         public DirectSpawner(T prefab)
         {
             // The T constraint makes this use Unity's overloaded equality, which also catches a
-            // prefab that was destroyed since the caller looked it up.
+            // prefab destroyed since the caller looked it up.
             if (prefab == null) throw PoolException.NoPrefab();
 
             _prefab = prefab;
@@ -42,9 +42,13 @@ namespace Company.ChestGame.Pooling
 
             T instance = Object.Instantiate(_prefab);
 
-            // Parented here rather than through the Instantiate overload, so worldPositionStays is
-            // visibly false and a RectTransform keeps the anchored layout it was authored with.
+            // worldPositionStays is false, so a RectTransform keeps the anchored layout it was
+            // authored with.
             instance.transform.SetParent(parent, false);
+
+            // A prefab with an inactive root has to come out visible here too, the same guarantee
+            // the pools make. Instantiate already returns an active clone in the normal case.
+            instance.gameObject.SetActive(true);
 
             CreatedCount++;
             _handedOut.Add(instance);
@@ -53,22 +57,42 @@ namespace Company.ChestGame.Pooling
 
         public void Release(T instance)
         {
-            if (instance == null || !_handedOut.Remove(instance)) throw PoolException.NotHandedOut(instance);
+            // Remove before the null check, not after. Unity's overloaded equality makes a
+            // destroyed instance read as null, so the other order short-circuits past Remove and
+            // strands the dead entry in the set forever.
+            if (!_handedOut.Remove(instance) || instance == null) throw PoolException.NotHandedOut(instance);
 
             DestroyInstance(instance);
         }
 
         public void ReleaseAll()
         {
-            // Snapshot, because Release edits the set being walked.
-            foreach (T instance in new List<T>(_handedOut)) Release(instance);
+            // Snapshot, because Release edits the set being walked. The list is reused rather than
+            // allocated per call: PoolRace.PrepareLanes does four of these per Run press.
+            _scratch.Clear();
+            _scratch.AddRange(_handedOut);
+
+            // Every instance, then the first failure. A bare foreach would strand every instance
+            // after the first bad entry.
+            PoolException failure = null;
+            foreach (T instance in _scratch)
+            {
+                try
+                {
+                    Release(instance);
+                }
+                catch (PoolException e)
+                {
+                    failure ??= e;
+                }
+            }
+
+            if (failure != null) throw failure;
         }
 
-        // There is nowhere to park an instance that is not being handed out, so warming here would
-        // only leak count of them. Doing nothing rather than throwing is what lets code written
-        // against the seam still run on the baseline - but a disposed pool still refuses, because
-        // that half of the rule holds for every implementation and a caller should not have to know
-        // which one it is holding to know whether the call was honoured.
+        // Nowhere to park an instance that is not handed out, so warming here would only leak count
+        // of them. Doing nothing rather than throwing is what lets code written against the seam
+        // still run on the baseline - but a disposed pool still refuses, as on every implementation.
         public void Prewarm(int count)
         {
             if (_disposed) throw PoolException.Disposed();
@@ -90,6 +114,10 @@ namespace Company.ChestGame.Pooling
         // behind, and on a Transform the engine refuses outright.
         private void DestroyInstance(T instance)
         {
+            // An instance handed out can be destroyed behind the pool's back, and .gameObject on a
+            // destroyed Component throws MissingReferenceException.
+            if (instance == null) return;
+
             DestroyedCount++;
             Object.Destroy(instance.gameObject);
         }

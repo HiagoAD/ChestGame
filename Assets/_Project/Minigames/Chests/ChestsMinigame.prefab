@@ -254,6 +254,7 @@ MonoBehaviour:
   _chestsParent: {fileID: 7825275938691911113}
   _attemptsText: {fileID: 666314020908981503}
   _controlMessage: {fileID: 7883872134831081351}
+  _poolStrategy: 1
 --- !u!1 &6807369328315946689
 GameObject:
   m_ObjectHideFlags: 0

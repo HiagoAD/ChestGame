@@ -230,7 +230,10 @@ is a saving nobody can measure.
 The pool comes from `Company.ChestGame.Pooling` behind a `[SerializeField] PoolStrategy`, defaulting
 to `ParkedPool` because it measured fastest on exactly this rebuild - the numbers, and why `SetActive`
 is what costs the difference under uGUI, are in
-[design-decisions.md](design-decisions.md#why-parkedpool-is-the-default). It
+[design-decisions.md](design-decisions.md#why-parkedpool-is-the-default), and the seam those four
+strategies implement is in
+[design-decisions.md](design-decisions.md#the-seam-itself). The value is authored on the prefab, so
+changing it means editing the asset rather than the field initializer. It
 is owned by the view and disposed in `OnDestroy`: the chest prefab lives in the chests bundle, which
 `MinigameContainer.End` releases, so a pooled instance outliving the view would be holding assets that
 can be unloaded. Its bound is the board size, because the board is handed back whole and taken again

@@ -4,12 +4,12 @@ Two suites, split by what only a real engine can prove.
 
 | Suite | Ours | Wall time |
 |---|---|---|
-| EditMode | 254 | ~0.4 s |
+| EditMode | 262 | ~0.4 s |
 | PlayMode | 50 | ~23 s |
 
 Reproduce them with `ci/run-tests.sh`; the wall times move a little run to run. The numbers are
 written here rather than linked because `ci-results/` is gitignored, so a fresh clone has none until
-it runs the suites itself. The EditMode runner reports 255: the
+it runs the suites itself. The EditMode runner reports 263: the
 Addressables package ships one editor test of its own
 (`AddressableAssets.DocExampleCode.TestStub.RequiredTest`) and Unity picks it up. It is not ours and
 is not counted above.
@@ -56,6 +56,19 @@ composition root fails there.
 
 For the fixture-by-fixture map, see [context/assemblies-and-tests.md](context/assemblies-and-tests.md)
 section 8 and [context/self-contained-minigames.md](context/self-contained-minigames.md) section 8.
+
+## Two settings the suites depend on
+
+Both look unrelated to gameplay and both are load-bearing, so they are written down here rather
+than left to be tidied away by someone reading the diff.
+
+`runInBackground: 1` in `ProjectSettings.asset`. The pooling work added a lot of frame-dependent
+play-mode coverage — budgeted board fills, the race fixtures, a panel fixture that yields frames
+to settle layout. With it off, the player loop can stall whenever the editor is not focused,
+which is the normal condition for a headless run.
+
+`com.unity.pipeline` in `Packages/manifest.json`. Editor and pipeline tooling, used to drive a
+live editor from the command line; nothing under `Assets/` references it, and nothing should.
 
 ## Running them
 

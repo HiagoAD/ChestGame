@@ -3,21 +3,17 @@ using UnityEngine.UI;
 
 namespace Company.ChestGame.Pooling.Demo
 {
-    // Builds the four real lanes a race needs from nothing but a prefab and, for each lane, the
-    // transform it is allowed to build under. Every lane gets its own holder and its own fill parent,
-    // so no lane's pool can dirty another lane's layout by parking into it, and no lane's growth can
-    // be mistaken for another's.
+    // Builds the four real lanes a race needs from a prefab and, for each lane, the transform it is
+    // allowed to build under. Every lane gets its own holder and its own fill parent, so no lane's
+    // pool can dirty another lane's layout by parking into it.
     //
-    // The holder mirrors ChestsMinigameView.CreatePoolHolder exactly: a child Canvas switched off,
-    // because ParkedPool refuses an inactive holder outright and a disabled Canvas is the one way to
-    // hide a subtree without deactivating anything under it. The fill parent carries a
-    // GridLayoutGroup instead, on purpose - that is what turns a lane's growth into visible motion -
-    // and it must never be the holder, or parking would dirty a rebuild for no reason a race needs to
-    // pay.
+    // The pool and its holder both come from PoolFactory, the same call ChestsMinigameView makes.
+    // The fill parent is this class's own: it carries a GridLayoutGroup, which is what turns a
+    // lane's growth into visible motion, and it must never be the holder, or parking would dirty a
+    // rebuild no race needs to pay for.
     public static class PoolRaceLaneFactory
     {
-        // Fixed so the UI and the pools agree on which strategy sits in which column without either
-        // side having to ask the other.
+        // Fixed so the UI and the pools agree on which strategy sits in which column.
         public static readonly PoolStrategy[] AllStrategies =
         {
             PoolStrategy.ActivationPool,
@@ -44,33 +40,9 @@ namespace Company.ChestGame.Pooling.Demo
         public static PoolRaceLane<T> Build<T>(PoolStrategy strategy, T prefab, Transform laneRoot, int maxSize) where T : Component
         {
             Transform fillParent = CreateFillParent(laneRoot);
-            IPrefabPool<T> pool = CreatePool(strategy, prefab, laneRoot, maxSize);
+            IPrefabPool<T> pool = PoolFactory.Create(strategy, prefab, laneRoot, maxSize, "Holder");
 
             return new PoolRaceLane<T>(strategy, pool, fillParent);
-        }
-
-        private static IPrefabPool<T> CreatePool<T>(PoolStrategy strategy, T prefab, Transform laneRoot, int maxSize) where T : Component
-        {
-            // The baseline holds nothing between a release and the next get, so it needs nowhere to
-            // hold it. Building a holder for it anyway would leave an empty object in the hierarchy
-            // claiming this lane parks something.
-            if (strategy == PoolStrategy.DirectSpawner) return new DirectSpawner<T>(prefab);
-
-            Transform holder = CreateHolder(laneRoot);
-            return strategy switch
-            {
-                PoolStrategy.ParkedPool => new ParkedPool<T>(prefab, holder, maxSize),
-                PoolStrategy.UnityPool => new UnityPool<T>(prefab, holder, maxSize),
-                _ => new ActivationPool<T>(prefab, holder, maxSize)
-            };
-        }
-
-        private static Transform CreateHolder(Transform laneRoot)
-        {
-            GameObject holder = new("Holder", typeof(RectTransform), typeof(Canvas));
-            holder.transform.SetParent(laneRoot, false);
-            holder.GetComponent<Canvas>().enabled = false;
-            return holder.transform;
         }
 
         private static Transform CreateFillParent(Transform laneRoot)
@@ -78,9 +50,9 @@ namespace Company.ChestGame.Pooling.Demo
             GameObject fillParent = new("Fill", typeof(RectTransform), typeof(GridLayoutGroup));
             fillParent.transform.SetParent(laneRoot, false);
 
-            // Stretched rather than left at its default centered rect: laneRoot has no layout group
-            // of its own to size this against - it is the masked slot the panel built - so nothing
-            // else would ever give it a width to lay a grid out inside.
+            // Stretched rather than left at its default centered rect: laneRoot is the masked slot
+            // the panel built and carries no layout group, so nothing else would give this a width
+            // to lay a grid out inside.
             RectTransform fillRect = (RectTransform)fillParent.transform;
             fillRect.anchorMin = Vector2.zero;
             fillRect.anchorMax = Vector2.one;

@@ -93,12 +93,12 @@
   <Project Path="Unity.ShaderGraph.Utilities.csproj" />
   <Project Path="Unity.VisualScripting.Shared.Editor.csproj" />
   <Project Path="Unity.Profiling.Core.csproj" />
+  <Project Path="Company.ChestGame.Pooling.csproj" />
   <Project Path="Unity.2D.Aseprite.Common.csproj" />
   <Project Path="Company.ChestGame.Assets.csproj" />
   <Project Path="Unity.CollabProxy.Editor.csproj" />
   <Project Path="Unity.RenderPipeline.Universal.ShaderLibrary.csproj" />
   <Project Path="UniTask.Editor.csproj" />
-  <Project Path="Company.ChestGame.Pooling.csproj" />
   <Project Path="Company.ChestGame.Rewards.csproj" />
   <Project Path="Unity.InputSystem.DocCodeSamples.csproj" />
   <Project Path="Unity.RenderPipelines.Universal.Shaders.csproj" />

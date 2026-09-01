@@ -3,10 +3,9 @@ using System.Collections.Generic;
 namespace Company.ChestGame.Pooling.Demo
 {
     // What one lane did during a race, snapshotted once its fill has settled. Instantiated and
-    // Destroyed are display numbers - IPrefabPool's own running totals, read as a delta across the
-    // timed fill - and are never what a test asserts against: a counter only proves a field moved.
-    // The tests that matter count real Awake calls through a probe instead, the way
-    // ChestBoardPoolingTests.SpawnProbe does.
+    // Destroyed are display numbers - IPrefabPool's running totals, read as a delta across the timed
+    // fill - and are never what a test asserts against, because a counter only proves a field moved.
+    // ChestBoardPoolingTests.SpawnProbe counts real Awake calls instead.
     public readonly struct LaneMetrics
     {
         public PoolStrategy Strategy { get; }
@@ -30,19 +29,21 @@ namespace Company.ChestGame.Pooling.Demo
         }
     }
 
-    // A finished race: one entry per lane that ran, in strategy order. Solo carries exactly one;
-    // running all four carries four. Solo travels on the result rather than only on the request that
-    // started it, because the readout is built from the result alone and has to say which mode
-    // produced its own figures without holding on to anything else.
+    // A finished race: one entry per lane that ran, in strategy order. Solo carries exactly one.
+    // Solo and FillMode travel on the result rather than only on the request that started it, so the
+    // readout labels a finished race with what it actually ran - a panel reading its own mutable
+    // field would label it with whatever is selected when the result lands.
     public readonly struct RaceResult
     {
         public IReadOnlyList<LaneMetrics> Lanes { get; }
         public bool Solo { get; }
+        public FillMode FillMode { get; }
 
-        public RaceResult(IReadOnlyList<LaneMetrics> lanes, bool solo)
+        public RaceResult(IReadOnlyList<LaneMetrics> lanes, bool solo, FillMode fillMode)
         {
             Lanes = lanes;
             Solo = solo;
+            FillMode = fillMode;
         }
     }
 }
