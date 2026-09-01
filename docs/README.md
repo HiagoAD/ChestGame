@@ -12,6 +12,7 @@ reasoning lives here.
 | [asset-loading.md](asset-loading.md) | `IAssetProvider`, the two load routes and their lifetime rules, handle tracking, failure translation |
 | [content-delivery.md](content-delivery.md) | Addressable groups, local vs remote, load policies, timeouts, building and serving content |
 | [minigames.md](minigames.md) | The minigame framework contract, container lifecycle, and the chests implementation |
+| [saving.md](saving.md) | The `ISaveService` seam, the envelope and its byte-exact round trip, versioning, and the file store |
 | [testing.md](testing.md) | The two suites, what belongs in each, running them, CI |
 | [design-decisions.md](design-decisions.md) | Why the project landed this way |
 

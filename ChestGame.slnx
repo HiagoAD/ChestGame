@@ -45,6 +45,7 @@
   <Project Path="Unity.Addressables.DocExampleCode.Editor.Tests.csproj" />
   <Project Path="Unity.VisualScripting.Flow.csproj" />
   <Project Path="Unity.PerformanceTesting.csproj" />
+  <Project Path="Company.ChestGame.Saving.csproj" />
   <Project Path="Unity.2D.Tilemap.Extras.Editor.csproj" />
   <Project Path="Unity.Pipeline.CodeGen.csproj" />
   <Project Path="Unity.TextMeshPro.csproj" />

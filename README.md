@@ -64,6 +64,7 @@ otherwise get "fixed" into a bug.
 | [asset-loading.md](docs/asset-loading.md) | `IAssetProvider`, the two load routes and their lifetime rules, handle tracking, failure translation |
 | [content-delivery.md](docs/content-delivery.md) | Addressable groups, local vs remote, load policies, timeouts, building and serving content |
 | [minigames.md](docs/minigames.md) | The minigame framework contract, container lifecycle, and the chests implementation |
+| [saving.md](docs/saving.md) | The `ISaveService` seam, the envelope and its byte-exact round trip, versioning, and the file store |
 | [testing.md](docs/testing.md) | The two suites, what belongs in each, running them, CI |
 | [design-decisions.md](docs/design-decisions.md) | Why the project landed this way |
 
