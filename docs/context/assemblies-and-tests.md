@@ -271,14 +271,22 @@ Fakes live in `Tests/Common/` and are shared by both suites.
 | `MinigameManagerTests` | Container construction by type and by id, fresh instance per request, all three throw paths, and that `Get` neither configures nor injects the controller — both of which belong to `BeginAsync` now |
 | `PopupManagerTests` | Catalog lookup, parent selection, data hand-off, unregistered popup |
 | `RewardsManagerTests` | Currency draw, amount from config, popup and event agreement |
+| `PrefabPoolTests` | All four pool strategies against one shared contract: reuse, bounds, disposal, and that only `DirectSpawner` instantiates on a second get |
+| `FrameBudgetedLoopTests` | That work is spread by elapsed time rather than by item count, and that every frame places at least one unit |
+| `PoolRaceTests` | The race orchestration against a fake clock: per-lane timing, solo vs all-four, the three fill modes |
+| `ChestsMinigamePrefabTests` | The pool strategy the shipped chests prefab actually carries, read off the asset rather than the C# field initializer |
 | `GameLifetimeScopeTests` | The real `RegisterCoreServices` and `RegisterLoadedServices`: every service registered, the risky ones actually resolvable, the preloader resolvable across both halves of the split, and that boot always has an `IBootStatus` to report through — the scene's when one was handed in, a silent one when it was not |
 
 | PlayMode fixture | What only play mode can prove |
 |---|---|
 | `ChestsMinigameIntegrationTests` | `UnityGameClock` drives the same flow the fake does |
 | `MinigameContainerLifecycleTests` | `BeginAsync`/`End` against real `Object.Destroy` semantics, and that the container is what injects the controller |
-| `ChestElementViewLifetimeTests` | A destroyed view really stops listening to its model |
+| `ChestElementViewLifetimeTests` | That a view stops listening to its model when destroyed, and also when released back to a pool, where it goes on existing; and that a reacquired one follows only its new model |
 | `PopupManagerIntegrationTests` | The shipped popup keys resolve through the real Addressables catalog and a real prefab instantiates |
+| `ChestBoardPoolingTests` | That a rebuilt board really reuses instances, counted by real `Awake` calls rather than by pool bookkeeping |
+| `PoolRacePlayModeTests` | The lanes as real Unity objects: real holders, real `GridLayoutGroup` fills, real `Object.Destroy` |
+| `PoolingDemoPanelPlayModeTests` | The authored UI - that the real prefab, `.uxml` and `.uss` still bind to the panel, and that a tap lands on the control it looks like it lands on |
+| `PoolBenchmark` | Logs the strategy timings the pooling numbers in `design-decisions.md` come from; asserts only counts, never a duration |
 
 ---
 

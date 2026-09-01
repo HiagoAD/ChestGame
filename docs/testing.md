@@ -4,15 +4,15 @@ Two suites, split by what only a real engine can prove.
 
 | Suite | Ours | Wall time |
 |---|---|---|
-| EditMode | 176 | ~0.6 s |
-| PlayMode | 34 | ~22 s |
+| EditMode | 262 | ~0.4 s |
+| PlayMode | 50 | ~23 s |
 
 Reproduce them with `ci/run-tests.sh`; the wall times move a little run to run. The numbers are
 written here rather than linked because `ci-results/` is gitignored, so a fresh clone has none until
-it runs the suites itself. The EditMode runner reports 177: the
+it runs the suites itself. The EditMode runner reports 263: the
 Addressables package ships one editor test of its own
-(`Unity.Addressables.DocExampleCode.Editor.Tests`) and Unity picks it up. It is not ours and is not
-counted above.
+(`AddressableAssets.DocExampleCode.TestStub.RequiredTest`) and Unity picks it up. It is not ours and
+is not counted above.
 
 ## What lives where
 
@@ -34,6 +34,19 @@ the answer, with no catalog and no bundle behind them.
 Play-mode tests assert settled states rather than mid-flight ones, so a slow frame on a cold CI runner
 cannot cause a spurious failure.
 
+The pooling demo's panel is the one fixture that tests authored assets rather than code. Its UI is a
+prefab, a `.uxml` and a `.uss`, and every way that breaks compiles perfectly: a renamed element, a
+class the stylesheet no longer defines, a serialized field left empty. So those tests instantiate the
+real prefab and ask the panel questions no compiler can - does a tap actually land on this button
+(`panel.Pick`, not a display flag), is this control inside the box that paints the backdrop, do the
+prefab's own `CanvasScaler` and `PanelSettings` still agree about what a pixel is. The prefab is
+loaded through `AssetDatabase`, which is honest about these running only in an editor; the
+alternatives all mean shipping the demo somewhere the game itself does not need it.
+
+That fixture exists because a stylesheet failure is silent. A selector USS cannot parse - `:nth-child`
+is one - discards the whole file with nothing in the console, and the panel renders with stock theme
+controls that are the right shape to pass any test asking only whether an element was found.
+
 Fakes live in `Tests/Common/` and are shared by both suites. There is deliberately no fake catalog:
 `PopupCatalog` and `MinigameCatalog` take plain lists, so the tests use the real ones.
 
@@ -43,6 +56,19 @@ composition root fails there.
 
 For the fixture-by-fixture map, see [context/assemblies-and-tests.md](context/assemblies-and-tests.md)
 section 8 and [context/self-contained-minigames.md](context/self-contained-minigames.md) section 8.
+
+## Two settings the suites depend on
+
+Both look unrelated to gameplay and both are load-bearing, so they are written down here rather
+than left to be tidied away by someone reading the diff.
+
+`runInBackground: 1` in `ProjectSettings.asset`. The pooling work added a lot of frame-dependent
+play-mode coverage — budgeted board fills, the race fixtures, a panel fixture that yields frames
+to settle layout. With it off, the player loop can stall whenever the editor is not focused,
+which is the normal condition for a headless run.
+
+`com.unity.pipeline` in `Packages/manifest.json`. Editor and pipeline tooling, used to drive a
+live editor from the command line; nothing under `Assets/` references it, and nothing should.
 
 ## Running them
 

@@ -1,0 +1,90 @@
+<ui:UXML xmlns:ui="UnityEngine.UIElements" editor-extension-mode="False">
+    <Style src="PoolingDemo.uss" />
+
+    <!-- Two independent children of the document root, never nested: collapsing the chrome must
+         never also hide the one control that brings it back. Exactly one is on screen at a time -
+         PoolingDemoPanel swaps them - and the toggle is declared last so it paints over the opaque
+         chrome behind it if the two are ever shown together. -->
+    <ui:VisualElement name="chrome" class="chrome">
+
+        <ui:VisualElement name="title-bar" class="row row--title">
+            <ui:VisualElement class="heading">
+                <ui:Label text="Object Pooling" class="title" />
+                <ui:Label text="FOUR STRATEGIES, ONE FRAME BUDGET" class="caption" />
+            </ui:VisualElement>
+            <ui:Button name="close-button" text="Close" class="btn btn--ghost" />
+        </ui:VisualElement>
+
+        <!-- What to run: the action, how many, from what starting state. -->
+        <ui:VisualElement name="controls-primary" class="row">
+            <ui:Button name="run-button" text="Run" class="btn btn--primary" />
+            <ui:VisualElement name="board-sizes" class="segmented">
+                <ui:Button name="size-0" text="8" class="btn btn--segment btn--segment--first" />
+                <ui:Button name="size-1" text="100" class="btn btn--segment" />
+                <ui:Button name="size-2" text="500" class="btn btn--segment" />
+                <ui:Button name="size-3" text="2000" class="btn btn--segment" />
+            </ui:VisualElement>
+            <ui:Button name="fill-mode-button" text="Fill: Cold" class="btn btn--ghost btn--wide" />
+        </ui:VisualElement>
+
+        <!-- Who runs: all four against each other, or one alone and which. Short names here; the
+             lane cards below carry the full ones, so nothing is only ever shown abbreviated. -->
+        <ui:VisualElement name="controls-secondary" class="row">
+            <ui:Button name="mode-button" text="Mode: All Four" class="btn btn--ghost btn--wider" />
+            <ui:VisualElement name="strategies" class="segmented">
+                <ui:Button name="strategy-0" text="Activation" class="btn btn--segment btn--segment--first" />
+                <ui:Button name="strategy-1" text="Parked" class="btn btn--segment" />
+                <ui:Button name="strategy-2" text="Unity" class="btn btn--segment" />
+                <ui:Button name="strategy-3" text="Direct" class="btn btn--segment" />
+            </ui:VisualElement>
+        </ui:VisualElement>
+
+        <ui:VisualElement class="card readout">
+            <ui:Label name="readout-label" class="readout__text" />
+            <ui:Label name="peak-frame-label" text="Peak frame time: -" class="readout__meta" />
+        </ui:VisualElement>
+
+        <ui:VisualElement name="lane-cards" class="row row--lanes">
+            <ui:VisualElement class="lane-card">
+                <ui:VisualElement class="lane-card__rule lane-card__rule--0" />
+                <ui:VisualElement class="lane-card__body">
+                    <ui:Label name="lane-name-0" text="ActivationPool" class="lane-card__name lane-card__name--0" />
+                    <ui:Label name="lane-headline-0" text="-" class="lane-card__headline" />
+                    <ui:Label name="lane-metrics-0" text="not run yet" class="lane-card__metrics" />
+                </ui:VisualElement>
+            </ui:VisualElement>
+            <ui:VisualElement class="lane-card">
+                <ui:VisualElement class="lane-card__rule lane-card__rule--1" />
+                <ui:VisualElement class="lane-card__body">
+                    <ui:Label name="lane-name-1" text="ParkedPool" class="lane-card__name lane-card__name--1" />
+                    <ui:Label name="lane-headline-1" text="-" class="lane-card__headline" />
+                    <ui:Label name="lane-metrics-1" text="not run yet" class="lane-card__metrics" />
+                </ui:VisualElement>
+            </ui:VisualElement>
+            <ui:VisualElement class="lane-card">
+                <ui:VisualElement class="lane-card__rule lane-card__rule--2" />
+                <ui:VisualElement class="lane-card__body">
+                    <ui:Label name="lane-name-2" text="UnityPool" class="lane-card__name lane-card__name--2" />
+                    <ui:Label name="lane-headline-2" text="-" class="lane-card__headline" />
+                    <ui:Label name="lane-metrics-2" text="not run yet" class="lane-card__metrics" />
+                </ui:VisualElement>
+            </ui:VisualElement>
+            <ui:VisualElement class="lane-card lane-card--last">
+                <ui:VisualElement class="lane-card__rule lane-card__rule--3" />
+                <ui:VisualElement class="lane-card__body">
+                    <ui:Label name="lane-name-3" text="DirectSpawner" class="lane-card__name lane-card__name--3" />
+                    <ui:Label name="lane-headline-3" text="-" class="lane-card__headline" />
+                    <ui:Label name="lane-metrics-3" text="not run yet" class="lane-card__metrics" />
+                </ui:VisualElement>
+            </ui:VisualElement>
+        </ui:VisualElement>
+
+        <!-- Not a container: an empty element whose only job is to be measured. The four uGUI fill
+             slots are moved to sit exactly on it, so this flex layout decides where the lanes are
+             and nothing has to hard-code the height of everything above them. -->
+        <ui:VisualElement name="lanes-slot" class="lanes-slot" />
+
+    </ui:VisualElement>
+
+    <ui:Button name="toggle-button" text="Pooling Demo" class="btn btn--primary toggle" />
+</ui:UXML>

@@ -1,0 +1,19 @@
+{
+    "name": "Company.ChestGame.Pooling.Demo",
+    "rootNamespace": "Company.ChestGame.Pooling.Demo",
+    "references": [
+        "Company.ChestGame.Pooling",
+        "Company.ChestGame.Common",
+        "UniTask",
+        "UnityEngine.UI"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": true,
+    "precompiledReferences": [],
+    "autoReferenced": false,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

@@ -22,6 +22,8 @@ namespace Company.ChestGame.Tests.Common
         public int FramesAdvanced { get; private set; }
         public int PendingWaiters => _frameWaiters.Count + _delayWaiters.Count;
 
+        public double ElapsedMilliseconds => _nowMilliseconds;
+
         private readonly List<Waiter> _frameWaiters = new();
         private readonly List<Waiter> _delayWaiters = new();
         private double _nowMilliseconds;
@@ -38,6 +40,12 @@ namespace Company.ChestGame.Tests.Common
 
         public UniTask Delay(int milliseconds, CancellationToken cancellationToken) =>
             Park(_delayWaiters, _nowMilliseconds + milliseconds, cancellationToken);
+
+        // Moves the clock on without advancing a frame: what work that costs time inside one frame
+        // looks like, and the only way a test can make a time budget run out. Delays are measured
+        // against the same running total, so time spent here brings a pending one closer to due,
+        // exactly as real work would.
+        public void Spend(double milliseconds) => _nowMilliseconds += milliseconds;
 
         // Advances one frame: every parked waiter resumes and any due delay fires, ordered by
         // FrameWaitersResumeFirst.
