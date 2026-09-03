@@ -7,7 +7,8 @@ using Newtonsoft.Json.Linq;
 namespace Company.ChestGame.Saving
 {
     // The always-plaintext header in front of a body that might not be. GetBody(Wrap(x)) reproduces
-    // x byte for byte; see docs/saving.md for why that matters and where it stops being absolute.
+    // every value in x exactly, though not the whitespace inside a text-safe body; see
+    // docs/saving.md, "Value-exactness, and where the formatting stops".
     public class SaveEnvelope
     {
         public const string RawEncoding = "raw";

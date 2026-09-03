@@ -1,9 +1,9 @@
 # Saving
 
-`Company.ChestGame.Saving` persists arbitrary state behind one seam, `ISaveService`. So far: a JSON
-codec, no protection, a versioned envelope, four stores (`File`, `AtomicFile`, `PlayerPrefs`,
-`InMemory`), the three selection enums, an authoring profile, and the factory that turns one into the
-other. Nothing in the game references this assembly yet.
+`Company.ChestGame.Saving` persists arbitrary state behind one seam, `ISaveService`. So far: three
+JSON codecs, five protectors, a versioned envelope, four stores (`File`, `AtomicFile`, `PlayerPrefs`,
+`InMemory`), the three selection enums, an authoring profile, a profile validator, and the factory
+that turns a profile into a working `ISaveService`. Nothing in the game references this assembly yet.
 
 ## The shape, and what it copies
 
@@ -34,23 +34,47 @@ unrecoverable, because there is no way to learn what you are holding.
 can open a save and read or hand-edit it. Otherwise it is base64. `enc` records which, because
 nothing about the other three fields says so.
 
-### Byte-exactness, and where it stops
+### Value-exactness, and where the formatting stops
 
-`GetBody(Wrap(x))` reproduces `x` byte for byte. This is not fussiness. Phase 3's HMAC protector
-signs the exact bytes it was handed, and a body that came back merely *equivalent* rather than
-identical would fail that signature on every valid save.
+Every **value** in a text-safe body round-trips through `GetBody(Wrap(x))` exactly, and that is the
+correctness property this section exists for. `"2026-09-01"` coming back as
+`"2026-09-01T00:00:00"`, or `1.50` coming back as `1.5`, is not a hypothetical — the first is in this
+game's own save model, and either would silently change a value the player never touched.
 
 Getting there cost the obvious implementation. `JsonConvert.DeserializeObject<SaveEnvelope>` would
 rebuild `Body` from Newtonsoft's own object model, and that model does not remember the text it came
 from. A trailing zero on a decimal (`1.50` returns as `1.5`) and a date-shaped string
 (`"2026-09-01"` returns as `"2026-09-01T00:00:00"`) both die on that trip, and the second one is in
-this game's own save model. So `Parse` walks the envelope with a single `JsonTextReader`, captures
-the body verbatim via `JRaw.Create`, and sets `DateParseHandling.None` and
-`FloatParseHandling.Decimal` so nothing is reinterpreted on the way past.
+this game's own save model. So `Parse` walks the envelope with a single `JsonTextReader` and sets
+`DateParseHandling.None` and `FloatParseHandling.Decimal` on it so neither is reinterpreted on the
+way past, then captures the body with `JRaw.Create`.
 
-The guarantee is best-effort rather than absolute: a number in scientific notation, or a literal
-negative zero, can still come back reformatted, because both go through the same numeric path that
-protects ordinary decimals. Nothing `JsonCodec` writes produces either.
+**`GetBody(Wrap(x))` does not reproduce `x` byte for byte, and an earlier version of this section
+claimed it did.** `JRaw.Create(reader)` re-serializes the token it captures through a fresh
+`JsonTextWriter` at the default `Formatting.None` rather than preserving the source text — so
+insignificant whitespace inside a text-safe body is normalised to compact form on read. This was
+invisible while `JsonCodec` was the only text-safe codec, because its own output was already
+compact; `PrettyJsonCodec` is the first one where it shows. Do not "fix" `Parse` over this: capturing
+true source text means tracking reader positions across the whole read loop, and it would buy only
+the preservation of whitespace nothing reads. What actually matters is untouched — the two reader
+settings above are what stop a date or a decimal being reinterpreted, and neither depends on source
+text being preserved.
+
+The file **on disk** still carries the codec's own formatting regardless: `Wrap` builds the body
+`JRaw` directly from the codec's own output string, and `Serialize` writes that `JRaw` verbatim
+through `WriteRawValue`, so a `PrettyJsonCodec` save is genuinely indented and readable in a text
+editor — the whole reason that codec exists. Only a subsequent `Parse` normalises the whitespace
+away, and `SaveService` never re-wraps and re-writes what it loaded, so a save that is never
+re-saved keeps its original formatting for as long as it sits on disk.
+
+No protector depends on the stronger, false claim. Every protector phase 3 adds is non-text-safe, so
+a signed or encrypted body always travels the envelope's base64 path, and base64 round-trips exactly
+on its own regardless of what `JRaw.Create` does to whitespace — this is worth stating plainly, since
+it is the second time this section's justification has needed correcting.
+
+The value guarantee is best-effort rather than absolute: a number in scientific notation, or a
+literal negative zero, can still come back reformatted, because both go through the same numeric path
+that protects ordinary decimals. Nothing `JsonCodec` or `PrettyJsonCodec` writes produces either.
 
 One consequence is easy to reintroduce. `JRaw` captures *literal source text*, so a base64 body comes
 back still wrapped in the quotes it was written with, and handing that to `Convert.FromBase64String`
@@ -87,6 +111,152 @@ useful thing to report.
 Not merely valid UTF-8 text. The envelope embeds a text-safe body raw, so a codec emitting a bare
 unquoted string would round trip through `UTF8Encoding` perfectly and still corrupt the envelope it
 was pasted into. Both `ISaveCodec` and `IPayloadProtector` carry the flag and the same meaning.
+
+## The codecs
+
+`JsonCodec` is unchanged. `PrettyJsonCodec` is the same serialization with `Formatting.Indented`
+instead of `Formatting.None` — the bytes a developer or the phase 8 demo wants to actually look at,
+never the codec a shipped save should use, since indentation is pure size with no reader on the other
+end once a save leaves a text editor. `GzipJsonCodec` composes `JsonCodec` rather than duplicating
+its serialization — the reason is the one `SaveKeyPath`'s header gives for not mirroring `FileStore`'s
+key rules by hand — and runs its output through `GZipStream`. Both new codecs report `IsTextSafe` for
+the reason the flag exists at all: `PrettyJsonCodec`'s output is still JSON, so it embeds raw;
+`GzipJsonCodec`'s is gzip's own magic bytes, which would corrupt the envelope if embedded raw the same
+way a bare unquoted string would.
+
+### Why there is no binary codec
+
+The original plan for this phase listed one. It cannot be built against this seam without weakening
+it. `ISaveCodec.Encode<T>(T value)` carries no constraint on `T`, which is what lets `SaveService`
+stay generic over every save model the game will ever define — and a hand-written `BinaryWriter`
+schema has no way to serialize an arbitrary, unconstrained `T`. The two ways around that both cost
+more than the codec is worth: reflect over `T`'s fields and reimplement a serializer, badly and
+slower than Newtonsoft's own, or require every save model to implement a marker interface the codec
+can call into, which pushes a serialization concern into every game type that ever wants to be saved
+— exactly the coupling `ISaveCodec` exists to keep out of the rest of the game. `JsonCodec` is the
+default not because a binary format was skipped for time, but because nothing about this seam can
+build one without giving up the constraint that makes the seam worth having.
+
+One decision was already fixed for this work regardless: `BinaryFormatter` was never an option.
+Obsolete from .NET 5, removed in .NET 9, and a remote-code-execution vector on input an attacker can
+influence, which a save file on a player's device is.
+
+## The protectors, and what a key shipping inside the binary buys
+
+Every protector past `NoProtection` reports `IsTextSafe` as false — none of the four emits valid
+JSON, so a protected body always travels the envelope's base64 path (see "`IsTextSafe` means valid
+JSON" above). Each takes its key material as a constructor argument, the same reasoning
+`FileStore`'s root and `PlayerPrefsStore`'s prefix follow: a test supplies its own and never touches
+whatever the factory would otherwise default to. `SaveServiceFactory` supplies a fixed default key
+per protector when it builds one from a `SaveProfileSO`; a test wanting a specific key constructs the
+protector directly instead of going through the factory, since nothing about `Create` or `CreateFrom`
+needs to expose key material the way `playerPrefsKeyPrefix` exposes a namespace.
+
+**The key ships in the binary either way, and that is a real limit, not an oversight.** Nothing under
+`IPayloadProtector` defends a save against the one machine that already has the game installed on it
+— a player with the binary can extract whatever key it carries and undo `Base64Obfuscator`,
+`XorObfuscator` or `AesProtector` exactly as this assembly does. What all three do buy: a save file
+copied off the device, or opened in a text editor, or attached to a bug report, does not hand its
+contents to whoever now has the file instead of the game. That is a real and common threat model for
+a local save — a curious player poking at their own save with a hex editor, not a determined attacker
+targeting this specific installation — and it is the whole of what these protectors are for.
+
+**`Base64Obfuscator`** (`"base64"`) base64-encodes the codec's bytes and nothing else. Because the
+envelope already base64-encodes any body that is not text-safe, and this protector's output never is,
+choosing it means the envelope base64-encodes an already-base64 string — see
+`SaveProfileValidator` below. That doubled encoding is not a bug to fix; it is the clearest
+demonstration in this codebase that base64 is not protection, only illegibility, and the envelope was
+always going to produce that illegibility on its own for any non-text-safe body.
+
+**`XorObfuscator`** (`"xor"`) is repeating-key XOR, its own inverse, so `Protect` and `Unprotect`
+share one method. It hides a save from a casual look at the file. It does not hide much from anyone
+who tries: JSON's own repeated field names give a known-plaintext attack against a short repeating
+key an easy foothold. Treat it as obfuscation, the same word `Base64Obfuscator`'s name and
+`NoProtection`'s comment both already use for this tier, never as encryption.
+
+**`HmacSignedProtector`** (`"hmac"`) prepends an HMAC-SHA256 of the payload to the payload itself.
+`Unprotect` recomputes the hash over what follows the signature and compares the two through
+`ConstantTimeCompare`. A mismatch, or a stored payload too short to even carry a signature, throws
+the internal `PayloadTamperedException` below rather than returning corrupted bytes. `Hmac` proves
+the save was not modified. It does not hide it — the payload underneath the signature is exactly
+what `JsonCodec` or `GzipJsonCodec` wrote, readable by anyone who reaches it.
+
+**`AesProtector`** (`"aes"`) is AES-256-CBC with a random IV per save, then HMAC-SHA256 over the IV
+and ciphertext — encrypt-then-MAC, in that order, verified through the same `ConstantTimeCompare`
+before a single byte reaches the AES transform. One key goes into the constructor; two subkeys, for
+encryption and for the MAC, come out of it through an HMAC-based derivation, so the same secret is
+never handed to two different primitives — a cheap way to avoid a known way to weaken both. The
+stored layout is `iv (16 bytes) || ciphertext || tag (32 bytes)`.
+
+`ConstantTimeCompare` is where the comparison both protectors verify a tag against actually lives — a
+hand-written loop that XORs every byte into an accumulator and checks it only once the loop is over,
+rather than `CryptographicOperations.FixedTimeEquals`. That type compiles against this project's
+`netstandard2.1` API surface, but it belongs to the same .NET Core 3.0-era cryptography work as
+`AesGcm` below, and this document already treats that whole surface as not dependable under IL2CPP;
+the hand-written loop costs one small method and removes the question entirely. It lives once,
+`internal static`, beside `SaveKeyPath` rather than inside either protector: the same reasoning
+`SaveKeyPath`'s own header gives applies word for word to a security-critical comparison — a comment
+in one copy claiming it agrees with the other is not a guarantee that it does, and nothing would fail
+if a future edit landed in one protector's copy and not the other's, leaving one timing-safe and the
+other not. Both `HmacSignedProtector` and `AesProtector` call the one implementation.
+
+Not `AesGcm`. This project ships `apiCompatibilityLevel: 6` (.NET Standard 2.1) with IL2CPP on
+Android, and `AesGcm` is documented to throw `PlatformNotSupportedException` there on platforms where
+IL2CPP's linked native crypto library carries no AEAD support — a runtime failure, not a compile-time
+one. Checked against this project's actual `netstandard2.1` target: `AesGcm` compiles cleanly, which
+confirms it as a real option to compile against and not merely a hypothetical one — and makes it more
+dangerous rather than less, since a developer reaching for it would see no warning until the failure
+showed up on-device. CBC-then-HMAC needs two primitives instead of `AesGcm`'s one, but both are the
+plain `System.Security.Cryptography` surface that has shipped since long before .NET Standard 2.1 and
+carries no equivalent native-library gap.
+
+### Tamper detection is a different failure from a corrupt payload
+
+`PayloadTamperedException` is internal — a protector has no key of its own to report a failure
+against, the same reason `SaveKeyPath`'s exceptions are all `SaveException` factory methods rather
+than something thrown from inside a key rule. `HmacSignedProtector` and `AesProtector` are the only
+two that throw it, on a failed comparison or on a stored payload too short to carry what it claims
+to. `SaveService.LoadAsync` is the only thing that ever catches it, translating it into
+`SaveException.PayloadTampered(key)` — a caller can tell "this save was modified after it was
+written" from `PayloadUnreadable`'s "this save is missing, malformed, or from a build that cannot
+read it," which no site downstream of `LoadAsync` could otherwise distinguish. Every other exception a
+protector or codec throws — a bad base64 string, a truncated gzip stream — still lands on
+`PayloadUnreadable`, unchanged from before this phase.
+
+One ambiguity is inherent to a MAC rather than a gap in this design: a body encrypted or signed under
+a different key than the one `LoadAsync` is configured with fails its comparison exactly the way a
+genuinely tampered body does, and `IPayloadProtector` has no way to tell the two apart. A protector
+proves the bytes match what *some* key produced; it cannot prove which key that was.
+
+## `SaveProfileValidator`
+
+A static method, `Validate`, returning human-readable warnings for a profile's codec and protector —
+never errors, and nothing it returns stops `SaveServiceFactory` from building exactly what the
+profile asks for. Worth having now that `SaveCodec` and `SaveProtection` each carry more than one
+real choice, and therefore combinations that compile and run but waste something or promise more than
+they deliver.
+
+**`JsonPretty` paired with anything but `SaveProtection.None`** spends bytes indenting a body for a
+person to read, then hands that body to a protector whose entire `IsTextSafe` is false — the
+indentation is paid for and immediately made unreadable by the next stage of the same pipeline.
+
+**`Base64` protection, on any codec,** always produces the doubled base64 encoding described under
+`Base64Obfuscator` above.
+
+**`Hmac` protection, on any codec,** is flagged as proving integrity without confidentiality, so a
+profile picking it for privacy rather than tamper-evidence is told what it actually got.
+
+**`Xor` protection, on any codec,** is flagged with the same obfuscation-not-encryption reasoning as
+its type header.
+
+**Deliberately not flagged: `JsonGzip` paired with an encrypting protector.** The instinct — "encrypt
+after compress" wastes the compression, because encrypted bytes do not compress — describes the
+opposite of what this pipeline does. `state -> ISaveCodec -> IPayloadProtector -> ISaveStore` runs the
+codec first: `SaveService.SaveAsync` calls `_codec.Encode` and only then `_protector.Protect` on the
+result. `GzipJsonCodec` always compresses plain JSON before any protector sees the bytes, which is the
+effective order, not the wasteful one. The wasteful order would need `IPayloadProtector` to run before
+`ISaveCodec`, which nothing in this architecture does, so there is nothing here to warn about — adding
+the warning the instinct suggests would tell a profile author the opposite of what actually happens.
 
 ## `FileStore`
 
@@ -203,8 +373,9 @@ a `ScriptableObject` field backed by an enum is serialized by its numeric index,
 inserting a member in the middle silently repoints every already-authored profile at a different
 backend, codec or protector the next time it loads — silently, because the field still holds a valid
 index for *some* member, just not the one whoever authored the profile picked. A new member always
-goes on the end of whichever enum it belongs to, including once phase 3 gives `SaveCodec` and
-`SaveProtection` a second member.
+goes on the end of whichever enum it belongs to — phase 3 appended `JsonPretty` and `JsonGzip` to
+`SaveCodec` and `Base64`, `Xor`, `Hmac` and `Aes` to `SaveProtection`, in that order, after the
+member each enum already had.
 
 ## `SaveServiceFactory`, and why every switch has a working default arm
 
@@ -223,14 +394,17 @@ default, which is also why each sits first in its own enum: index 0 is where a f
 field lands before anyone has touched the dropdown, so the member a missing case falls back to and
 the member a new field starts on are the same one.
 
-`CreateCodec` and `CreateProtector` list `SaveCodec.Json` and `SaveProtection.None` as explicit arms
-*alongside* the discard, even though today the discard alone would return the same thing. An enum
-with one member makes that redundancy easy to "clean up" into just the discard, and that is exactly
-the shape of the mistake `PoolFactory.Create` warns about: skip the arm for a new member and the
-switch still compiles, and it quietly keeps returning `JsonCodec` or `NoProtection` for a codec or
-protector that was supposed to be a real choice. `SaveService`'s codec/protector id check on load —
-see "Loading, and the three ways a version goes wrong" — is a second line of defence if that ever
-happens, since a save written by one codec and loaded through another fails as
+`CreateCodec` and `CreateProtector` listed `SaveCodec.Json` and `SaveProtection.None` as explicit arms
+*alongside* the discard from the start, back when each enum had only that one member and the discard
+alone would have returned the same thing. That was deliberate rather than premature: an enum with one
+member makes the redundancy easy to "clean up" into just the discard, which is exactly the shape of
+the mistake `PoolFactory.Create` warns about — skip the arm for a new member and the switch still
+compiles, quietly keeping every profile on `JsonCodec` or `NoProtection` regardless of what its
+dropdown says. Phase 3 is the proof the arm was worth keeping: `JsonPretty`, `JsonGzip`, `Base64`,
+`Xor`, `Hmac` and `Aes` each landed as their own case, not folded into the discard, so nothing about
+adding them required restructuring either switch. `SaveService`'s codec/protector id check on load —
+see "Loading, and the three ways a version goes wrong" — is a second line of defence if a case is ever
+missed anyway, since a save written by one codec and loaded through another fails as
 `UnexpectedComponent` rather than silently decoding garbage. That check does not make the explicit
 arm optional; it is what keeps a missing arm from being *invisible* rather than what makes it safe.
 
@@ -286,10 +460,6 @@ chests, currency, minigames, popups or Addressables.
 
 ## Not built yet
 
-Other codecs (gzip, binary), other protection (base64, xor, HMAC, AES), the migration chain, the
-thread hop and write coalescing, the `ResourceBank` adapter, a profile validator, and any
-registration in `GameLifetimeScope`. Nothing in the game references this assembly yet.
-
-One decision is already fixed for that work: `BinaryFormatter` is not an option for the binary
-codec. Obsolete from .NET 5, removed in .NET 9, and a remote-code-execution vector on input an
-attacker can influence, which a save file on a player's device is.
+The migration chain, the thread hop and write coalescing, the `ResourceBank` adapter, the phase 8
+demo panel, and any registration in `GameLifetimeScope`. Nothing in the game references this
+assembly yet.

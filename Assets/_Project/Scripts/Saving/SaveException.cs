@@ -23,6 +23,9 @@ namespace Company.ChestGame.Saving
         public static SaveException NoProfile() =>
             new("SaveServiceFactory needs a SaveProfileSO to build a service from, and was given none or a destroyed one");
 
+        public static SaveException NoProtectorKey(string protectorId) =>
+            new($"The '{protectorId}' protector needs key material to protect or unprotect a payload, and was given none");
+
         public static SaveException KeyEscapesRoot(string key) =>
             new($"Key '{key}' names a location outside the store's root directory, which a key must never do");
 
@@ -34,6 +37,13 @@ namespace Company.ChestGame.Saving
 
         public static SaveException PayloadUnreadable(string key, Exception innerException) =>
             new($"The save under '{key}' could not be read back; it is missing, malformed, or was written by something this build cannot decode", innerException);
+
+        // Distinct from PayloadUnreadable: a failed MAC or signature check means the bytes were
+        // provably changed after this key's protector produced them, not merely that something
+        // downstream cannot parse them. SaveService is the only thing that ever produces this,
+        // catching PayloadTamperedException before it reaches the generic catch below it.
+        public static SaveException PayloadTampered(string key) =>
+            new($"The save under '{key}' failed an integrity check; its bytes do not match what its protector signed or encrypted");
 
         public static SaveException VersionTooNew(string key, int foundVersion, int currentVersion) =>
             new($"The save under '{key}' is schema version {foundVersion}, newer than the {currentVersion} this build understands, and will not be partially read");

@@ -4,9 +4,14 @@ namespace Company.ChestGame.Saving
     //
     // Append only, for the same reason SaveStorage is: a SaveProfileSO stores this by index, so
     // inserting a member in the middle silently repoints every authored profile at a different
-    // protector. Phase 3 appends here; None keeps index 0. See docs/saving.md.
+    // protector. None keeps index 0 for that reason - phase 3 appended the other four after it
+    // rather than before. See docs/saving.md.
     public enum SaveProtection
     {
-        None
+        None,
+        Base64,
+        Xor,
+        Hmac,
+        Aes
     }
 }

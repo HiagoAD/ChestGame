@@ -51,6 +51,8 @@ namespace Company.ChestGame.Tests.EditMode
         }
 
         private static IEnumerable<SaveStorage> EveryStorage() => Enum.GetValues(typeof(SaveStorage)).Cast<SaveStorage>();
+        private static IEnumerable<SaveCodec> EveryCodec() => Enum.GetValues(typeof(SaveCodec)).Cast<SaveCodec>();
+        private static IEnumerable<SaveProtection> EveryProtection() => Enum.GetValues(typeof(SaveProtection)).Cast<SaveProtection>();
 
         private void SetStorage(SaveStorage storage)
         {
@@ -58,6 +60,40 @@ namespace Company.ChestGame.Tests.EditMode
             serialized.FindProperty("_storage").enumValueIndex = (int)storage;
             serialized.ApplyModifiedPropertiesWithoutUndo();
         }
+
+        private void SetCodec(SaveCodec codec)
+        {
+            UnityEditor.SerializedObject serialized = new(_profile);
+            serialized.FindProperty("_codec").enumValueIndex = (int)codec;
+            serialized.ApplyModifiedPropertiesWithoutUndo();
+        }
+
+        private void SetProtection(SaveProtection protection)
+        {
+            UnityEditor.SerializedObject serialized = new(_profile);
+            serialized.FindProperty("_protection").enumValueIndex = (int)protection;
+            serialized.ApplyModifiedPropertiesWithoutUndo();
+        }
+
+        private static string CodecIdFor(SaveCodec codec) =>
+            codec switch
+            {
+                SaveCodec.Json => "json",
+                SaveCodec.JsonPretty => "json-pretty",
+                SaveCodec.JsonGzip => "json-gzip",
+                _ => throw new ArgumentOutOfRangeException(nameof(codec), codec, "a new SaveCodec member needs an expected id here too")
+            };
+
+        private static string ProtectionIdFor(SaveProtection protection) =>
+            protection switch
+            {
+                SaveProtection.None => "none",
+                SaveProtection.Base64 => "base64",
+                SaveProtection.Xor => "xor",
+                SaveProtection.Hmac => "hmac",
+                SaveProtection.Aes => "aes",
+                _ => throw new ArgumentOutOfRangeException(nameof(protection), protection, "a new SaveProtection member needs an expected id here too")
+            };
 
         // --- A profile authored for each storage drives the factory to the matching backend -----
 
@@ -123,6 +159,81 @@ namespace Company.ChestGame.Tests.EditMode
                 "the profile's Codec field has to reach the envelope actually written to disk");
             StringAssert.Contains("\"prot\": \"none\"", json,
                 "the profile's Protection field has to reach the envelope actually written to disk");
+        }
+
+        // --- Every SaveCodec and every SaveProtection, authored through the profile (coverage gap) ---
+        //
+        // AProfileAuthoredForAStorage_DrivesTheFactoryToTheMatchingBackend above proves round-tripping,
+        // but a round trip alone cannot catch "CreateCodec/CreateProtector always falls back to its
+        // default arm regardless of what the dropdown says", because the same (wrong) component would
+        // then be used for both the save and the load and still agree with itself. These two instead
+        // pin the id actually written into the envelope on disk against what each enum member is
+        // supposed to produce - the same check AFreshlySerializedProfile_NamesJsonAndNoneInTheWrittenEnvelope
+        // already runs for the default (Json, None) pair, extended to every member of both enums.
+
+        [TestCaseSource(nameof(EveryCodec))]
+        public void AProfileAuthoredForACodec_WritesThatCodecsIdIntoTheEnvelope(SaveCodec codec)
+        {
+            SetStorage(SaveStorage.File);
+            SetCodec(codec);
+            Assert.AreEqual(codec, _profile.Codec,
+                "guard: SerializedObject has to have actually set the field this test means to drive");
+
+            ISaveService service = SaveServiceFactory.Create(_profile, _root, _prefsPrefix);
+            SynchronousUniTask.Complete(service.SaveAsync(Key, new TestState { Value = 1 }, CancellationToken.None));
+
+            string savedFile = Directory.GetFiles(_root).Single(f => !f.EndsWith(".bak") && !f.EndsWith(".tmp"));
+            string json = File.ReadAllText(savedFile);
+            StringAssert.Contains($"\"codec\": \"{CodecIdFor(codec)}\"", json,
+                $"a profile authored for {codec} has to reach SaveServiceFactory.CreateCodec and actually drive the matching arm, not silently fall back to Json's");
+        }
+
+        [TestCaseSource(nameof(EveryProtection))]
+        public void AProfileAuthoredForAProtection_WritesThatProtectionsIdIntoTheEnvelope(SaveProtection protection)
+        {
+            SetStorage(SaveStorage.File);
+            SetProtection(protection);
+            Assert.AreEqual(protection, _profile.Protection,
+                "guard: SerializedObject has to have actually set the field this test means to drive");
+
+            ISaveService service = SaveServiceFactory.Create(_profile, _root, _prefsPrefix);
+            SynchronousUniTask.Complete(service.SaveAsync(Key, new TestState { Value = 1 }, CancellationToken.None));
+
+            string savedFile = Directory.GetFiles(_root).Single(f => !f.EndsWith(".bak") && !f.EndsWith(".tmp"));
+            string json = File.ReadAllText(savedFile);
+            StringAssert.Contains($"\"prot\": \"{ProtectionIdFor(protection)}\"", json,
+                $"a profile authored for {protection} has to reach SaveServiceFactory.CreateProtector and actually drive the matching arm, not silently fall back to None's");
+        }
+
+        // Round trip too, for every codec and every protection the profile can author - not just
+        // that the right id landed in the envelope, but that what comes back out is also correct.
+
+        [TestCaseSource(nameof(EveryCodec))]
+        public void AProfileAuthoredForACodec_StillRoundTrips(SaveCodec codec)
+        {
+            SetStorage(SaveStorage.File);
+            SetCodec(codec);
+            ISaveService service = SaveServiceFactory.Create(_profile, _root, _prefsPrefix);
+            TestState state = new() { Value = 33 };
+
+            SynchronousUniTask.Complete(service.SaveAsync(Key, state, CancellationToken.None));
+            TestState loaded = SynchronousUniTask.Result(service.LoadAsync<TestState>(Key, CancellationToken.None));
+
+            Assert.AreEqual(33, loaded.Value);
+        }
+
+        [TestCaseSource(nameof(EveryProtection))]
+        public void AProfileAuthoredForAProtection_StillRoundTrips(SaveProtection protection)
+        {
+            SetStorage(SaveStorage.File);
+            SetProtection(protection);
+            ISaveService service = SaveServiceFactory.Create(_profile, _root, _prefsPrefix);
+            TestState state = new() { Value = 44 };
+
+            SynchronousUniTask.Complete(service.SaveAsync(Key, state, CancellationToken.None));
+            TestState loaded = SynchronousUniTask.Result(service.LoadAsync<TestState>(Key, CancellationToken.None));
+
+            Assert.AreEqual(44, loaded.Value);
         }
     }
 }

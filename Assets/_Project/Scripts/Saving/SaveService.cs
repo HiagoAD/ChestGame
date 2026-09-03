@@ -59,11 +59,26 @@ namespace Company.ChestGame.Saving
                 if (body == null) throw SaveException.PayloadMissing(key);
 
                 body = _protector.Unprotect(body);
-                return _codec.Decode<T>(body);
+
+                // A codec can decode without throwing and still hand back null — GzipJsonCodec on
+                // a truncated stream decompresses to zero bytes, and JsonConvert.DeserializeObject
+                // of an empty string returns null rather than failing. Null is neither of the two
+                // outcomes this contract allows: not a fresh T, because something was stored, and
+                // not a value, because the payload never became one. Refusing it here keeps that
+                // third state from surfacing as a NullReferenceException far from the save that
+                // caused it, and covers every codec rather than only the one that exposed it.
+                T value = _codec.Decode<T>(body);
+                if (value == null) throw SaveException.PayloadUnreadable(key, null);
+
+                return value;
             }
             catch (SaveException)
             {
                 throw;
+            }
+            catch (PayloadTamperedException)
+            {
+                throw SaveException.PayloadTampered(key);
             }
             catch (Exception exception) when (exception is not OperationCanceledException)
             {
