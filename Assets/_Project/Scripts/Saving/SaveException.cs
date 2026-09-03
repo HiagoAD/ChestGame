@@ -17,6 +17,12 @@ namespace Company.ChestGame.Saving
         public static SaveException NoRootDirectory() =>
             new("A file store needs a root directory to keep its files under, and was given none");
 
+        public static SaveException NoKeyPrefix() =>
+            new("A PlayerPrefs store needs a key prefix to namespace its keys under, and was given none");
+
+        public static SaveException NoProfile() =>
+            new("SaveServiceFactory needs a SaveProfileSO to build a service from, and was given none or a destroyed one");
+
         public static SaveException KeyEscapesRoot(string key) =>
             new($"Key '{key}' names a location outside the store's root directory, which a key must never do");
 

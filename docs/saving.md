@@ -1,8 +1,9 @@
 # Saving
 
-`Company.ChestGame.Saving` persists arbitrary state behind one seam, `ISaveService`. Only the
-walking skeleton exists so far: a JSON codec, a file store, no protection, and a versioned envelope.
-Nothing in the game references it yet.
+`Company.ChestGame.Saving` persists arbitrary state behind one seam, `ISaveService`. So far: a JSON
+codec, no protection, a versioned envelope, four stores (`File`, `AtomicFile`, `PlayerPrefs`,
+`InMemory`), the three selection enums, an authoring profile, and the factory that turns one into the
+other. Nothing in the game references this assembly yet.
 
 ## The shape, and what it copies
 
@@ -17,8 +18,8 @@ So the seam splits three ways and composition replaces selection:
 state -> ISaveCodec -> IPayloadProtector -> ISaveStore -> disk
 ```
 
-`SaveService` is the composition. A factory that picks the three from an authored profile is later
-work and does not change the contract.
+`SaveService` is the composition. `SaveServiceFactory` picks the three from an authored
+`SaveProfileSO` and does not change the contract; see the sections below.
 
 ## The envelope
 
@@ -114,6 +115,154 @@ The containment check in `PathFor` is unreachable given the rejections above it.
 because it states the invariant, rather than leaving it inferred from whatever those three happen to
 catch.
 
+## `SaveKeyPath`, and why the key logic is shared rather than mirrored
+
+`AtomicFileStore` needs every one of `FileStore`'s key rules, in the same order, for the same
+reasons. Giving it its own copy is the exact duplication `PoolFactory`'s header warns about:
+`PoolFactory.Create` and `PoolFactory.CreateHolder` used to exist twice, once with a comment saying
+the second copy mirrored the first *exactly*, and that comment was the tell — mirroring by hand is
+the duplication, and nothing fails when a rule changes in one copy and not the other. So the five
+rules — present, not an invalid character, not rooted, not `..`, no separator — and the unreachable
+containment check that states the invariant, all live once in `SaveKeyPath`, and both stores call
+it. `FileStoreTests` still pins every one of them; it exercises `SaveKeyPath` through `FileStore`
+without knowing the type exists, which is the point — the rules did not change, only where they
+live.
+
+## `AtomicFileStore`
+
+`FileStore` overwrites its file in place, so a kill mid-write can leave a truncated one behind.
+`AtomicFileStore` writes the new bytes to a temp file next to the live one, calls
+`FileStream.Flush(true)` to push them past the OS's own buffers onto disk — a plain `Dispose` only
+empties the stream's own buffer into the OS, which a kill immediately after can still lose — and
+only then swaps the temp file into place. The file it replaces is kept as `.bak` rather than
+deleted. `ReadAsync` prefers the live file and falls back to `.bak` when the live one is absent or
+throws while being read; that fallback is the entire reason the class exists, not an afterthought.
+
+The swap prefers `File.Replace`, the platform's own swap-and-keep-a-backup primitive, over hand-
+rolled copy-and-rename, but `File.Replace` is not something this code can assume works everywhere:
+it can throw `PlatformNotSupportedException` on a runtime that has never implemented it, and it can
+fail outright — across a filesystem boundary the rename can't cross, for instance. Either failure
+falls back to a manual copy-then-delete-then-move sequence that reaches the same end state without
+the OS's help. Where there is no live file yet — the first save under a key — there is nothing to
+keep as `.bak`, so the swap is a plain move instead.
+
+**What the `.bak` fallback protects against, and what it does not.** A kill during the write to the
+temp file leaves the live file and its `.bak` exactly as they were; the half-written temp file is
+simply overwritten the next time this key is saved. A kill during the swap itself is the case the
+class exists for: on the `File.Replace` path the live file and the new content trade places in one
+call, so a reader sees the old file or the new one, never a partially written one. On the platforms
+where `File.Replace` is unavailable and the manual fallback runs, that guarantee is weaker: a kill
+between the fallback copying the old live file to `.bak` and its final rename of the temp file into
+place can leave the live file briefly absent, and `ReadAsync` returning the `.bak` copy in that
+window is the fallback doing its job, not a bug — the write in progress is lost, but nothing already
+saved is. What no path here protects against is corruption the filesystem introduces underneath a
+write that already completed successfully — bit rot on the drive, say — because at that point both
+the live file and `.bak` report success reading back, and there is no third copy to check either one
+against.
+
+`WriteAsync` also deletes the temp file if `Swap` throws an exception the process survives to catch
+— a permissions failure partway through the manual fallback, say. That is a different case from a
+kill: a kill leaves the temp file regardless, because there is no code left running to clean it up,
+and that is fine, because the next write under the same key overwrites it via `FileMode.Create`
+anyway. The cleanup only matters for the case where the process is still running after the failure,
+so a caught exception does not leave a stale `.tmp` file sitting next to the live save looking like
+a second, half-recoverable copy of it. The cleanup itself is best-effort: a failure deleting the
+temp file is swallowed rather than replacing the exception that made cleanup necessary in the first
+place.
+
+## `PlayerPrefsStore`, and why it base64s
+
+`PlayerPrefs` only stores strings, never bytes, so something has to translate between the two, and
+`PlayerPrefsStore` does it rather than pushing that knowledge onto every caller — the same reasoning
+that put `enc` in `SaveEnvelope` instead of asking `ISaveCodec` to know about encodings. Base64 in on
+`WriteAsync`, decode back out on `ReadAsync`.
+
+Only `SaveKeyPath`'s presence check carries over from `FileStore`'s rules. A `PlayerPrefs` key names
+an entry in a key-value store, not a location on a filesystem, so there is no root to escape and no
+path separator that means anything to it — the rest of `FileStore`'s rules exist solely to stop a key
+from resolving to the wrong *file*, a risk that does not exist here.
+
+The key prefix is a required constructor argument for the reason `FileStore`'s root is: a test can
+namespace itself away from the real editor prefs instead of reading or clobbering them.
+`PlayerPrefs.Save()` runs after every write because `PlayerPrefs` otherwise buffers changes until the
+process quits normally, and a save that only survives a clean quit is not a save.
+
+## `InMemoryStore`
+
+The general form of `Tests/Common/InMemoryResourceBankSaveHandler`: a dictionary keyed by save key,
+copying bytes on the way in and out so a caller mutating an array after handing it to `WriteAsync`,
+or mutating one handed back from `ReadAsync`, cannot reach into what the store believes it holds. It
+is not only a test double — an editor mode that must never touch the real save can point a
+`SaveProfileSO` at `InMemory` and get exactly that as a production choice.
+
+## The three selection enums are append-only
+
+`SaveStorage`, `SaveCodec` and `SaveProtection` are what `SaveProfileSO` serializes and
+`SaveServiceFactory` reads back. All three are append-only for the reason `PoolStrategy` documents:
+a `ScriptableObject` field backed by an enum is serialized by its numeric index, not its name, so
+inserting a member in the middle silently repoints every already-authored profile at a different
+backend, codec or protector the next time it loads — silently, because the field still holds a valid
+index for *some* member, just not the one whoever authored the profile picked. A new member always
+goes on the end of whichever enum it belongs to, including once phase 3 gives `SaveCodec` and
+`SaveProtection` a second member.
+
+## `SaveServiceFactory`, and why every switch has a working default arm
+
+The one place that turns a `SaveProfileSO`, or a bare `(SaveStorage, SaveCodec, SaveProtection)`
+triple, into an `ISaveService` — static and stateless, like `PoolFactory` and `CatalogBuilder`. A
+null or destroyed profile throws `SaveException.NoProfile()` — checked with `== null`, not `is
+null`, because a destroyed `SaveProfileSO` is Unity-null rather than C#-null and only the overloaded
+operator catches that.
+
+Every one of its three internal switches has a working `_ =>` arm rather than a `throw`, for the
+same reason `PoolFactory.Create`'s does: the enum it switches on is a serialized field, which can
+legally hold a member this build's switch has never heard of — an older build's profile, read after
+a newer build added a storage backend, say — and refusing to produce a save service at all is a
+worse failure than falling back to a working default. `File`, `Json` and `None` are each that
+default, which is also why each sits first in its own enum: index 0 is where a freshly serialized
+field lands before anyone has touched the dropdown, so the member a missing case falls back to and
+the member a new field starts on are the same one.
+
+`CreateCodec` and `CreateProtector` list `SaveCodec.Json` and `SaveProtection.None` as explicit arms
+*alongside* the discard, even though today the discard alone would return the same thing. An enum
+with one member makes that redundancy easy to "clean up" into just the discard, and that is exactly
+the shape of the mistake `PoolFactory.Create` warns about: skip the arm for a new member and the
+switch still compiles, and it quietly keeps returning `JsonCodec` or `NoProtection` for a codec or
+protector that was supposed to be a real choice. `SaveService`'s codec/protector id check on load —
+see "Loading, and the three ways a version goes wrong" — is a second line of defence if that ever
+happens, since a save written by one codec and loaded through another fails as
+`UnexpectedComponent` rather than silently decoding garbage. That check does not make the explicit
+arm optional; it is what keeps a missing arm from being *invisible* rather than what makes it safe.
+
+`SaveStorage.PlayerPrefs` needs a key prefix that `SaveProfileSO` has no field for, because nothing
+in this assembly is allowed to know a concrete game key. `Create` and `CreateFrom` both take a
+`playerPrefsKeyPrefix` parameter alongside `rootDirectory`, defaulting to a fixed prefix the same
+way a null `rootDirectory` defaults to `FileStore.DefaultRootDirectory()` — for the same reason:
+a test pointing a `File`-backed profile at a throwaway directory but leaving `PlayerPrefs` on the
+default prefix would still be writing into the developer's real editor prefs.
+
+### What adding a storage backend takes
+
+In the shape the pool strategy list in `docs/design-decisions.md` uses.
+
+1. Write the implementation in `_Project/Scripts/Saving/`, implementing `ISaveStore` and calling into
+   `SaveKeyPath` for whichever of its rules actually apply to the new backend — see the
+   `PlayerPrefsStore` section above for what "apply" means here.
+2. Add the enum member to `SaveStorage`, **appending it after `InMemory`**. The values are serialized
+   by index, so inserting in the middle silently repoints every authored `SaveProfileSO` at a
+   different backend.
+3. Add the arm to `SaveServiceFactory.CreateStore`. Skipping this compiles cleanly and quietly hands
+   back a `FileStore`.
+4. If the constructor needs something beyond a root directory — a key prefix, a bucket name,
+   whatever the backend calls its namespace — decide where the factory gets it. `playerPrefsKeyPrefix`
+   is the precedent: a same-shaped optional parameter on both `Create` and `CreateFrom`, defaulting
+   to a fixed value, so a test can redirect it exactly as it redirects `rootDirectory` rather than
+   being stuck writing into whatever the default actually points at.
+
+Nothing in `ISaveStore`, `SaveService` or `SaveException` needs to change: `SaveService` composes
+whatever `ISaveStore` it is handed, and a new backend reports its own storage failures through
+`SaveException.Io`, the same as `FileStore` and `AtomicFileStore` do.
+
 ## Exceptions
 
 `SaveException` derives from `ChestGameException`; `PoolException` deliberately does not. The split
@@ -137,12 +286,10 @@ chests, currency, minigames, popups or Addressables.
 
 ## Not built yet
 
-Other stores (atomic, PlayerPrefs, in-memory), other codecs (gzip, binary), protection (base64, xor,
-HMAC, AES), the three selection enums, the profile asset, the factory, the migration chain, the
-thread hop and write coalescing, the `ResourceBank` adapter, and any registration in
-`GameLifetimeScope`.
+Other codecs (gzip, binary), other protection (base64, xor, HMAC, AES), the migration chain, the
+thread hop and write coalescing, the `ResourceBank` adapter, a profile validator, and any
+registration in `GameLifetimeScope`. Nothing in the game references this assembly yet.
 
-Two decisions are already fixed for that work. Enum members will be serialized by index, so all three
-selection enums are append-only for the reason `PoolStrategy` documents. And `BinaryFormatter` is not
-an option for the binary codec: obsolete from .NET 5, removed in .NET 9, and a remote-code-execution
-vector on input an attacker can influence, which a save file on a player's device is.
+One decision is already fixed for that work: `BinaryFormatter` is not an option for the binary
+codec. Obsolete from .NET 5, removed in .NET 9, and a remote-code-execution vector on input an
+attacker can influence, which a save file on a player's device is.
