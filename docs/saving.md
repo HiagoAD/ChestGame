@@ -3,8 +3,10 @@
 `Company.ChestGame.Saving` persists arbitrary state behind one seam, `ISaveService`. So far: three
 JSON codecs, five protectors, a versioned envelope, four stores (`File`, `AtomicFile`, `PlayerPrefs`,
 `InMemory`), the three selection enums, an authoring profile, a profile validator, the factory that
-turns a profile into a working `ISaveService`, a migration chain, and the seam a pre-envelope legacy
-import plugs into. Nothing in the game references this assembly yet.
+turns a profile into a working `ISaveService`, a migration chain, the seam a pre-envelope legacy
+import plugs into, a store decorator that hops encoded, protected bytes onto a worker thread and back
+(`ThreadHoppingStore`), and a write-coalescing scheduler (`SaveScheduler<T>`) built on top of
+`ISaveService` rather than inside it. Nothing in the game references this assembly yet.
 
 ## The shape, and what it copies
 
@@ -663,10 +665,284 @@ duplicating a clock abstraction to avoid a dependency that `Config`, `Rewards` a
 take anyway. The honest version of the property is narrower: this assembly knows nothing about
 chests, currency, minigames, popups or Addressables.
 
+## The async layer: `ThreadHoppingStore` and `SaveScheduler<T>`
+
+Phase 5 adds two things and touches nothing else in the pipeline `state -> ISaveCodec ->
+IPayloadProtector -> ISaveStore -> disk` already built. Four invariants shaped both, and they pull
+against each other: `PlayerPrefs` is main-thread only; a torn save must be impossible; `SaveAsync`'s
+contract must survive coalescing; and a blocking flush must not deadlock. The sections below are the
+reasoning behind the design that satisfies all four at once, because none of the four is negotiable
+and no one of them is satisfiable by itself.
+
+### The thread hop, and why it is not inside `SaveService`
+
+The obvious design — hop to the thread pool somewhere inside `SaveAsync`/`LoadAsync`, hop back before
+returning — is wrong for a reason that only shows up once the existing test suite is read rather than
+the interface. `SynchronousUniTask.Result`/`.Complete`, which every `SaveService`, `FileStore` and
+`AtomicFileStore` test in the 533-test gate calls through, asserts `task.Status != Pending`
+*immediately after the call returns, on the same call stack*. A genuine `await
+UniTask.SwitchToThreadPool()` anywhere inside `SaveAsync`, `LoadAsync`, or any of `FileStore` /
+`AtomicFileStore`'s own members, suspends that call stack at the first such `await` — the method
+returns a `Pending` task to a caller that has not yielded, and every one of those hundreds of tests
+fails immediately, not eventually. This is not a hypothetical to guard against speculatively: it was
+checked directly against `SynchronousUniTask`'s own source before anything else in this section was
+designed, because a design that requires touching `SaveService.SaveAsync`'s or `FileStore.WriteAsync`'s
+internal control flow to add a real suspension point cannot coexist with the gate this phase is built
+under. So `ISaveService`, `SaveService`, `FileStore`, `AtomicFileStore`, `InMemoryStore` and
+`PlayerPrefsStore` gain no new suspension point anywhere in this phase: every member each already had
+still resolves inside the same synchronous-in-a-UniTask call it always did, and `SynchronousUniTask`
+cannot tell phase 5's version of any of them from phase 4's. What they do gain is small and additive —
+one marker interface (`PlayerPrefsStore` implementing `IMainThreadOnlyStore`), one read-only property
+each (`CompletesOnCallingThread`, below) that only ever returns a constant `true` on these five types,
+and one stale comment in `FileStore` corrected to point at where the hop actually landed. Every test
+that passed before phase 5 passes for the same reason it did before: nothing it drives can suspend.
+
+The hop instead lives in a new type that wraps a store from the outside: **`ThreadHoppingStore`**, an
+`ISaveStore` decorating another `ISaveStore`. `SaveService` never knows it exists — it just calls
+`_store.WriteAsync`/`ReadAsync`/`ExistsAsync`/`DeleteAsync` exactly as it always has, on whatever
+`ISaveStore` it was constructed with. Nothing in this phase wires `ThreadHoppingStore` into
+`SaveServiceFactory` or any composition root — that is out of this phase's scope, along with every
+other piece of integration listed under "Not built yet" below — so today it is available but inert,
+proven by the scratch harness this phase's own review used rather than by a shipped call site.
+
+`ThreadHoppingStore` checks `inner is IMainThreadOnlyStore` once, in its constructor, and every member
+either calls straight through (main-thread-only inner store — today, only `PlayerPrefsStore`) or hops
+via `UniTask.RunOnThreadPool(..., cancellationToken: CancellationToken.None)` with the default
+`configureAwait: true`, which is what brings execution back to the main thread through `UniTask.Yield`
+once the wrapped call finishes. `CancellationToken.None` is deliberate, not an oversight: every member
+already checks the real `ct` before calling `RunOnThreadPool` at all, and the closure handed in checks
+it again as the first thing the wrapped store does, unchanged from what `FileStore` and
+`AtomicFileStore` already did. `RunOnThreadPool` re-checking its own `cancellationToken` argument a
+*third* time on the way back across `UniTask.Yield` — after the write has already reached disk — would
+report a save as canceled that, in fact, already happened. Passing `None` there is what keeps
+cancellation observed only before a write starts, never lied about after one already finished.
+
+`IMainThreadOnlyStore` is deliberately an empty marker rather than a member every `ISaveStore` has to
+implement. A store declares its own thread affinity — the brief for this phase raised that as one
+option among possibly-better ones — and a marker interface was chosen over, say, a `bool
+RequiresMainThread { get; }` on `ISaveStore` itself, because the latter would have forced `FileStore`,
+`AtomicFileStore` and `InMemoryStore` to each add a member that always answers the same constant, for
+a distinction only `ThreadHoppingStore` ever asks about.
+
+**`ISaveStore.CompletesOnCallingThread` is the different question a marker cannot answer, and is a
+real member for exactly that reason.** `IMainThreadOnlyStore` states a fact fixed for a *type* —
+`PlayerPrefsStore` is always main-thread-only, so a marker on the type is enough. Whether a store
+*completes on the calling thread* is instead a fact about a particular *instance* of
+`ThreadHoppingStore`: the same class answers `true` when it happens to wrap an `IMainThreadOnlyStore`
+and `false` otherwise, decided by a constructor argument at runtime, not by which class was written. A
+marker interface cannot express "sometimes, depending on what I was built with" — only a member each
+instance actually evaluates can. `FileStore`, `AtomicFileStore`, `InMemoryStore` and `PlayerPrefsStore`
+all answer `true` unconditionally, the same constant `RequiresMainThread` would have forced onto three
+of them above; `ThreadHoppingStore` answers `_mainThreadOnly`. `ISaveService.CompletesOnCallingThread`
+carries the same fact up one layer as a pure pass-through to whichever store `SaveService` was composed
+with, never a type check against `ThreadHoppingStore` by name, so `SaveScheduler<T>.CanFlushBlocking` —
+see "`FlushBlocking`, and why it cannot deadlock" below — can answer honestly without knowing this
+assembly's own store types any more than `SaveService` itself does.
+
+### Where the hop sits, and why not `SaveService` — the torn-save invariant
+
+This is the part that is more design than code. `SaveService.SaveAsync` calls
+`_codec.Encode(state)` and then `_protector.Protect(plain)` **before** it ever reaches `_store`, and
+that ordering is completely unchanged by this phase — see "The shape, and what it copies" above.
+Wrapping the *store* rather than `SaveAsync` as a whole is what makes that ordering load-bearing
+instead of incidental: `state`, the caller-owned and still-mutable object `SaveAsync` was handed, is
+consumed into an immutable `byte[]` entirely on whatever thread called `SaveAsync` — always the main
+thread, since nothing in this assembly ever calls it from anywhere else — before a single byte crosses
+into `ThreadHoppingStore`'s hop. Only that `byte[]`, which nothing else holds a reference to once
+`Encode`/`Protect` return it, ever touches a worker thread. Gameplay is free to keep mutating `state`
+the instant `SaveAsync` returns control (in `SaveScheduler<T>`'s case, the instant `MarkDirty` is
+called again) without any risk of a worker thread reading it mid-mutation, because nothing on a worker
+thread ever reads `state` at all — encode already turned it into bytes before the hop existed.
+
+The alternative this phase considered and rejected: hop before calling `SaveAsync`, so `codec.Encode`
+also runs on a worker thread and the whole pipeline — encode, protect, write — moves off the main
+thread. That buys more (encode and protect, not just the disk IO, stop costing a frame), but it means
+`codec.Encode(state)` reads `state`'s fields from a worker thread while the main thread can still be
+mutating it — a genuine data race, not a hypothetical one, on anything `state` holds that is not
+itself thread-safe (a plain `Dictionary` mid-enumeration throws; most other shapes just corrupt
+silently). `ISaveService.SaveAsync<T>`'s `state` parameter carries no constraint beyond `class`
+precisely so this assembly never has to ask a save model to be immutable or cloneable — the same
+reasoning "Why there is no binary codec" gives for not asking a save model to implement anything at
+all. Given that constraint, encode cannot safely move to a worker thread without either weakening it
+(requiring a snapshot/clone hook on every future save model) or accepting the race. Between "a frame
+spike from encoding on the main thread" and "a torn read on gameplay's own state," this phase picks
+the frame spike: it is a real, measurable cost, but it degrades gracefully (a slightly longer frame),
+where a torn read degrades into a save that is silently wrong and nothing reports it — exactly the
+failure invariant 2 exists to rule out. For the store-level IO this phase actually does move off the
+main thread, the real, common-case cost is disk access, not JSON serialisation of a modest save model —
+`AtomicFileStore.WriteAsync`'s call to `FileStream.Flush(true)` in particular, which forces the OS to
+push bytes past its own buffers onto the physical device before returning, is a genuinely blocking
+syscall, and is the specific cost this phase's hop was built to get off the main thread.
+
+### Write coalescing, and why it cannot live inside `SaveAsync`
+
+**`SaveScheduler<T>`** is the second new type: it owns an `ISaveService` rather than being one, and its
+own two members are `MarkDirty(T state)` and `FlushAsync`/`FlushBlocking` — a different, and
+deliberately weaker, surface than `ISaveService`. `SaveAsync`'s contract — "when it completes, the
+save is written" — has to survive untouched, because callers that never hear about `SaveScheduler<T>`
+still call `SaveAsync` directly and still get exactly that guarantee. Folding coalescing into
+`SaveAsync` itself would mean `SaveAsync` sometimes means "written" and sometimes means "queued,
+depending on how recently something else in the process last saved this key" — the same value
+silently meaning two different things depending on invisible history, which is exactly the kind of
+ambiguity "Loading, and the three ways a version goes wrong" above already refuses to allow into this
+codebase once, for `LoadAsync`. `MarkDirty` gets its own name instead of hiding a weaker promise
+behind `SaveAsync`'s name.
+
+`SaveScheduler<T>` is fixed to one key and one `T` at construction, not parameterised per call the way
+`ISaveService.SaveAsync<T>(key, ...)` is. A resource bank that calls `Save()` on every add and every
+spend has exactly one save slot to coalesce; a scheduler juggling several independent keys would need
+a table of pending writes instead of one `_pending`/`_hasPending` pair, for a generality nothing this
+phase (or the resource-bank adapter phase 6/7 actually builds) needs. A game with several save slots
+constructs several `SaveScheduler<T>` instances — the same per-key granularity `SaveAsync` already
+has, just decided once at construction instead of on every call.
+
+**The window is a throttle, not a debounce.** `MarkDirty` starts a countdown — `IGameClock.Delay`,
+`SaveScheduler<T>.DefaultCoalesceWindowMilliseconds` (1000ms, overridable per instance) — the first
+time state becomes dirty, and does **not** restart it on every subsequent `MarkDirty` call inside that
+window. A debounce (reset-on-every-call) would let a caller that never stops mutating state — plausible
+for a resource bank during an active minigame — starve the flush indefinitely, deferring every save to
+"whenever things go quiet," which for a save system is the wrong failure mode: the whole point is a
+bounded worst case between a mutation and its persistence. When the fixed window elapses, whatever is
+currently in `_pending` — the *latest* state as of that moment, because every `MarkDirty` call
+overwrites it rather than queuing a history of them — is what gets saved. That is the whole of what
+"coalescing" means here: many calls, one window, one write, carrying the newest state rather than the
+first or an average of them.
+
+### One write in flight
+
+A window elapsing while a previous flush is still running (a real `SaveAsync` call in flight, tracked
+by `SaveScheduler<T>.IsFlushing`, distinct from merely `HasPendingWrite` — waiting out the window is
+not yet a write) must not start a second, concurrent `SaveAsync` call over the same key: two writers
+racing the same store is exactly the kind of corruption `AtomicFileStore` exists to survive a *kill*
+during, not something this layer should manufacture on purpose during normal operation. `MarkDirty`
+arriving mid-flush does not start a new window at all — it simply leaves `_pending`/`_hasPending` set,
+which the flush already in flight is written to notice: `RunFlushLoopAsync`'s `while (_hasPending)`
+loop re-checks that flag the instant the in-flight `SaveAsync` call returns, and if something newer
+arrived while it was running, loops immediately for exactly one follow-up write carrying whatever is
+now latest — never a queue of every value that arrived in between, and never a second wait for another
+full window. `FlushAsync` and the coalescing loop both fold into the same `EnsureFlushingAsync`, so a
+caller invoking `FlushAsync` while a flush is already running joins the same
+`UniTaskCompletionSource` instead of racing it with one of its own.
+
+A write that fails is not treated as if it had succeeded: `RunFlushLoopAsync` restores the value that
+just failed back into `_pending` — unless something newer already arrived while it was in flight, which
+wins over resurrecting the stale one — and schedules a fresh window to retry automatically, rather than
+stranding the failure until an unrelated `MarkDirty` call happens to arrive later. A `SaveException`
+from a genuinely broken store (a full disk, a revoked permission) still surfaces to whoever is awaiting
+`FlushAsync` at the time; nothing here hides a real failure, it only makes sure the *data* that failed
+to save is not silently dropped on the floor because the retry that would have picked it up was never
+given anything to notice. If the underlying cause does not go away — a disk that stays full stays
+full — this repeats once per coalescing window rather than spinning: each retry is exactly one more
+`SaveAsync` call, gated by the same throttle as any other write, never a tight loop hammering a store
+that is already failing.
+
+### `FlushBlocking`, and why it cannot deadlock
+
+`OnApplicationPause(true)` on mobile is the last callback with any durability guarantee, and there is
+no time in it for an async round trip. `FlushBlocking` exists for exactly that call site, and it is
+genuinely synchronous end to end rather than a blocking wait dressed up to look like one: it calls
+`SaveAsync` and inspects `task.Status` **once**, immediately, on the same call stack. If the task is
+already finished — `Succeeded`, `Faulted` or `Canceled` — `GetAwaiter().GetResult()` reads out a
+recorded outcome that is already sitting there; there is nothing to wait for, so nothing blocks. If the
+task's status is still `Pending`, `FlushBlocking` never waits for it to stop being pending — it puts
+the claimed state back into `_pending` and throws `SaveException.FlushWouldBlock` immediately. That
+check is what makes the deadlock this method exists to avoid structurally unreachable rather than
+merely unlikely: the one thing that could make `SaveAsync` still be pending at this exact point is a
+composed store that needs to leave the calling thread to finish (a `ThreadHoppingStore`-wrapped one),
+and the continuation that would resume it and mark the task finished needs the very thread
+`FlushBlocking` would otherwise be blocking — the same reasoning that makes a `[Test]` blocking on a
+task suspended at `UniTask.SwitchToThreadPool` hang the Unity Editor's own `EditorApplication.update`
+pump forever, verified directly against `PlayerLoopHelper`'s edit-mode initialisation while this phase
+was designed. `FlushBlocking` refuses to be that caller. Waiting is the only thing that can deadlock
+here, and this method never waits.
+
+This pushes a real, load-bearing obligation onto whatever composes a `SaveScheduler<T>` that will ever
+have `FlushBlocking` called on it: build it over an `ISaveService` whose store never hops off the
+calling thread — a raw `FileStore`, `AtomicFileStore`, `PlayerPrefsStore` or `InMemoryStore`, never one
+wrapped in `ThreadHoppingStore`. A scheduler built over a hopping store is not unsafe to construct —
+`MarkDirty` and `FlushAsync` both work over it exactly as designed — but `FlushBlocking` on it will
+throw the instant a flush is genuinely in flight when it is called, every time, by design. That is a
+real tension this phase surfaces rather than resolves for a future caller: the same scheduler cannot
+both get the frame-cost relief `ThreadHoppingStore` buys during normal play *and* offer a `FlushBlocking`
+that is guaranteed to succeed at pause time. Phase 6/7's integration, when it composes a real
+`SaveScheduler<T>` for the resource bank, has to pick one of those two things for that scheduler
+instance, and this document is where that choice needs to be made deliberately rather than discovered
+by an `OnApplicationPause` handler throwing in production.
+
+**That choice is checkable, not just documented.** `ISaveStore.CompletesOnCallingThread` is the store
+declaring, about itself, whether any of its members ever leaves the thread that called them — every
+store this assembly ships answers `true`; `ThreadHoppingStore` answers `_mainThreadOnly`, `true` only
+when the store it wraps is itself `IMainThreadOnlyStore` and it therefore never actually hops. The same
+question travels up: `ISaveService.CompletesOnCallingThread` is a pure pass-through to whatever store it
+was composed with, and `SaveScheduler<T>.CanFlushBlocking` reads that from the `ISaveService` it owns.
+None of the three inspects a concrete type to answer this — the same reasoning `IMainThreadOnlyStore`
+already follows for the *different* question of whether a store may be moved off the calling thread at
+all — so a future store this assembly does not know about yet still answers honestly by declaring the
+one fact that matters, the same way `IMainThreadOnlyStore` already lets a future main-thread-bound store
+get its own protection for free. `CanFlushBlocking` is knowable at composition time, before a single
+`MarkDirty` call: this is what turns the obligation above from "remember to build it over the right
+store" into something a composition root can assert once and a test can pin — a `SaveScheduler<T>` built
+for `OnApplicationPause` should assert `CanFlushBlocking` the same way `ChestsMinigamePrefabTests` asserts
+the real prefab composition rather than trusting a comment, so a wrong composition fails at build time
+instead of on a player's device the first time the app is backgrounded.
+
+### Disposal and a pending write
+
+`SaveScheduler<T>.Dispose()` stops the loop cleanly — cancelling any coalescing window still counting
+down and the token every in-flight or future `SaveAsync` call is linked against — and then tries once,
+synchronously, to save whatever is currently pending and not already claimed by a flush in progress.
+Over a non-hopping store (the common case, and the only configuration `FlushBlocking` above requires
+anyway — `CanFlushBlocking` being true is exactly this condition), that attempt always succeeds,
+because everything in that configuration completes synchronously — the same fact `FlushBlocking` relies
+on. Over a hopping store, the attempt is not retried and not waited for: `Dispose` must never throw, so
+the same `FlushWouldBlock` case that `FlushBlocking` surfaces as an exception is caught here instead,
+for the reason `AtomicFileStore`'s own best-effort temp-file cleanup already gives — a caller of
+`Dispose` is entitled to assume it never throws, and a write that cannot be completed here is exactly as
+lost whether this method throws about it or not.
+
+**Caught is not the same as quiet.** A comment explaining a loss is read by whoever next opens this
+file, not by whoever is holding a crash report from a player's device. So `Dispose` calls
+`Debug.LogError`, naming the key, in both places a write can be lost — the reason `CurrencyManager`
+already logs a failed add or a failed spend rather than swallowing either in silence. A flush already in
+flight when `Dispose` runs is not awaited either: `Dispose` is synchronous, and waiting for a
+worker-thread hop to finish is the same blocking `FlushBlocking` refuses, so that write continues in the
+background to whatever conclusion it reaches, unobserved. If nothing newer arrived behind it, its
+outcome is merely unobserved, not necessarily lost. If something newer *did* arrive — a `MarkDirty` call
+between the in-flight write starting and `Dispose` running — that newer state is genuinely lost, since
+`ScheduleWindowIfNeeded` no-ops once `_disposed` is true and nothing will ever pick it back up; `Dispose`
+logs that case by name too, distinctly from the synchronous-attempt-failed case above. Either way, this
+is the one place in this phase where a loss is accepted rather than prevented, and it is now reported as
+well as documented: call `FlushBlocking` yourself before disposing — or check `CanFlushBlocking` first —
+if the guarantee matters more than the convenience of not having to.
+
+### What was validated without a test
+
+This phase does not add tests — a separate pass gates that. The coalescing state machine
+(`MarkDirty`, the throttle window, one-write-in-flight, the failed-write retry, `FlushBlocking`'s
+synchronous check, `Dispose`'s best-effort flush) was checked against a scratch harness that ports the
+same algorithm over plain `Task`/`TaskCompletionSource`, driven by a hand-advanced fake clock — the
+same shape `FakeGameClock` already gives the rest of this codebase, just outside Unity so it could run
+without a player loop. `ThreadHoppingStore`'s actual use of `UniTask.RunOnThreadPool` /
+`SwitchToMainThread` was instead checked by reading UniTask's own source for what each does with its
+`cancellationToken` and `configureAwait` arguments, since a real cross-thread hop is not something a
+plain-C# harness outside Unity can faithfully stand in for. Worth testing once a real test pass covers
+this phase: the coalescing scenarios above under `PlayModeTest` (an `EditMode` test cannot drive
+`ThreadHoppingStore` at all — `SynchronousUniTask` would fail loudly on the very first hop, exactly as
+designed), `FlushBlocking` actually throwing when built over a `ThreadHoppingStore`-wrapped store
+mid-write, and `CanFlushBlocking`/`CompletesOnCallingThread` answering correctly for every store this
+assembly ships plus a `ThreadHoppingStore` wrapping each.
+
+The assembly itself, and `Company.ChestGame.Tests.EditMode` with it, were compiled with `dotnet build`
+against the real `UnityEngine`, `UnityEditor`, `UniTask` and `Newtonsoft.Json` assemblies through the
+project's own generated `.csproj` files — the same check phases 1 through 4 relied on, not merely the
+scratch harness above. That check is what a plain-`Task` port of the algorithm cannot do: it answers
+"does this assembly build", not "is the algorithm right", and both matter.
+
 ## Not built yet
 
-The thread hop and write coalescing, the concrete `ILegacyImport` adapter for `ResourceBank` and
-`CurrencyType`, the actual save model, the phase 8 demo panel, and any registration in
-`GameLifetimeScope`. The migration chain and the legacy-import seam exist as of phase 4; nothing has
-a real migration or a real legacy adapter to run yet, because both need a save model that does not
-exist until phase 7. Nothing in the game references this assembly yet.
+Wiring `ThreadHoppingStore` into `SaveServiceFactory` or any composition root, and constructing a real
+`SaveScheduler<T>` anywhere — both are integration, and this phase is mechanism only. The concrete
+`ILegacyImport` adapter for `ResourceBank` and `CurrencyType`, the actual save model, the phase 8 demo
+panel, and any registration in `GameLifetimeScope`. The migration chain and the legacy-import seam
+exist as of phase 4; nothing has a real migration or a real legacy adapter to run yet, because both
+need a save model that does not exist until phase 7. Nothing in the game references this assembly yet.

@@ -14,5 +14,14 @@ namespace Company.ChestGame.Saving
         UniTask<bool> ExistsAsync(string key, CancellationToken ct);
 
         UniTask DeleteAsync(string key, CancellationToken ct);
+
+        // True when every member above always finishes on the thread that called it - never
+        // suspending to a worker thread and back. Every store this assembly ships answers true;
+        // ThreadHoppingStore is the one exception, answering false for whatever it wraps unless
+        // that inner store is IMainThreadOnlyStore, in which case it never actually hops either.
+        // This is what lets SaveScheduler<T>.CanFlushBlocking answer honestly without knowing any
+        // concrete store by name - the same reasoning IMainThreadOnlyStore already follows for a
+        // different question. See docs/saving.md, "FlushBlocking, and why it cannot deadlock".
+        bool CompletesOnCallingThread { get; }
     }
 }

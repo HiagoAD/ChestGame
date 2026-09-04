@@ -163,6 +163,10 @@ namespace Company.ChestGame.Saving
             }
         }
 
+        // Every member above is plain, synchronous File/Directory IO wrapped in an already-completed
+        // UniTask - nothing here ever suspends, so this is always true.
+        public bool CompletesOnCallingThread => true;
+
         // UnauthorizedAccessException derives from SystemException, not IOException, so catching
         // only IOException lets a permissions failure escape untyped.
         private static bool IsStorageFailure(Exception exception) =>

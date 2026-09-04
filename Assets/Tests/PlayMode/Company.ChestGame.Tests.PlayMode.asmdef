@@ -19,6 +19,7 @@
         "Company.ChestGame.Pooling.Demo",
         "Company.ChestGame.Popups",
         "Company.ChestGame.Rewards",
+        "Company.ChestGame.Saving",
         "TapNation.Modules",
         "UniTask",
         "Company.ChestGame.UI",

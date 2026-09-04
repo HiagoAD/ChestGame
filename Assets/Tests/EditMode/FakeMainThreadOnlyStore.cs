@@ -5,17 +5,12 @@ using Cysharp.Threading.Tasks;
 
 namespace Company.ChestGame.Tests.EditMode
 {
-    // An in-memory ISaveStore, so SaveService's own logic - the first-run/corrupt distinction, the
-    // version and component checks - can be tested without a real file system underneath it.
-    // FileStore gets its own fixture in FileStoreTests for what only a real file system can prove.
-    public class FakeSaveStore : ISaveStore
+    // The one ISaveStore fake in this suite marked IMainThreadOnlyStore, so a test can prove
+    // ThreadHoppingStore leaves a store like PlayerPrefsStore alone rather than hopping it. See
+    // docs/saving.md, "The thread hop". Everything else mirrors FakeSaveStore.
+    public class FakeMainThreadOnlyStore : ISaveStore, IMainThreadOnlyStore
     {
         private readonly Dictionary<string, byte[]> _files = new();
-
-        // Bypasses SaveAsync, for tests that need an envelope on "disk" that SaveService's own
-        // codec and protector could never have produced - a corrupt one, one from a different
-        // schema version, one naming a different codec or protector.
-        public void Seed(string key, byte[] bytes) => _files[key] = bytes;
 
         public UniTask WriteAsync(string key, byte[] bytes, CancellationToken ct)
         {
@@ -44,8 +39,7 @@ namespace Company.ChestGame.Tests.EditMode
         }
 
         // Every member above is a plain dictionary operation wrapped in an already-completed
-        // UniTask - nothing here ever suspends, so this is always true, matching every real
-        // ISaveStore this assembly ships except ThreadHoppingStore.
+        // UniTask - nothing here ever suspends, so this is always true.
         public bool CompletesOnCallingThread => true;
     }
 }

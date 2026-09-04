@@ -50,5 +50,9 @@ namespace Company.ChestGame.Saving
 
             return UniTask.CompletedTask;
         }
+
+        // Every member above is a plain dictionary operation wrapped in an already-completed
+        // UniTask - nothing here ever suspends, so this is always true.
+        public bool CompletesOnCallingThread => true;
     }
 }

@@ -182,5 +182,11 @@ namespace Company.ChestGame.Saving
         public UniTask<bool> ExistsAsync(string key, CancellationToken ct) => _store.ExistsAsync(key, ct);
 
         public UniTask DeleteAsync(string key, CancellationToken ct) => _store.DeleteAsync(key, ct);
+
+        // A pure pass-through rather than SaveService inspecting _store's concrete type: the store
+        // already declares this about itself - see ISaveStore.CompletesOnCallingThread - the same
+        // reasoning IMainThreadOnlyStore already follows for a different question, kept consistent
+        // rather than re-solved here with a type check against ThreadHoppingStore by name.
+        public bool CompletesOnCallingThread => _store.CompletesOnCallingThread;
     }
 }

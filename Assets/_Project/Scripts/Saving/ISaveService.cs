@@ -16,5 +16,10 @@ namespace Company.ChestGame.Saving
         UniTask<bool> ExistsAsync(string key, CancellationToken ct);
 
         UniTask DeleteAsync(string key, CancellationToken ct);
+
+        // Delegates to whatever ISaveStore this was composed with - see ISaveStore's own member of
+        // the same name. What SaveScheduler<T>.CanFlushBlocking reads to answer, ahead of time,
+        // whether FlushBlocking can ever succeed on a scheduler built over this service.
+        bool CompletesOnCallingThread { get; }
     }
 }

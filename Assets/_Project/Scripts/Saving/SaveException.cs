@@ -23,6 +23,30 @@ namespace Company.ChestGame.Saving
         public static SaveException NoProfile() =>
             new("SaveServiceFactory needs a SaveProfileSO to build a service from, and was given none or a destroyed one");
 
+        public static SaveException NoStore() =>
+            new("ThreadHoppingStore needs an ISaveStore to wrap, and was given none");
+
+        public static SaveException NoSaveService() =>
+            new("A save scheduler needs an ISaveService to save through, and was given none");
+
+        public static SaveException NoClock() =>
+            new("A save scheduler needs an IGameClock to time its coalescing window against, and was given none");
+
+        public static SaveException CoalesceWindowNotPositive(int coalesceWindowMilliseconds) =>
+            new($"A save scheduler's coalescing window has to be at least 1ms, got {coalesceWindowMilliseconds}");
+
+        public static SaveException SchedulerDisposed(string key) =>
+            new($"The save scheduler for '{key}' has been disposed and cannot accept or flush any more writes");
+
+        // Thrown by FlushBlocking, never by FlushAsync: a write already claimed by an in-flight
+        // flush, or one over a save service whose store needs to leave the calling thread to finish,
+        // cannot be completed synchronously without either blocking on work that thread would then
+        // have to service itself - a deadlock - or silently pretending to be synchronous while
+        // actually queuing the work for later, which is exactly the weaker guarantee FlushBlocking
+        // exists to not offer. See docs/saving.md, "FlushBlocking, and why it cannot deadlock".
+        public static SaveException FlushWouldBlock(string key) =>
+            new($"FlushBlocking on the save scheduler for '{key}' would need to leave the calling thread to finish, and blocking here would risk a deadlock; call FlushAsync instead, or build this scheduler over a save service whose store never hops off the calling thread");
+
         public static SaveException NoProtectorKey(string protectorId) =>
             new($"The '{protectorId}' protector needs key material to protect or unprotect a payload, and was given none");
 

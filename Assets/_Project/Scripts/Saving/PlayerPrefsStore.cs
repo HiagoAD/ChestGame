@@ -9,7 +9,12 @@ namespace Company.ChestGame.Saving
     // that mismatch rather than every caller knowing about it. The prefix is a constructor argument
     // for the same reason FileStore's root is: a test can namespace itself away from the real editor
     // prefs. See docs/saving.md for which of FileStore's key rules carry over here and which do not.
-    public class PlayerPrefsStore : ISaveStore
+    //
+    // IMainThreadOnlyStore because every member below is a PlayerPrefs call, and PlayerPrefs is a
+    // Unity API like any other - main-thread only. ThreadHoppingStore reads this marker to know to
+    // leave this store alone rather than moving its calls to a worker thread. See docs/saving.md,
+    // "The thread hop".
+    public class PlayerPrefsStore : ISaveStore, IMainThreadOnlyStore
     {
         private readonly string _keyPrefix;
 
@@ -65,6 +70,12 @@ namespace Company.ChestGame.Saving
 
             return UniTask.CompletedTask;
         }
+
+        // Every member above is a plain PlayerPrefs call wrapped in an already-completed UniTask -
+        // nothing here ever suspends, so this is always true. A different question from
+        // IMainThreadOnlyStore above: that one says this store must run on the calling thread; this
+        // one says it never leaves it anyway, which happens to make both answers agree here.
+        public bool CompletesOnCallingThread => true;
 
         // Only NoKey carries over from SaveKeyPath: a PlayerPrefs key has no file system to escape
         // and no separator that means anything to it, so the rest of FileStore's rules do not apply.

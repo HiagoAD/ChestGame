@@ -7,8 +7,12 @@ using UnityEngine;
 namespace Company.ChestGame.Saving
 {
     // One file per key under a root directory. The root is a constructor argument so a test can
-    // point it somewhere disposable. Phase 1 is synchronous inside the UniTask; the thread hop is
-    // phase 5's. See docs/saving.md.
+    // point it somewhere disposable. Every member here stays synchronous inside the UniTask it
+    // returns, unchanged since phase 1 - phase 5's thread hop is ThreadHoppingStore wrapping an
+    // instance of this class from the outside, not a change to it. Moving the hop inside here would
+    // have meant every existing FileStoreTests case, which drives this store through
+    // SynchronousUniTask, instead needing a player loop to pump a real await - exactly what that
+    // helper exists to catch rather than silently hang on. See docs/saving.md, "The thread hop".
     public class FileStore : ISaveStore
     {
         private readonly string _rootDirectory;
@@ -83,6 +87,10 @@ namespace Company.ChestGame.Saving
 
             return UniTask.CompletedTask;
         }
+
+        // Every member above is plain, synchronous File/Directory IO wrapped in an already-completed
+        // UniTask - nothing here ever suspends, so this is always true.
+        public bool CompletesOnCallingThread => true;
 
         // UnauthorizedAccessException derives from SystemException, not IOException, so catching
         // only IOException lets a permissions failure escape untyped.
