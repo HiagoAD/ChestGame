@@ -1,0 +1,7 @@
+{
+  "v": 1,
+  "codec": "json",
+  "prot": "none",
+  "enc": "raw",
+  "body": {"Note":"golden corpus fixture, not a real save model","Coins":1250,"Multiplier":1.50,"HighPrecisionTimestamp":"2026-09-01T10:00:00.123456789","ZonedTimestamp":"2026-09-01T10:00:00+05:00","LargeId":9007199254740993}
+}

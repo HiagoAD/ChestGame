@@ -2,8 +2,9 @@
 
 `Company.ChestGame.Saving` persists arbitrary state behind one seam, `ISaveService`. So far: three
 JSON codecs, five protectors, a versioned envelope, four stores (`File`, `AtomicFile`, `PlayerPrefs`,
-`InMemory`), the three selection enums, an authoring profile, a profile validator, and the factory
-that turns a profile into a working `ISaveService`. Nothing in the game references this assembly yet.
+`InMemory`), the three selection enums, an authoring profile, a profile validator, the factory that
+turns a profile into a working `ISaveService`, a migration chain, and the seam a pre-envelope legacy
+import plugs into. Nothing in the game references this assembly yet.
 
 ## The shape, and what it copies
 
@@ -100,11 +101,206 @@ catches it.
 A version newer than this build is refused outright rather than partially read. Half-reading a format
 this build has never seen is a guess, and it deletes progress the player can see they had.
 
-`codec` and `prot` are then checked against the configured components. They are recorded so a reader
-can tell what wrote a body before trusting itself to decode it, and a field nothing reads is
-decoration. The check comes after the version check because a save from a newer build may
-legitimately name a codec this one has never heard of, and "written by a newer build" is the more
-useful thing to report.
+A version older than this build is refused too, unless `SaveService` was built with a `SaveMigrator`
+— see "The migration chain" below for what changes once one is supplied. Without one this still
+throws `NoMigrationPath` exactly as it always has; older is not symmetric with newer, and only the
+older side ever grows a second branch.
+
+`codec` and `prot` are then checked against the configured components — for every version, migrated
+or not. They are recorded so a reader can tell what wrote a body before trusting itself to decode it,
+and a field nothing reads is decoration. The check comes after the version check because a save from a
+newer build may legitimately name a codec this one has never heard of, and "written by a newer build"
+is the more useful thing to report.
+
+## The migration chain
+
+Phase 4 is the mechanism, proven against a frozen corpus and test-only migrations — not a real
+migration. `CurrentSchemaVersion` stays at `1`: there is no v1 → v2 step to write until a save model
+exists to define what v2 looks like, and inventing one to exercise the chain would put a lie in
+production code. Phase 6/7 is what finally makes this branch reachable outside a test.
+
+### `ToJson`, and why a migration cannot go through `Decode<T>`
+
+A migration rewrites a document into a shape the current `T` no longer matches — that is the entire
+point of one existing. `Decode<T>` cannot serve that: it is built to produce exactly one `T`, not to
+hand back something in between. So `ISaveCodec` gains `string ToJson(byte[] encoded)` — the codec's
+own bytes as a JSON document — which is what lets a migration reach the JSON directly instead of the
+typed value on the other side of it.
+
+Every codec this assembly ships is JSON underneath, so every one of them can implement this
+honestly. `JsonCodec` and `PrettyJsonCodec` just decode UTF-8, the same first step `Decode<T>` already
+took. `GzipJsonCodec` decompresses first, then defers to `JsonCodec.ToJson` for the same reason its
+`Decode<T>` defers to `JsonCodec.Decode<T>` — gzip is the layer it adds, not the JSON underneath. This
+is a real constraint stated on purpose, not hidden: a codec that were not JSON-shaped under its own
+encoding could not participate in migration at all, and nothing here pretends otherwise.
+
+### `ISaveMigration` and `SaveMigrator`
+
+`ISaveMigration` is one step: `FromVersion` and `JObject Apply(JObject document)`, from `FromVersion`
+to `FromVersion + 1` and never further. `SaveMigrator` is what walks a chain of these from a document's
+stored version up to a target, strictly ascending and one version at a time — never skipping a step,
+never applying two at once. It takes no Unity type anywhere in its surface, so it is exercised by a
+plain NUnit test with no player loop, the same reason `SaveMigrator` and `SaveEnvelope` both stay free
+of `UnityEngine`.
+
+Four failures are construction- or call-site errors, all `SaveMigrationException` rather than
+`SaveException`: two migrations declaring the same `FromVersion` is a wiring mistake only a developer
+can cause, so `SaveMigrator`'s constructor throws immediately rather than waiting for the first old
+save that happens to need that step; asking it to migrate down to a target below the version it was
+handed is the same kind of mistake at the call site instead; a null entry document has no step to work
+from; and a step handing back null instead of a document — a missing return path, or one that gives up
+on input it does not recognise — is caught the moment it happens, rather than surfacing as a
+`NullReferenceException` on the next step's `Apply(null)`, or as an unexplained failure inside
+`SaveService`'s `ToObject<T>()` several calls away from the step that actually caused it.
+`SaveMigrationException` sits beside `SaveException` without being one, exactly the split
+`PoolException` and `FrameBudgetException` each already draw against their own assembly's
+player-facing exception — see "Exceptions" below.
+
+A missing step partway through the walk is different: a stored save genuinely older than every chain
+this build was shipped with is data a player can hand back to the game, not a mistake a developer
+made, so it reuses `SaveException.NoMigrationPath` — naming whichever version the walk actually got
+stuck at, which is only the originally stored version if the very first step is the one missing.
+
+### Wiring: what `LoadAsync` does with a migrator
+
+`SaveService` takes an optional `SaveMigrator` (and an optional `ILegacyImport`, below) as trailing
+constructor arguments defaulting to `null`, so every existing call site keeps compiling and behaving
+exactly as it did before this phase. Three routes, chosen by comparing the stored version to
+`CurrentSchemaVersion`:
+
+- **equal** — unchanged: `codec.Decode<T>(body)`, the same call this made before phase 4.
+- **above** — unchanged: `VersionTooNew`, refused outright, never reaching the codec.
+- **below**, with a migrator supplied — `codec.ToJson(body)` → `JObject.Parse` → `migrator.Migrate`
+  up to `CurrentSchemaVersion` → `document.ToObject<T>()`.
+- **below**, with none supplied — unchanged: `NoMigrationPath`, exactly as before this phase existed.
+
+Materialising the migrated `JObject` straight through `ToObject<T>()` rather than re-serializing it
+back to text and handing it to `Decode<T>` is consistent with `Decode<T>` itself, not a shortcut around
+it: both are Newtonsoft over the same document, one reading it from the codec's bytes and the other
+from the chain's own output. Nothing about the codec/protector id checks changes for a migrated
+save — those still run first, for every version, because they answer "did the configured pipeline
+write this" rather than "what shape is inside it".
+
+### What adding a schema version takes
+
+In the shape `docs/design-decisions.md`'s pool strategy list and this file's own storage-backend list
+both use — the ordering matters because a save on disk cannot be reformatted the moment the number
+changes.
+
+1. Define what changes about the save model, then write the `ISaveMigration` step from the old
+   `CurrentSchemaVersion` to the new one — `FromVersion` is the *old* value.
+2. Bump `SaveService.CurrentSchemaVersion` to the new value. Do this in the same change as step 1;
+   a version bump with no step to reach it is a save this build can no longer read its own recent
+   output from, and a step nothing asks for is dead code nothing exercises outside a test.
+3. Register the new migration wherever `SaveMigrator` gets constructed. A `SaveMigrator` is built once
+   from every step the game ships, not one per version bump.
+4. Add the new version's file to the golden corpus — see below — generated from a build that still
+   writes the *old* version, before `CurrentSchemaVersion` moves. Generating it after the bump would
+   defeat the entire reason the corpus exists.
+5. Add a test that loads the new corpus file through a `SaveMigrator` carrying the real chain and
+   asserts the result matches what the new save model expects. This is the test that actually proves
+   the new step against bytes an old build really wrote, not bytes today's build invented to check
+   itself.
+
+Nothing about `ISaveCodec`, `IPayloadProtector` or `ISaveStore` needs to change: a schema version is a
+property of the document inside the envelope, not of anything that carries it.
+
+## The legacy import
+
+`ILegacyImport` is the seam a save that predates the envelope entirely plugs into. What ships today
+under `ResourceBankSaveData_CurrencyType` is exactly that: a bare `{"ResourceAmount":{…}}` written by
+`DefaultResourceBankSaveHandle` straight into `PlayerPrefs`, under a different key than anything
+`ISaveStore` in this assembly would ever use, with no envelope and no version field at all. It never
+reaches `SaveMigrator`, because there is no `v` for the chain to start walking from — this is why the
+import runs *before* the chain rather than as a step inside it, the same way `LoadAsync`'s own
+first-run check runs before the envelope is even looked at.
+
+`ILegacyImport` stays generic: `IsPresent()`, `Import()` returning a `JObject` already reshaped to
+`CurrentSchemaVersion`, and `Clear()`. Nothing in its signature or in `SaveService` names
+`CurrencyType`, `ResourceBank`, or any other game type — that knowledge belongs entirely to whatever
+adapter phase 6/7 builds against this interface, never to this assembly.
+
+**The ordering guarantee is the entire reason this exists as three separate methods instead of one.**
+`SaveService.LoadAsync` only ever reaches `ILegacyImport` when its own store answers nothing under
+`key` — a real save always wins first. When it does reach it: `Import()` produces the document,
+`SaveAsync` writes and durably persists it through the normal pipeline, and only *then* does
+`Clear()` run. The window between "old data cleared" and "new save durable" is where a player loses a
+balance nobody can get back, so the ordering is write-then-clear, never the reverse, and nothing here
+clears first to be tidy about it.
+
+That ordering is also what makes the whole thing safe under interruption without `IsPresent()` having
+to be exactly right about every intermediate state. If the process dies before the write finishes, the
+legacy data is untouched and the next `LoadAsync` call finds it exactly as before. If it dies after the
+write succeeds but before `Clear()` runs, the *next* call finds a real save under `key` and never asks
+`ILegacyImport` anything again for that key — the legacy data is simply orphaned, not re-applied and
+not corrupted. That is also the idempotency guarantee: running the import twice is not "safe" because
+`IsPresent()` is trusted to say false the second time, it is safe because a successful write makes the
+whole branch unreachable regardless of what `IsPresent()` would have answered. A failure to `Clear()`
+itself is swallowed rather than allowed to fail an otherwise-successful load — the same best-effort
+reasoning `AtomicFileStore`'s own temp-file cleanup follows — because the new save already exists and a
+leftover legacy entry is inert, not lost.
+
+## The golden corpus
+
+`Assets/Tests/EditMode/SaveCorpus/` holds one committed envelope file per historical schema version —
+`v1.json` today, the only one that exists while `CurrentSchemaVersion` stays at `1`. These are real
+bytes a build actually produced through the real pipeline (`SaveService` over `JsonCodec` and
+`NoProtection`), frozen the moment they were generated, not JSON typed by hand to look plausible.
+
+**Regenerating a file already in the corpus defeats the entire point of having one.** A corpus file's
+value is that it is what an old build actually wrote; a file regenerated by today's build only proves
+today's build agrees with itself, which a normal round-trip test already does far more directly. The
+corpus exists for the version *after* the one a file was frozen for: once `CurrentSchemaVersion` moves
+and a migration is written to reach it, the old file is what proves that migration against bytes that
+predate it, not against a convenient fiction.
+
+`Assets/_Project/Scripts/Editor/SaveCorpusGenerator.cs` is the only sanctioned way to add a new file —
+a menu command under `Tools/Saving/`, so producing one is a deliberate, reproducible action logged in
+source control rather than a manual paste into a text editor. It refuses to overwrite a file that
+already exists, for the reason above; extending it for a new schema version is part of step 4 in "What
+adding a schema version takes".
+
+### The fixture values are chosen, not incidental
+
+`v1.json`'s body is not an arbitrary POCO. This is the one file whose entire purpose is to be read by
+a build that does not exist yet — the long-term guard against someone quietly removing
+`DateParseHandling.None` or `FloatParseHandling.Decimal` from `SaveEnvelope.Parse`, or "simplifying"
+`JRaw.Create` back to a plain `JToken` property, long after everyone who remembers why has moved on. A
+fixture holding only values that survive a naive parse anyway — an integer, a plain string, a `1.5`
+with no trailing zero — proves the envelope still parses, but not that it still parses *correctly*,
+which is the harder and more valuable claim.
+
+Every field past `Note`/`Coins` earned its place by an actual A/B comparison: `SaveEnvelope.Parse` as
+shipped, against a copy with `DateParseHandling`/`FloatParseHandling` stripped out, and separately
+against `JsonConvert.DeserializeObject<SaveEnvelope>` — the implementation this type's own header
+warns against reintroducing. Only the values below came back *different* between those two:
+
+- `Multiplier` keeps a trailing zero (`1.50`). Stripped of `FloatParseHandling.Decimal`, it comes back
+  `1.5`.
+- `HighPrecisionTimestamp` carries nine fractional-second digits — one more than the seven (100ns
+  ticks) a .NET `DateTime` can hold. Anything that round-trips it through `DateTime` truncates it to
+  seven, silently.
+- `ZonedTimestamp` carries a UTC offset (`+05:00`). The naive path converts it to whatever the parsing
+  machine's local offset happens to be — a corruption that would only show up on a machine whose clock
+  disagrees with UTC, which is exactly the kind of thing a frozen expected value catches and a
+  developer re-running the same test on their own machine would not.
+- `LargeId` sits one past 2^53, the largest integer a `double` can represent exactly — insurance
+  against a future migration step or a materialisation path that ever routes it through one, even
+  though nothing today does.
+
+A bare calendar date with no time component (`"2026-09-01"`) was tried first and dropped: on the
+Newtonsoft version this project ships, it round-trips correctly whether or not the envelope's reader
+settings are in place, so it would not have caught anything. Do not add it back on the assumption that
+a date-shaped string is inherently risky — verify against the actual behaviour first, the same way
+these five values were chosen.
+
+**`v1.json` was regenerated once, during phase 4's review, to carry these values instead of the three
+inert ones it originally shipped with.** This is the one legitimate exception to "never regenerate an
+existing corpus file": at that point `CurrentSchemaVersion` had never moved past `1`, so the file had
+never been read by a build other than the one that wrote it — it was not yet a historical artefact,
+only a draft of one. Once a second schema version exists and this file is what a real migration proves
+itself against, this exception is spent; regenerating it after that point is exactly the mistake this
+section exists to prevent.
 
 ## `IsTextSafe` means valid JSON
 
@@ -446,6 +642,15 @@ wired the game correctly: a full disk, a save a newer build wrote, a file that g
 first kind should crash where a developer can see it; the second kind the game owes the player a
 sentence about.
 
+`SaveMigrationException` is the same split drawn a second time, inside this one assembly rather than
+between it and `Pooling`. A duplicate `FromVersion`, a target below the stored version, a null entry
+document, or a step handing back null, cannot be caused by anything a player's save contains — only by
+how `SaveMigrator` was built, called, or by a bug in a migration step itself — so it sits under
+`InvalidOperationException` beside `SaveException` rather than under it, exactly the way
+`PoolException` and `FrameBudgetException` each sit beside `ChestGameException` in their own
+assemblies. A save this build genuinely has no path forward for is the opposite case — data, not
+wiring — which is why that one stays `SaveException.NoMigrationPath`.
+
 ## The assembly is not a leaf
 
 `Company.ChestGame.Pooling` references no project assembly at all. Saving was meant to match that and
@@ -460,6 +665,8 @@ chests, currency, minigames, popups or Addressables.
 
 ## Not built yet
 
-The migration chain, the thread hop and write coalescing, the `ResourceBank` adapter, the phase 8
-demo panel, and any registration in `GameLifetimeScope`. Nothing in the game references this
-assembly yet.
+The thread hop and write coalescing, the concrete `ILegacyImport` adapter for `ResourceBank` and
+`CurrencyType`, the actual save model, the phase 8 demo panel, and any registration in
+`GameLifetimeScope`. The migration chain and the legacy-import seam exist as of phase 4; nothing has
+a real migration or a real legacy adapter to run yet, because both need a save model that does not
+exist until phase 7. Nothing in the game references this assembly yet.

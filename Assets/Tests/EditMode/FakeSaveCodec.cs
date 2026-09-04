@@ -19,8 +19,13 @@ namespace Company.ChestGame.Tests.EditMode
         // is told apart from "happened to decode into something that looks fresh".
         public bool DecodeWasCalled { get; private set; }
 
+        // Phase 4: whether ToJson has run, the same proof-of-non-use ToJson's migration-only callers
+        // need as Decode's own flag above.
+        public bool ToJsonWasCalled { get; private set; }
+
         public byte[] EncodeResult { get; set; } = Array.Empty<byte>();
         public Func<byte[], object> DecodeResult { get; set; }
+        public string ToJsonResult { get; set; } = "{}";
 
         public byte[] Encode<T>(T value)
         {
@@ -32,6 +37,12 @@ namespace Company.ChestGame.Tests.EditMode
         {
             DecodeWasCalled = true;
             return DecodeResult != null ? (T)DecodeResult(bytes) : default;
+        }
+
+        public string ToJson(byte[] encoded)
+        {
+            ToJsonWasCalled = true;
+            return ToJsonResult;
         }
     }
 }

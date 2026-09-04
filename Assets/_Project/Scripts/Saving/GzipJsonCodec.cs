@@ -31,14 +31,21 @@ namespace Company.ChestGame.Saving
 
         // Lets JsonException and InvalidDataException propagate: this type has no key to report a
         // failure against.
-        public T Decode<T>(byte[] bytes)
+        public T Decode<T>(byte[] bytes) => _json.Decode<T>(Decompress(bytes));
+
+        // Decompresses first, then defers to JsonCodec.ToJson for the same reason Decode<T> defers
+        // to JsonCodec.Decode<T> above: this codec's own contribution is the gzip layer, not the
+        // JSON underneath it.
+        public string ToJson(byte[] encoded) => _json.ToJson(Decompress(encoded));
+
+        private static byte[] Decompress(byte[] bytes)
         {
             using MemoryStream compressed = new(bytes);
             using GZipStream gzip = new(compressed, CompressionMode.Decompress);
             using MemoryStream json = new();
             gzip.CopyTo(json);
 
-            return _json.Decode<T>(json.ToArray());
+            return json.ToArray();
         }
     }
 }
