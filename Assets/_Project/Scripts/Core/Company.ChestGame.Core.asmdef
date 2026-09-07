@@ -9,6 +9,7 @@
         "Company.ChestGame.Minigame",
         "Company.ChestGame.Popups",
         "Company.ChestGame.Rewards",
+        "Company.ChestGame.Saving",
         "TapNation.Modules",
         "VContainer",
         "UniTask",

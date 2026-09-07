@@ -79,12 +79,12 @@ namespace Company.ChestGame.Tests.EditMode
                 Items = new List<string> { "sword", "shield", "potion" }
             };
 
-            ISaveService writer = SaveServiceFactory.CreateFrom(storage, codec, protection, _root, _prefsPrefix);
+            ISaveService writer = SaveServiceFactory.CreateFrom(storage, codec, protection, SaveFactoryInputs.Defaults(_root, _prefsPrefix));
             SynchronousUniTask.Complete(writer.SaveAsync(_key, original, CancellationToken.None));
 
             // A second, independently constructed service for the same triple - nothing here may
             // rely on the writer's own in-process state, only on what actually landed in the store.
-            ISaveService reader = SaveServiceFactory.CreateFrom(storage, codec, protection, _root, _prefsPrefix);
+            ISaveService reader = SaveServiceFactory.CreateFrom(storage, codec, protection, SaveFactoryInputs.Defaults(_root, _prefsPrefix));
             Inventory loaded = SynchronousUniTask.Result(reader.LoadAsync<Inventory>(_key, CancellationToken.None));
 
             Assert.AreEqual(original.PlayerName, loaded.PlayerName);

@@ -104,7 +104,7 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.AreEqual(storage, _profile.Storage,
                 "guard: SerializedObject has to have actually set the field this test means to drive");
 
-            ISaveService service = SaveServiceFactory.Create(_profile, _root, _prefsPrefix);
+            ISaveService service = SaveServiceFactory.Create(_profile, SaveFactoryInputs.Defaults(_root, _prefsPrefix));
             TestState state = new() { Value = 21 };
 
             SynchronousUniTask.Complete(service.SaveAsync(Key, state, CancellationToken.None));
@@ -117,7 +117,7 @@ namespace Company.ChestGame.Tests.EditMode
         public void AProfileAuthoredForFile_IsBackedByFileStore_WhichNeverKeepsABackup()
         {
             SetStorage(SaveStorage.File);
-            ISaveService service = SaveServiceFactory.Create(_profile, _root, _prefsPrefix);
+            ISaveService service = SaveServiceFactory.Create(_profile, SaveFactoryInputs.Defaults(_root, _prefsPrefix));
 
             SynchronousUniTask.Complete(service.SaveAsync(Key, new TestState { Value = 1 }, CancellationToken.None));
             SynchronousUniTask.Complete(service.SaveAsync(Key, new TestState { Value = 2 }, CancellationToken.None));
@@ -130,7 +130,7 @@ namespace Company.ChestGame.Tests.EditMode
         public void AProfileAuthoredForAtomicFile_IsBackedByAtomicFileStore_WhichKeepsABackup()
         {
             SetStorage(SaveStorage.AtomicFile);
-            ISaveService service = SaveServiceFactory.Create(_profile, _root, _prefsPrefix);
+            ISaveService service = SaveServiceFactory.Create(_profile, SaveFactoryInputs.Defaults(_root, _prefsPrefix));
 
             SynchronousUniTask.Complete(service.SaveAsync(Key, new TestState { Value = 1 }, CancellationToken.None));
             SynchronousUniTask.Complete(service.SaveAsync(Key, new TestState { Value = 2 }, CancellationToken.None));
@@ -150,7 +150,7 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.AreEqual(SaveCodec.Json, _profile.Codec);
             Assert.AreEqual(SaveProtection.None, _profile.Protection);
 
-            ISaveService service = SaveServiceFactory.Create(_profile, _root, _prefsPrefix);
+            ISaveService service = SaveServiceFactory.Create(_profile, SaveFactoryInputs.Defaults(_root, _prefsPrefix));
             SynchronousUniTask.Complete(service.SaveAsync(Key, new TestState { Value = 1 }, CancellationToken.None));
 
             string savedFile = Directory.GetFiles(_root).Single(f => !f.EndsWith(".bak") && !f.EndsWith(".tmp"));
@@ -179,7 +179,7 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.AreEqual(codec, _profile.Codec,
                 "guard: SerializedObject has to have actually set the field this test means to drive");
 
-            ISaveService service = SaveServiceFactory.Create(_profile, _root, _prefsPrefix);
+            ISaveService service = SaveServiceFactory.Create(_profile, SaveFactoryInputs.Defaults(_root, _prefsPrefix));
             SynchronousUniTask.Complete(service.SaveAsync(Key, new TestState { Value = 1 }, CancellationToken.None));
 
             string savedFile = Directory.GetFiles(_root).Single(f => !f.EndsWith(".bak") && !f.EndsWith(".tmp"));
@@ -196,7 +196,7 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.AreEqual(protection, _profile.Protection,
                 "guard: SerializedObject has to have actually set the field this test means to drive");
 
-            ISaveService service = SaveServiceFactory.Create(_profile, _root, _prefsPrefix);
+            ISaveService service = SaveServiceFactory.Create(_profile, SaveFactoryInputs.Defaults(_root, _prefsPrefix));
             SynchronousUniTask.Complete(service.SaveAsync(Key, new TestState { Value = 1 }, CancellationToken.None));
 
             string savedFile = Directory.GetFiles(_root).Single(f => !f.EndsWith(".bak") && !f.EndsWith(".tmp"));
@@ -213,7 +213,7 @@ namespace Company.ChestGame.Tests.EditMode
         {
             SetStorage(SaveStorage.File);
             SetCodec(codec);
-            ISaveService service = SaveServiceFactory.Create(_profile, _root, _prefsPrefix);
+            ISaveService service = SaveServiceFactory.Create(_profile, SaveFactoryInputs.Defaults(_root, _prefsPrefix));
             TestState state = new() { Value = 33 };
 
             SynchronousUniTask.Complete(service.SaveAsync(Key, state, CancellationToken.None));
@@ -227,7 +227,7 @@ namespace Company.ChestGame.Tests.EditMode
         {
             SetStorage(SaveStorage.File);
             SetProtection(protection);
-            ISaveService service = SaveServiceFactory.Create(_profile, _root, _prefsPrefix);
+            ISaveService service = SaveServiceFactory.Create(_profile, SaveFactoryInputs.Defaults(_root, _prefsPrefix));
             TestState state = new() { Value = 44 };
 
             SynchronousUniTask.Complete(service.SaveAsync(Key, state, CancellationToken.None));

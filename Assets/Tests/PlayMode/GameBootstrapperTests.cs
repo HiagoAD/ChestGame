@@ -1,4 +1,5 @@
 using System.Collections;
+using System.IO;
 using System.Reflection;
 using System.Threading;
 using Company.ChestGame.Config;
@@ -11,6 +12,7 @@ using Company.ChestGame.Minigame.Chests.Internal;
 using Company.ChestGame.Minigame.Core;
 using Company.ChestGame.Popups;
 using Company.ChestGame.Popups.Internal;
+using Company.ChestGame.Saving;
 using Company.ChestGame.UI;
 using Cysharp.Threading.Tasks;
 using NUnit.Framework;
@@ -26,14 +28,59 @@ namespace Company.ChestGame.Tests.PlayMode
     // or IMinigameCatalog means having booted, and booting means a scene. It is the Addressables
     // integration proof for the same reason, since every key the game ships is resolved by the boot
     // flow.
+    //
+    // Booting the real Boot scene means the real GameLifetimeScope.Awake() -> Configure() ->
+    // RegisterCoreServices(builder, status) - the exact zero-argument call that, without redirecting
+    // it, resolves ICurrencyManager against the developer's real Application.persistentDataPath and
+    // real "ResourceBankSaveData_CurrencyType" PlayerPrefs entry the moment the Game scene's
+    // CurrencyWatcher is injected. GameLifetimeScope.CurrencySaveInputsOverride/
+    // LegacyCurrencyPlayerPrefsKeyOverride are the seam this fixture has instead of arguments - see
+    // docs/saving.md, "Sealing the boot path a test cannot pass arguments through". Set in [SetUp],
+    // which the Unity Test Framework runs before [UnitySetUp] (and therefore before the scene, and
+    // Awake/Configure, ever load), cleared in [TearDown], which runs after [UnityTearDown] -
+    // unconditionally, so a failing test cannot leak either override into a fixture that runs after
+    // this one. No assertion in this file changed for this - only the composition this fixture boots
+    // against is now redirected, the same test hygiene every other fixture in this work already
+    // follows with its own per-fixture temp root and GUID key.
     public class GameBootstrapperTests
     {
         private const string BOOT_SCENE = "Boot";
         private const string GAME_SCENE = "Game";
 
+        private string _currencySaveRoot;
+        private string _legacyPlayerPrefsKey;
+
+        [TearDown]
+        public void RestoreTheCurrencySaveOverrides()
+        {
+            // Unconditional: this has to run even when a test above failed, or the next fixture to
+            // boot a scene inherits whatever this one last pointed at instead of the real location.
+            GameLifetimeScope.CurrencySaveInputsOverride = null;
+            GameLifetimeScope.LegacyCurrencyPlayerPrefsKeyOverride = null;
+
+            if (_currencySaveRoot != null && Directory.Exists(_currencySaveRoot)) Directory.Delete(_currencySaveRoot, recursive: true);
+
+            if (_legacyPlayerPrefsKey != null)
+            {
+                PlayerPrefs.DeleteKey(_legacyPlayerPrefsKey);
+                PlayerPrefs.DeleteKey(_legacyPlayerPrefsKey + ".migrated");
+                PlayerPrefs.Save();
+            }
+        }
+
         [UnitySetUp]
         public IEnumerator BootTheGame()
         {
+            // Set here rather than in a [SetUp]: UnitySetUp runs before SetUp, so a [SetUp] would
+            // assign these after LoadSceneAsync below has already driven GameLifetimeScope.Awake()
+            // -> Configure(), which reads them once and builds the save service from what it finds.
+            // Assigning immediately before the load is the only ordering that cannot be wrong.
+            _currencySaveRoot = Path.Combine(Path.GetTempPath(), "ChestGameSaveTests_" + System.Guid.NewGuid().ToString("N"));
+            _legacyPlayerPrefsKey = "ChestGameSaveTests.Legacy." + System.Guid.NewGuid().ToString("N");
+
+            GameLifetimeScope.CurrencySaveInputsOverride = SaveFactoryInputs.Defaults(_currencySaveRoot);
+            GameLifetimeScope.LegacyCurrencyPlayerPrefsKeyOverride = _legacyPlayerPrefsKey;
+
             yield return SceneManager.LoadSceneAsync(BOOT_SCENE);
 
             // A settled state, not a mid-flight one: everything asserted below is true once the

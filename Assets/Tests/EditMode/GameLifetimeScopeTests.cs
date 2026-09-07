@@ -1,4 +1,6 @@
+using System;
 using System.Collections.Generic;
+using System.IO;
 using Company.ChestGame.Assets;
 using Company.ChestGame.Common;
 using Company.ChestGame.Config;
@@ -10,6 +12,7 @@ using Company.ChestGame.Minigame.Internal;
 using Company.ChestGame.Popups;
 using Company.ChestGame.Popups.Internal;
 using Company.ChestGame.Rewards;
+using Company.ChestGame.Saving;
 using Company.ChestGame.Tests.Common;
 using NUnit.Framework;
 using TapNation.Modules.ResourceBank.Saving;
@@ -23,11 +26,26 @@ namespace Company.ChestGame.Tests.EditMode
     // registration from the composition root fails here. The root scope is everything that needs no
     // asset, which is what keeps it assertable in edit mode. What the shipped assets contain is
     // proved in GameBootstrapperTests.
+    //
+    // RegisterCoreServices' bare SetUp registration below (with no currency overrides) never
+    // resolves ICurrencyManager, the currency save handler, or the currency scheduler by itself -
+    // constructing SaveComponentFactory's store/protector does no IO on its own (see FileStore's and
+    // AtomicFileStore's constructors), so building _builder in SetUp for every test stays safe.
+    // What is NOT safe is any individual test resolving one of those three: without an override,
+    // that resolve would perform the real legacy import against the developer's actual
+    // Application.persistentDataPath and real PlayerPrefs entry - see docs/saving.md, "Redirecting
+    // this composition away from a developer's real save". Every test below that touches any of
+    // those three builds its own isolated ContainerBuilder through IsolatedCurrencyOverrides()
+    // instead of reusing _builder, the same shape ABootStatusHandedIn_IsTheOneTheGameReportsThrough
+    // already used for its own reason.
     public class GameLifetimeScopeTests
     {
         private ContainerBuilder _builder;
 
         private PopupParent _parentPrefab;
+
+        private readonly List<string> _tempSaveRoots = new();
+        private readonly List<string> _legacyPlayerPrefsKeys = new();
 
         [SetUp]
         public void SetUp()
@@ -39,7 +57,41 @@ namespace Company.ChestGame.Tests.EditMode
         [TearDown]
         public void TearDown()
         {
-            if (_parentPrefab != null) Object.DestroyImmediate(_parentPrefab.gameObject);
+            if (_parentPrefab != null) UnityEngine.Object.DestroyImmediate(_parentPrefab.gameObject);
+
+            foreach (string root in _tempSaveRoots)
+            {
+                if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+            }
+            _tempSaveRoots.Clear();
+
+            if (_legacyPlayerPrefsKeys.Count > 0)
+            {
+                // Both halves: CurrencyLegacyImport.Clear renames rather than deletes, so a
+                // successful import leaves a ".migrated" sibling this list does not itself carry.
+                foreach (string key in _legacyPlayerPrefsKeys)
+                {
+                    PlayerPrefs.DeleteKey(key);
+                    PlayerPrefs.DeleteKey(key + ".migrated");
+                }
+                PlayerPrefs.Save();
+                _legacyPlayerPrefsKeys.Clear();
+            }
+        }
+
+        // A fresh temp root and a GUID-bearing legacy PlayerPrefs key, per call - never the
+        // developer's real Application.persistentDataPath or real
+        // "ResourceBankSaveData_CurrencyType" entry. Both are recorded and cleaned up in TearDown
+        // even if the test that requested them fails.
+        private (SaveFactoryInputs inputs, string legacyKey) IsolatedCurrencyOverrides()
+        {
+            string root = Path.Combine(Path.GetTempPath(), "ChestGameSaveTests_" + Guid.NewGuid().ToString("N"));
+            _tempSaveRoots.Add(root);
+
+            string legacyKey = "ChestGameSaveTests.Legacy." + Guid.NewGuid().ToString("N");
+            _legacyPlayerPrefsKeys.Add(legacyKey);
+
+            return (SaveFactoryInputs.Defaults(root), legacyKey);
         }
 
         [Test]
@@ -82,8 +134,15 @@ namespace Company.ChestGame.Tests.EditMode
         public void EveryEngineFacingSeam_HasAProductionImplementation()
         {
             // The seams exist so tests can substitute them; the real game still has to get real
-            // ones.
-            using IObjectResolver container = _builder.Build();
+            // ones. Resolves the currency save handler, which construction alone does not touch
+            // disk or PlayerPrefs for - isolated anyway, both because that safety fact is not this
+            // test's to rely on and to stay consistent with every other test here that resolves any
+            // of the three currency-composition types.
+            ContainerBuilder builder = new();
+            (SaveFactoryInputs inputs, string legacyKey) = IsolatedCurrencyOverrides();
+            GameLifetimeScope.RegisterCoreServices(builder, currencySaveInputs: inputs, legacyCurrencyPlayerPrefsKey: legacyKey);
+
+            using IObjectResolver container = builder.Build();
 
             Assert.IsInstanceOf<UnityRandomProvider>(container.Resolve<IRandomProvider>());
             Assert.IsInstanceOf<UnityGameClock>(container.Resolve<IGameClock>());
@@ -92,7 +151,7 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.IsInstanceOf<AddressablesMinigameListSource>(container.Resolve<IMinigameListSource>());
             Assert.IsInstanceOf<AddressablesPopupListSource>(container.Resolve<IPopupListSource>());
             Assert.IsInstanceOf<AddressablesPopupParentSource>(container.Resolve<IPopupParentSource>());
-            Assert.IsInstanceOf<DefaultResourceBankSaveHandle<CurrencyType>>(
+            Assert.IsInstanceOf<CurrencyResourceBankSaveHandle>(
                 container.Resolve<IResourceBankSaveHandler<CurrencyType>>());
         }
 
@@ -100,12 +159,44 @@ namespace Company.ChestGame.Tests.EditMode
         public void CurrencyManager_ResolvesWithTheRegisteredSaveHandler()
         {
             // CurrencyManager takes its save handler as its only constructor argument, so this
-            // fails outright if the scope stops registering one.
-            using IObjectResolver container = _builder.Build();
+            // fails outright if the scope stops registering one. Isolated: without
+            // currencySaveInputs/legacyCurrencyPlayerPrefsKey, resolving ICurrencyManager performs
+            // the real legacy import against the developer's actual Application.persistentDataPath
+            // and real PlayerPrefs entry - see docs/saving.md, "Redirecting this composition away
+            // from a developer's real save".
+            ContainerBuilder builder = new();
+            (SaveFactoryInputs inputs, string legacyKey) = IsolatedCurrencyOverrides();
+            GameLifetimeScope.RegisterCoreServices(builder, currencySaveInputs: inputs, legacyCurrencyPlayerPrefsKey: legacyKey);
 
-            // No assertion on balances: a container-built CurrencyManager reads the real
-            // PlayerPrefs save, whose contents belong to whoever is running the tests.
-            Assert.IsInstanceOf<CurrencyManager>(container.Resolve<ICurrencyManager>());
+            using IObjectResolver container = builder.Build();
+
+            ICurrencyManager currencyManager = container.Resolve<ICurrencyManager>();
+
+            Assert.IsInstanceOf<CurrencyManager>(currencyManager);
+            // Nothing was ever seeded under the isolated GUID legacy key, so a freshly resolved
+            // manager reads as a genuine first run rather than carrying over anything real.
+            Assert.AreEqual(0, currencyManager.GetCurrencyAmount(CurrencyType.Coins));
+            Assert.AreEqual(0, currencyManager.GetCurrencyAmount(CurrencyType.Gems));
+        }
+
+        [Test]
+        public void CurrencySaveScheduler_ResolvesWithoutThrowing_AndCanFlushBlocking()
+        {
+            // RegisterCoreServices asserts SchedulerCannotFlushBlocking itself, at the moment this
+            // type is resolved - see docs/saving.md, "What ships, and where the composition asserts
+            // its own constraints". This pins that the real composition never trips that guard
+            // today; if a future change ever wraps the currency store in a ThreadHoppingStore, this
+            // resolve starts throwing instead of silently shipping a scheduler that would fail the
+            // first real OnApplicationPause/OnApplicationQuit on a device.
+            ContainerBuilder builder = new();
+            (SaveFactoryInputs inputs, string legacyKey) = IsolatedCurrencyOverrides();
+            GameLifetimeScope.RegisterCoreServices(builder, currencySaveInputs: inputs, legacyCurrencyPlayerPrefsKey: legacyKey);
+
+            using IObjectResolver container = builder.Build();
+
+            SaveScheduler<CurrencySaveDocument> scheduler = null;
+            Assert.DoesNotThrow(() => scheduler = container.Resolve<SaveScheduler<CurrencySaveDocument>>());
+            Assert.IsTrue(scheduler.CanFlushBlocking);
         }
 
         [Test]
@@ -169,10 +260,17 @@ namespace Company.ChestGame.Tests.EditMode
         {
             // The three services whose constructors reach outside themselves: PopupManager needs a
             // catalog and a parent provider, MinigameManager needs a catalog and the resolver,
-            // RewardsManager reaches across both halves.
-            GameLifetimeScope.RegisterLoadedServices(_builder, ContentWithAStubParentPrefab());
+            // RewardsManager reaches across both halves - including ICurrencyManager, which is why
+            // this needs its own isolated registration rather than the bare one from SetUp: without
+            // an override, resolving RewardsManager here would transitively resolve
+            // ICurrencyManager and perform the real legacy import against the developer's actual
+            // save location.
+            ContainerBuilder builder = new();
+            (SaveFactoryInputs inputs, string legacyKey) = IsolatedCurrencyOverrides();
+            GameLifetimeScope.RegisterCoreServices(builder, currencySaveInputs: inputs, legacyCurrencyPlayerPrefsKey: legacyKey);
+            GameLifetimeScope.RegisterLoadedServices(builder, ContentWithAStubParentPrefab());
 
-            using IObjectResolver container = _builder.Build();
+            using IObjectResolver container = builder.Build();
 
             Assert.IsInstanceOf<PopupManager>(container.Resolve<IPopupManager>());
             Assert.IsInstanceOf<MinigameManager>(container.Resolve<IMinigameManager>());
@@ -215,7 +313,7 @@ namespace Company.ChestGame.Tests.EditMode
         }
 
         private static int LivePopupParents() =>
-            Object.FindObjectsByType<PopupParent>(FindObjectsSortMode.None).Length;
+            UnityEngine.Object.FindObjectsByType<PopupParent>(FindObjectsSortMode.None).Length;
 
         private LoadedContent ContentWithAStubParentPrefab()
         {

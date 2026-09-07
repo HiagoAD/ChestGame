@@ -2,11 +2,15 @@
 
 `Company.ChestGame.Saving` persists arbitrary state behind one seam, `ISaveService`. So far: three
 JSON codecs, five protectors, a versioned envelope, four stores (`File`, `AtomicFile`, `PlayerPrefs`,
-`InMemory`), the three selection enums, an authoring profile, a profile validator, the factory that
-turns a profile into a working `ISaveService`, a migration chain, the seam a pre-envelope legacy
-import plugs into, a store decorator that hops encoded, protected bytes onto a worker thread and back
+`InMemory`), the three selection enums, an authoring profile, a profile validator, the enum-to-type
+mapping (`SaveComponentFactory`), the environment and key material that mapping needs
+(`SaveFactoryInputs`), the thin convenience that assembles the two into a working, undecorated
+`ISaveService` (`SaveServiceFactory`), a migration chain, the seam a pre-envelope legacy import plugs
+into, a store decorator that hops encoded, protected bytes onto a worker thread and back
 (`ThreadHoppingStore`), and a write-coalescing scheduler (`SaveScheduler<T>`) built on top of
-`ISaveService` rather than inside it. Nothing in the game references this assembly yet.
+`ISaveService` rather than inside it. Phase 6b is the first real caller: `Company.ChestGame.Currency`
+references this assembly to persist Coins and Gems through it — see "Currency: the first real caller"
+below.
 
 ## The shape, and what it copies
 
@@ -21,8 +25,9 @@ So the seam splits three ways and composition replaces selection:
 state -> ISaveCodec -> IPayloadProtector -> ISaveStore -> disk
 ```
 
-`SaveService` is the composition. `SaveServiceFactory` picks the three from an authored
-`SaveProfileSO` and does not change the contract; see the sections below.
+`SaveService` is the composition. `SaveComponentFactory` picks the three from an authored
+`SaveProfileSO`, and `SaveServiceFactory` assembles them into a working service, without either
+changing the contract; see the sections below.
 
 ## The envelope
 
@@ -344,11 +349,12 @@ influence, which a save file on a player's device is.
 Every protector past `NoProtection` reports `IsTextSafe` as false — none of the four emits valid
 JSON, so a protected body always travels the envelope's base64 path (see "`IsTextSafe` means valid
 JSON" above). Each takes its key material as a constructor argument, the same reasoning
-`FileStore`'s root and `PlayerPrefsStore`'s prefix follow: a test supplies its own and never touches
-whatever the factory would otherwise default to. `SaveServiceFactory` supplies a fixed default key
-per protector when it builds one from a `SaveProfileSO`; a test wanting a specific key constructs the
-protector directly instead of going through the factory, since nothing about `Create` or `CreateFrom`
-needs to expose key material the way `playerPrefsKeyPrefix` exposes a namespace.
+`FileStore`'s root and `PlayerPrefsStore`'s prefix follow: a caller supplies its own and never
+touches whatever a default would otherwise resolve to. `SaveFactoryInputs.Defaults()` supplies a
+fixed default key per keyed protector — see "`SaveComponentFactory`, `SaveFactoryInputs` and
+`SaveServiceFactory`" below for exactly what those defaults are and are not; a test wanting a
+specific key builds its own `SaveFactoryInputs` or constructs the protector directly, either way
+without touching `SaveComponentFactory`'s defaults.
 
 **The key ships in the binary either way, and that is a real limit, not an oversight.** Nothing under
 `IPayloadProtector` defends a save against the one machine that already has the game installed on it
@@ -566,7 +572,7 @@ is not only a test double — an editor mode that must never touch the real save
 ## The three selection enums are append-only
 
 `SaveStorage`, `SaveCodec` and `SaveProtection` are what `SaveProfileSO` serializes and
-`SaveServiceFactory` reads back. All three are append-only for the reason `PoolStrategy` documents:
+`SaveComponentFactory` reads back. All three are append-only for the reason `PoolStrategy` documents:
 a `ScriptableObject` field backed by an enum is serialized by its numeric index, not its name, so
 inserting a member in the middle silently repoints every already-authored profile at a different
 backend, codec or protector the next time it loads — silently, because the field still holds a valid
@@ -575,43 +581,124 @@ goes on the end of whichever enum it belongs to — phase 3 appended `JsonPretty
 `SaveCodec` and `Base64`, `Xor`, `Hmac` and `Aes` to `SaveProtection`, in that order, after the
 member each enum already had.
 
-## `SaveServiceFactory`, and why every switch has a working default arm
+## `SaveComponentFactory`, `SaveFactoryInputs` and `SaveServiceFactory`
 
-The one place that turns a `SaveProfileSO`, or a bare `(SaveStorage, SaveCodec, SaveProtection)`
-triple, into an `ISaveService` — static and stateless, like `PoolFactory` and `CatalogBuilder`. A
-null or destroyed profile throws `SaveException.NoProfile()` — checked with `== null`, not `is
-null`, because a destroyed `SaveProfileSO` is Unity-null rather than C#-null and only the overloaded
-operator catches that.
+Through phase 5, one type — `SaveServiceFactory` — did five different jobs: map each enum member to
+a concrete component; assemble the three into a `SaveService`; supply a default file root and
+PlayerPrefs prefix; hold the default XOR, HMAC and AES keys as static fields; and implicitly decide
+that no decorator and no scheduler ever participate. Only the first of those is genuinely a factory's
+job. Phase 6a splits the other four out, before phase 6b's adapter has to decide where its own
+pieces — a `SaveMigrator`, an `ILegacyImport`, a `ThreadHoppingStore`, a `SaveScheduler<T>` — plug in.
+Deciding that boundary after the adapter exists would mean rewriting the adapter around whatever the
+boundary turned out to be; this phase is a pure boundary move, not a redesign — the same triple still
+produces the same component types, the same defaults, and the same round-trip behaviour as before.
 
-Every one of its three internal switches has a working `_ =>` arm rather than a `throw`, for the
-same reason `PoolFactory.Create`'s does: the enum it switches on is a serialized field, which can
-legally hold a member this build's switch has never heard of — an older build's profile, read after
-a newer build added a storage backend, say — and refusing to produce a save service at all is a
-worse failure than falling back to a working default. `File`, `Json` and `None` are each that
-default, which is also why each sits first in its own enum: index 0 is where a freshly serialized
-field lands before anyone has touched the dropdown, so the member a missing case falls back to and
-the member a new field starts on are the same one.
+**`SaveFactoryInputs`** is an explicit inputs type carrying everything the three selection enums
+cannot: the file root, the PlayerPrefs key prefix, and the key material `XorObfuscator`,
+`HmacSignedProtector` and `AesProtector` each need before they can run at all. It is a plain
+instance — a caller can build one directly, or call `SaveFactoryInputs.Defaults(rootDirectory,
+playerPrefsKeyPrefix)`, which produces exactly today's values: `FileStore.DefaultRootDirectory()`
+and `"save."` for whichever of the two optional arguments is left null, and the same three
+default keys this assembly has always shipped. **No static field anywhere in this assembly holds
+key material any more** — `Defaults()` is a method that builds fresh byte arrays on every call, not
+a cached constant, so nothing about moving this type out of `SaveServiceFactory` changed where those
+bytes came from or how long they live.
 
-`CreateCodec` and `CreateProtector` listed `SaveCodec.Json` and `SaveProtection.None` as explicit arms
-*alongside* the discard from the start, back when each enum had only that one member and the discard
-alone would have returned the same thing. That was deliberate rather than premature: an enum with one
-member makes the redundancy easy to "clean up" into just the discard, which is exactly the shape of
-the mistake `PoolFactory.Create` warns about — skip the arm for a new member and the switch still
-compiles, quietly keeping every profile on `JsonCodec` or `NoProtection` regardless of what its
-dropdown says. Phase 3 is the proof the arm was worth keeping: `JsonPretty`, `JsonGzip`, `Base64`,
-`Xor`, `Hmac` and `Aes` each landed as their own case, not folded into the discard, so nothing about
-adding them required restructuring either switch. `SaveService`'s codec/protector id check on load —
-see "Loading, and the three ways a version goes wrong" — is a second line of defence if a case is ever
-missed anyway, since a save written by one codec and loaded through another fails as
-`UnexpectedComponent` rather than silently decoding garbage. That check does not make the explicit
-arm optional; it is what keeps a missing arm from being *invisible* rather than what makes it safe.
+Say plainly what those three default keys are, rather than let three constants that happen to
+compile look like considered key material: each is its own name, UTF-8 encoded —
+`"Company.ChestGame.Saving.DefaultXorKey"` and so on. That is a fine default for a showcase with no
+key-management story to demonstrate, and it is exactly as strong as "the key ships in the binary
+either way" already concedes above — nothing about *where* the bytes come from changes what they
+buy. A real game ships a key generated for that build and baked in at build time, not typed into
+source control, and — for whichever protector is meant to resist more than a curious player poking
+at their own file — issues or derives that key per install rather than sharing one key across every
+copy of the binary. Neither of those is built here; both are a sentence, not a mechanism, because
+nothing about this phase's scope calls for one.
+
+**`SaveComponentFactory`** is the part that must stay a factory, because no DI container can read a
+serialized enum's numeric value at runtime and pick a type for it the way it can for something
+registered by interface. It is the genuine job the old `SaveServiceFactory` also did, isolated: one
+focused entry point per axis — `CreateStore(SaveStorage, SaveFactoryInputs)`,
+`CreateCodec(SaveCodec)`, `CreateProtector(SaveProtection, SaveFactoryInputs)` — each taking
+`SaveFactoryInputs` only where it actually needs environment or key material, which is why
+`CreateCodec` does not take one at all. The `SharedInMemoryStore` field that makes
+`SaveStorage.InMemory` behave like the other three process-global backends instead of like a fresh
+scratchpad on every call lives here now, unchanged in every other respect from how it lived in
+`SaveServiceFactory` before this phase — it is a store, not key material, so it is not what "no
+static field may hold key material" is about.
+
+`CreateStore` and `CreateProtector` both refuse a null `inputs` outright — `SaveException.
+NoFactoryInputs()` — rather than let it surface as a `NullReferenceException` the moment an arm
+below dereferences it. `PoolFactory.Create`'s own missing-prefab case is not a precedent for leaving
+this unguarded: that guard exists too, one level deeper, inside the pool constructor `Create` hands
+the prefab to. There is no deeper level here — `FileStore`, `PlayerPrefsStore`, `XorObfuscator` and
+the rest never see `inputs` itself, only the one field this method already read out of it — so the
+guard belongs here or nowhere. This is the eighth instance of a shape this assembly already guards
+seven other times (`NoStore`, `NoSaveService`, `NoClock`, `NoProfile`, `NoRootDirectory`,
+`NoKeyPrefix`, `NoProtectorKey`), not a new one, and it matters most exactly where it is least
+exercised by a test: 6b's composition root is `SaveComponentFactory`'s first real caller outside
+`SaveServiceFactory`'s own defaulting, assembling by hand and therefore the first place a null can
+actually reach it.
+
+Every one of its three switches keeps a working `_ =>` arm rather than a `throw`, for the same
+reason `PoolFactory.Create`'s does: the enum it switches on is a serialized field, which can legally
+hold a member this build's switch has never heard of — an older build's profile, read after a newer
+build added a storage backend, say — and refusing to produce a component at all is a worse failure
+than falling back to a working default. `File`, `Json` and `None` are each that default, which is
+also why each sits first in its own enum: index 0 is where a freshly serialized field lands before
+anyone has touched the dropdown, so the member a missing case falls back to and the member a new
+field starts on are the same one. `CreateCodec` and `CreateProtector` list `SaveCodec.Json` and
+`SaveProtection.None` as explicit arms *alongside* the discard for the reason given when phase 3
+first added a second member to each enum: an enum with only one member makes the redundancy easy to
+"clean up" into just the discard, which is exactly the shape of the mistake `PoolFactory.Create`
+warns about — skip the arm for a new member and the switch still compiles, quietly keeping every
+profile on `JsonCodec` or `NoProtection` regardless of what its dropdown says. `SaveService`'s
+codec/protector id check on load — see "Loading, and the three ways a version goes wrong" — is a
+second line of defence if a case is ever missed anyway, since a save written by one codec and loaded
+through another fails as `UnexpectedComponent` rather than silently decoding garbage. That check
+does not make the explicit arm optional; it is what keeps a missing arm from being *invisible*
+rather than what makes it safe.
+
+**`SaveServiceFactory`** is what remains: a thin assembly convenience that turns a `SaveProfileSO`,
+or a bare `(SaveStorage, SaveCodec, SaveProtection)` triple, into a plain, undecorated `SaveService`,
+by handing each enum to `SaveComponentFactory` and composing the three results — static and
+stateless, like `PoolFactory` and `CatalogBuilder`. `Create`'s null-or-destroyed-profile check is
+unchanged: `SaveException.NoProfile()`, checked with `== null` rather than `is null`, because a
+destroyed `SaveProfileSO` is Unity-null rather than C#-null and only the overloaded operator catches
+that. `Create` and `CreateFrom` both take an optional `SaveFactoryInputs`, defaulting to
+`SaveFactoryInputs.Defaults()` when left null, so a caller that does not care about the file root,
+the PlayerPrefs prefix, or any protector's key keeps getting exactly what it always got.
+
+**The ceiling is stated as a rule, not left to be inferred from what this type happens not to take
+yet: `SaveServiceFactory` will never grow a parameter for a `SaveMigrator`, an `ILegacyImport`, a
+`ThreadHoppingStore`, or a `SaveScheduler<T>`.** Which store a scheduler is safe to call
+`FlushBlocking` on, whether this game even has a legacy save to import, whether the frame cost of
+encoding is worth trading for a worker-thread hop — none of that is answerable from a profile's
+three dropdowns, and every one of them is a composition-root decision, not a factory's. Folding them
+in here would regrow the five-job factory this phase just split apart, one "just this one extra
+parameter" at a time. A caller that needs any of them — phase 6b's adapter, and whatever registers a
+`SaveScheduler<T>` in a `GameLifetimeScope` after it — composes a `SaveService` by hand from
+`SaveComponentFactory.CreateStore`/`CreateCodec`/`CreateProtector` instead of going through
+`SaveServiceFactory`, the same way a 24-call-site test suite still goes through `SaveServiceFactory`
+for the common case of "just give me a working, undecorated service."
+
+This is exactly `PoolFactory`'s own boundary, drawn a second time. `PoolFactory.Create` maps a
+`PoolStrategy` to a pool and nothing more — it does not know a screen exists, does not decide where
+the holder it builds gets parented beyond the `Transform` its caller already handed it, and does not
+assemble anything past the one pool it was asked for. `ChestsMinigameView` is what builds the screen
+the pool lives in, exactly as phase 6b's adapter — not this assembly — is what will build the graph
+a `SaveScheduler<T>` lives in. `SaveComponentFactory` is `PoolFactory.Create`'s counterpart; the
+assembly convenience `SaveServiceFactory` still offers is closer to what `PoolFactory` deliberately
+does *not* also provide — a one-call assembly of "the pool plus the screen it sits in" — because
+`SaveService` under a profile's three dropdowns is common enough, and cheap enough to keep undecorated,
+that this assembly can afford the one thin convenience `Pooling` never needed.
 
 `SaveStorage.PlayerPrefs` needs a key prefix that `SaveProfileSO` has no field for, because nothing
-in this assembly is allowed to know a concrete game key. `Create` and `CreateFrom` both take a
-`playerPrefsKeyPrefix` parameter alongside `rootDirectory`, defaulting to a fixed prefix the same
-way a null `rootDirectory` defaults to `FileStore.DefaultRootDirectory()` — for the same reason:
-a test pointing a `File`-backed profile at a throwaway directory but leaving `PlayerPrefs` on the
-default prefix would still be writing into the developer's real editor prefs.
+in this assembly is allowed to know a concrete game key. That prefix, and the file root
+`SaveStorage.File`/`AtomicFile` need, both now live on `SaveFactoryInputs` rather than as loose
+parameters on `Create`/`CreateFrom` directly — the reasoning for redirecting either away from the
+developer's real save directory or real editor prefs in a test has not changed, only where the
+values that do the redirecting are carried.
 
 ### What adding a storage backend takes
 
@@ -623,13 +710,14 @@ In the shape the pool strategy list in `docs/design-decisions.md` uses.
 2. Add the enum member to `SaveStorage`, **appending it after `InMemory`**. The values are serialized
    by index, so inserting in the middle silently repoints every authored `SaveProfileSO` at a
    different backend.
-3. Add the arm to `SaveServiceFactory.CreateStore`. Skipping this compiles cleanly and quietly hands
-   back a `FileStore`.
+3. Add the arm to `SaveComponentFactory.CreateStore`. Skipping this compiles cleanly and quietly
+   hands back a `FileStore`.
 4. If the constructor needs something beyond a root directory — a key prefix, a bucket name,
-   whatever the backend calls its namespace — decide where the factory gets it. `playerPrefsKeyPrefix`
-   is the precedent: a same-shaped optional parameter on both `Create` and `CreateFrom`, defaulting
-   to a fixed value, so a test can redirect it exactly as it redirects `rootDirectory` rather than
-   being stuck writing into whatever the default actually points at.
+   whatever the backend calls its namespace — decide where it comes from. `PlayerPrefsKeyPrefix` is
+   the precedent: a property on `SaveFactoryInputs`, filled with a fixed default by
+   `SaveFactoryInputs.Defaults()` unless a caller overrides it, so a test can redirect it exactly as
+   it redirects `RootDirectory` rather than being stuck writing into whatever the default actually
+   points at.
 
 Nothing in `ISaveStore`, `SaveService` or `SaveException` needs to change: `SaveService` composes
 whatever `ISaveStore` it is handed, and a new backend reports its own storage failures through
@@ -808,6 +896,32 @@ overwrites it rather than queuing a history of them — is what gets saved. That
 "coalescing" means here: many calls, one window, one write, carrying the newest state rather than the
 first or an average of them.
 
+### A frozen clock is a frozen save
+
+The countdown `MarkDirty` starts is `IGameClock.Delay`, and `UnityGameClock` — the only implementation
+this game registers — binds `UniTask.Delay`'s default `ignoreTimeScale: false`, the same choice its own
+header already documents for a different reason: "pausing the game pauses any chest mid-open." That
+reasoning is exactly backwards for anything built on `SaveScheduler<T>`. A chest mid-open freezing when
+`Time.timeScale` hits zero is the intended behaviour a pause menu wants. A save silently refusing to
+reach disk until whatever set `Time.timeScale` to zero sets it back is not: `MarkDirty` still records
+what changed the instant it is called, but the window that turns that record into a real `SaveAsync`
+call never elapses while the scale stays at zero, so currency (and anything else a future phase builds
+on `SaveScheduler<T>`) stops persisting for as long as the game is paused that way. `FlushBlocking` from
+`OnApplicationPause`/`OnApplicationQuit` is unaffected — it never waits on the clock at all, see
+"`FlushBlocking`, and why it cannot deadlock" below — so this is a smaller trap than it could have been:
+only the *organic* coalescing window is scale-dependent, not the two callbacks this phase actually
+built to close the durability gap on suspend and quit.
+
+Nothing in this game sets `Time.timeScale` today, so this is latent rather than live — written down
+here, and on `UnityGameClock` itself, for whichever future phase adds a pause menu and reaches for the
+obvious `Time.timeScale = 0f` without first checking what else in the codebase already listens to it.
+The fix, when one is needed, is not to this file: either give `SaveScheduler<T>` its own
+`IGameClock` that ignores time scale (a real-time-only clock distinct from `UnityGameClock`, the same
+way `ElapsedMilliseconds` on this type already reads real time rather than scaled time for a frame
+budget's own sake), or accept that a paused save is a bounded, resumed-on-unpause delay rather than a
+lost one and document that trade-off explicitly wherever the pause menu itself gets built. Nothing
+about this phase needs to pick between them, because nothing about this phase can trigger the trap.
+
 ### One write in flight
 
 A window elapsing while a previous flush is still running (a real `SaveAsync` call in flight, tracked
@@ -828,13 +942,50 @@ A write that fails is not treated as if it had succeeded: `RunFlushLoopAsync` re
 just failed back into `_pending` — unless something newer already arrived while it was in flight, which
 wins over resurrecting the stale one — and schedules a fresh window to retry automatically, rather than
 stranding the failure until an unrelated `MarkDirty` call happens to arrive later. A `SaveException`
-from a genuinely broken store (a full disk, a revoked permission) still surfaces to whoever is awaiting
-`FlushAsync` at the time; nothing here hides a real failure, it only makes sure the *data* that failed
-to save is not silently dropped on the floor because the retry that would have picked it up was never
-given anything to notice. If the underlying cause does not go away — a disk that stays full stays
-full — this repeats once per coalescing window rather than spinning: each retry is exactly one more
-`SaveAsync` call, gated by the same throttle as any other write, never a tight loop hammering a store
-that is already failing.
+from a genuinely broken store (a full disk, a revoked permission) surfaces to whoever is awaiting
+`FlushAsync` at the time, and is also logged directly — see "A failed write now says so" below for why
+the second half of that sentence had to be added — so the *data* that failed to save is not silently
+dropped on the floor because the retry that would have picked it up was never given anything to notice,
+and the failure itself is not silently dropped on the floor either, whether or not anyone happened to be
+awaiting it. If the underlying cause does not go away — a disk that stays full stays full — this repeats
+once per coalescing window rather than spinning: each retry is exactly one more `SaveAsync` call, gated
+by the same throttle as any other write, never a tight loop hammering a store that is already failing.
+
+### A failed write now says so
+
+`MarkDirty` is the only caller most of this class ever has in this codebase — `CurrencyResourceBankSaveHandle.Save`
+calls it and nothing ever awaits the result, because `Save()` cannot be `async` and still satisfy
+`IResourceBankSaveHandler<T>` — so the organic path through `RunFlushLoopAsync`, the one a coalescing
+window elapsing on its own takes, had nobody positioned to observe a failure at all. Before this was
+fixed, an exception there reached `completion.TrySetException`, passed through
+`WaitThenFlushAsync`'s `.SuppressCancellationThrow()` unchanged (that method only suppresses
+`OperationCanceledException`, on purpose — see "`FlushBlocking`, and why it cannot deadlock" for the
+same distinction applied to a different exception), and escaped the `.Forget()`-ed `UniTaskVoid` this
+runs inside of to `UniTaskScheduler`'s own unobserved-exception handler. That handler does log it — so
+this was never a fully silent failure — but with no key, no indication a *save* is what failed, and
+nothing to connect it to `CurrencyResourceBankSaveHandle` at all: indistinguishable, in a device log,
+from any other unrelated unobserved exception anywhere in the process. `AtomicFileStore` is what makes
+this reachable in a way `PlayerPrefs` never practically was for this game — a full disk or a revoked
+permission are real `IOException`s a file store reports, where `PlayerPrefs.SetString` essentially
+never fails in practice — and the fix is one `Debug.LogError` inside `RunFlushLoopAsync`'s own catch,
+naming the key and the exception's message, before `completion.TrySetException` runs. `FlushBlocking`
+and `Dispose` already attributed their own failures at their own call sites before this; this closes
+the one path that had not.
+
+Logged unconditionally, not only when nothing else is watching: a caller that does use `FlushAsync` and
+also logs its own catch now sees one duplicate line rather than this class trying to guess whether it is
+the only one about to report the failure. A duplicate log line is the direction to err in over a
+caller that logs nothing and neither did this class.
+
+**Retried at the same fixed `coalesceWindowMilliseconds` rather than backing off — a deliberate choice,
+not an oversight left for later.** A persistent failure (a disk that stays full) now retries, and now
+logs, once per window, forever, at the same rate every other retry in this class already runs at.
+Backing off would mean `MarkDirty`'s own contract — one write per `coalesceWindowMilliseconds` — started
+meaning two different intervals depending on history a caller has no way to observe, the exact ambiguity
+"Write coalescing, and why it cannot live inside `SaveAsync`" above already refuses to let a value's
+own meaning silently carry. What actually mattered here — a persistent failure being loud rather than
+silent — is what the logging fix above buys; a slower retry does not make a failure any louder, only
+slower to notice once it is.
 
 ### `FlushBlocking`, and why it cannot deadlock
 
@@ -938,11 +1089,355 @@ project's own generated `.csproj` files — the same check phases 1 through 4 re
 scratch harness above. That check is what a plain-`Task` port of the algorithm cannot do: it answers
 "does this assembly build", not "is the algorithm right", and both matter.
 
+## Currency: the first real caller
+
+Phase 6b's scope is deliberately narrow: persist exactly what `DefaultResourceBankSaveHandle<T>`
+already persisted — Coins and Gems, nothing else — through this assembly's pipeline instead of
+straight into `PlayerPrefs`. The wider save model, chests progress, and the phase 8 demo panel are
+phase 7. What follows is `Company.ChestGame.Currency`'s own adapter, living there rather than here
+because it is the one place allowed to know both `CurrencyType` and `ISaveService` — nothing under
+`Company.ChestGame.Saving` may know either.
+
+### `IResourceBankSaveHandler<T>` is fully synchronous; `ISaveService` is not
+
+`ResourceBank<T>` calls `Load()` once from its own constructor and `Save()` from inside both
+`TryAddResourceAmount` and `TryToSpendResource` — both plain, non-`async` methods returning a value
+or `void`, not a `UniTask`. Neither may block on work that genuinely needs to leave the calling
+thread, for the same reason `SaveScheduler<T>.FlushBlocking` refuses to: blocking the one thread that
+would have to service its own continuation is a deadlock, not a slow path. The two directions are
+resolved differently, because the two problems are not the same shape.
+
+**`Save()` never blocks.** `CurrencyResourceBankSaveHandle.Save` hands the state straight to a
+`SaveScheduler<CurrencySaveDocument>` via `MarkDirty` and returns immediately — see "Write coalescing"
+above for what that buys generally. What it costs specifically for currency: if the process dies
+inside the coalescing window (up to `DefaultCoalesceWindowMilliseconds`, 1 second), whatever changed
+since the last flush is lost. That window is bounded rather than open-ended for two reasons together,
+not one: `MarkDirty` throttles rather than debounces, so a burst of adds during an active minigame
+still flushes at most one second after the first of them, never later; and `GameLifetimeScope` force-
+flushes the scheduler from both `OnApplicationPause(true)` and `OnApplicationQuit()` — see "What ships,
+and where the composition asserts its own constraints" below — which is what closes the window at
+exactly the two points mobile and desktop each guarantee the process is still willing to run code at
+all. Between those two, the only genuinely open loss window is a hard kill (an OS out-of-memory kill,
+a crash, a pulled battery) inside one second of a save that has not yet flushed — the same bound this
+assembly's own docs already accept for `SaveScheduler<T>` in general, not a new one currency invented.
+
+**`Load()` blocks, once, on the calling thread — the harder direction, because there is no honest way
+to return a `ResourceBankState<T>` from a method with that exact signature without either already
+having the value or waiting for it.** Two resolutions were on the table. The first: block only where
+`ISaveService.CompletesOnCallingThread` guarantees the wait is not really a wait — the task is already
+finished by the time `LoadAsync` returns, because nothing in the composition ever hops off the calling
+thread, so `GetAwaiter().GetResult()` reads out a recorded outcome rather than waiting for one. The
+second: pre-load during boot, before `CurrencyManager` is ever constructed, and have `Load()` hand back
+whatever was already fetched. This phase picks the first. The second would need an async boot step
+ahead of `GameLifetimeScope.RegisterCoreServices` — which is registration, not resolution, and runs
+before anything is built — restructuring where in boot `ICurrencyManager` can first be resolved, for a
+composition that (see below) is already forced to be non-hopping for `FlushBlocking`'s own sake. Paying
+the same restriction twice to buy a second implementation of the thing the first already gives for
+free was not worth the restructuring.
+
+**What blocking costs: `CurrencyResourceBankSaveHandle`'s constructor refuses any `ISaveService` whose
+`CompletesOnCallingThread` answers false — structurally, not by a comment.** A `ThreadHoppingStore`-
+backed composition cannot satisfy this handler's contract at all: `Load()` would either have to block
+the very thread that would need to run to finish the hop (a deadlock, exactly the one
+`SaveScheduler<T>.FlushBlocking` already refuses to risk) or return before the real load finished (a
+lie the vendored `ResourceBank<T>` has no way to detect, since its `Load()` contract has no concept of
+"not yet"). So the constructor throws `SaveException.SynchronousLoadNeedsNonHoppingStore()` immediately
+rather than shipping a composition that would only discover this the first time a player's load
+actually raced the hop. **What this forbids, in full: nothing that ever backs `CurrencyResourceBankSaveHandle`
+may be wrapped in `ThreadHoppingStore`, ever — not "should not," refused outright at the moment the
+handler is constructed.** A future phase wanting the frame-cost relief `ThreadHoppingStore` buys for
+currency specifically would have to move to the second resolution (pre-load at boot) instead, not add
+the wrapper to this composition.
+
+### The save-then-notify ordering no longer means what it used to
+
+`ResourceBank<T>` — vendored, untouched — calls `Save()` and invokes its own callback in a different
+order for each method: `TryAddResourceAmount` invokes `ResourceCollected`/`ResourceAmountChanged`
+*before* calling `Save()`; `TryToSpendResource` calls `Save()` *before* invoking
+`ResourceSpent`/`ResourceAmountChanged`. That call order is exactly what it always was — pinned now,
+by `CurrencyResourceBankSaveHandleTests`, where it never was before — because nothing about this phase
+touches the vendored library. What changed is what being on either side of that order *means*.
+
+Before this phase, `Save()` was `DefaultResourceBankSaveHandle.Save`, synchronous `PlayerPrefs.SetString`
+I/O that had already happened by the time the call returned. That made the two methods genuinely
+asymmetric to an observer: a `ResourceSpent` handler could assume the new balance was already durable,
+because `TryToSpendResource` only fires it after `Save()` returns; a `ResourceCollected` handler could
+not, because `TryAddResourceAmount` fires it first. Now `Save()` is `CurrencyResourceBankSaveHandle.Save`,
+which calls `SaveScheduler<CurrencySaveDocument>.MarkDirty` and returns immediately having persisted
+nothing at all — see "`Save()` never blocks" above. Being called before or after a callback no longer
+correlates with durability, because neither position was ever durable to begin with: `MarkDirty` only
+guarantees a write will happen within the current coalescing window, or at the next pause/quit flush,
+not that one already has.
+
+**What an observer can still conclude from either callback, and what it never could:** the in-memory
+balance `GetCurrencyAmount` reports is already the new one, in both methods, because `ResourceBank<T>`
+mutates its dictionary before calling either `Save()` or the callback — that part was never in question
+and is not what changed. **What it can no longer distinguish, and only appeared to be able to before:**
+whether that balance has reached disk yet. It never actually could reach that conclusion safely even
+under the old ordering — a crash between `TryToSpendResource`'s `Save()` and its callback was already a
+narrow enough window nothing exercised it — but the appearance of a guarantee is itself worth retracting
+in writing rather than leaving an observer to infer one from call order that no longer supports it. This
+is a deliberate, intentional consequence of write coalescing existing at all: restoring the old ordering
+would mean making `Save()` synchronous again, which is the entire property this phase exists to remove.
+Nothing about `CurrencyManager`'s own public events changed - what changed is what a subscriber is
+entitled to assume from them, and this paragraph is that retraction made explicit rather than left to be
+discovered by whoever eventually needs the guarantee that no longer holds.
+
+### `CurrencySaveDocument`, and a `new()` constraint the vendored model cannot satisfy
+
+`ISaveService.LoadAsync<T>` (and `SaveService`'s own legacy-import path) both require
+`T : class, new()`. `ResourceBankState<T>`'s only constructor is
+`ResourceBankState(Dictionary<T, long> resourceAmount = null)` — a constructor with a default
+argument, which is a genuine `CS0310` the moment it is asked to stand in for that `T`: a constructor
+with an optional parameter is not a parameterless constructor as far as the `new()` constraint is
+concerned, confirmed against a real compile rather than assumed while this phase was built.
+`ResourceBank<T>` is vendored and not to be touched, so `ResourceBankState<CurrencyType>` can never be
+the `T` this assembly saves and loads directly.
+
+`Company.ChestGame.Currency.CurrencySaveDocument` exists instead — the same shape,
+`Dictionary<CurrencyType, long> ResourceAmount`, but a type this adapter owns, with a real
+parameterless constructor. `Save()` only needs `class`, not `new()`, so it could have kept using
+`ResourceBankState<CurrencyType>` directly and left `CurrencySaveDocument` to cover only the `Load()`
+side; using it on both sides instead is deliberate, so the JSON this assembly actually persists is
+owned by this adapter's own type rather than one direction of it silently tracking whatever shape a
+future update to the vendored library's own `ResourceBankState<T>` happens to serialize as.
+`CurrencySaveDocument.From` copies the dictionary rather than aliasing it, for the reason given on the
+type itself: `ResourceBank<T>` keeps mutating the same dictionary instance for its whole lifetime, and
+the state handed to `MarkDirty` is documented elsewhere in this file to be something nothing else holds
+a reference to once it is captured — copying is what makes that true here rather than merely assumed.
+
+### The legacy import: `CurrencyLegacyImport`
+
+The concrete `ILegacyImport` "The legacy import" above described and deferred. It reads exactly what
+`DefaultResourceBankSaveHandle<CurrencyType>` has always written — a bare `{"ResourceAmount":{...}}`
+under `"ResourceBankSaveData_CurrencyType"` in `PlayerPrefs`, no envelope, no version — and because
+that shape is already exactly `CurrencySaveDocument`'s own shape, `Import()` does no reshaping at all
+beyond `JObject.Parse`: parsing *is* the reshape this key's data needed. The ordering `SaveService`
+already enforces is untouched and unweakened here: `LoadAsync` only ever reaches
+`CurrencyLegacyImport.Import()` when its own store has nothing under `"currency"`, `SaveAsync` writes
+and durably persists the imported document through the real `AtomicFileStore` before anything runs
+`Clear()`. Idempotent structurally, per "The legacy import" above, not by a flag this adapter carries.
+
+**Absence is not corruption, and `IsPresent()` is where that distinction actually lives.**
+`DefaultResourceBankSaveHandle.Save(null)` — never something `ResourceBank<T>` itself does, but not
+something `PlayerPrefs` stops anyone from having written by hand — serializes to the four-byte JSON
+literal `"null"`; an empty string is the same absence `PlayerPrefs` cannot otherwise tell apart from
+"never written". The old path already treated both as nothing to load:
+`JsonConvert.DeserializeObject<ResourceBankState<T>>("null")` returns a C# `null`, and
+`ResourceBank.Load`'s own `?? new ResourceBankState<T>()` turned that into booting at zero, silently.
+The naive translation of `Import()` into this assembly's contract does not preserve that: `JObject.Parse`
+on either value throws, `SaveService.LoadAsync` turns that into `SaveException.PayloadUnreadable`, and
+a bootable game becomes an unbootable one on every future launch — a genuine regression this phase
+introduced and did not initially catch, because "genuinely corrupt legacy data should stay loud" (true,
+and unchanged) is not the same claim as "absent legacy data should stay loud" (false, and the mistake).
+`IsPresent()` is where the two get told apart, checked before `Import()` is ever called: it answers
+`false` — "nothing to import," the same as the key never existing at all — for an empty or
+whitespace-only string and for the literal `"null"`, and answers `true` for everything else, including
+JSON that is present but genuinely malformed. A stray unmatched brace still reaches `Import()`, still
+throws, and still surfaces as `PayloadUnreadable` — that half of the old design was correct and stays
+exactly as loud as it always was.
+
+**`Clear()` renames rather than deletes.** The import is gated on "the store has nothing under
+`\"currency\"`" — idempotent against an immediate re-run, because a successful `SaveAsync` makes the
+branch unreachable, but not against a *later* one: if the real save and its `.bak` both ever
+disappeared afterward (a manual delete, a future bug), `LoadAsync` would fall back to this import
+again, and a plain `PlayerPrefs.DeleteKey` would be indistinguishable at that point from "nothing was
+ever imported" — reimporting genuinely stale legacy numbers over whatever the player's real balance had
+become since, silently. Moving the value to `<key>.migrated` instead of erasing it keeps `IsPresent()`
+answering `false` from that point on exactly the way a delete would — re-import still cannot loop — while
+keeping the bytes themselves recoverable rather than gone. That recoverability pays for two separate
+things at once: a rollback to a build that only knows `DefaultResourceBankSaveHandle` after a migration
+has already run finds a marker that explains the zero balance instead of no trace of what happened at
+all, and a test run that reaches this method by mistake — see "Sealing the boot path a test cannot pass
+arguments through" below for exactly this failure, which happened during this phase's own review —
+displaces a developer's real data instead of destroying it. The marker is written before the original
+key is deleted, the same write-before-clear ordering `SaveService` itself already enforces one level up
+(the new save durable before `Clear()` runs at all): the worst state a failure between those two
+`PlayerPrefs` calls can leave behind is both the marker and the original present together, never
+neither.
+
+A failure inside `Clear()` itself is still caught by `SaveService.ImportLegacyOrFreshAsync` rather than
+allowed to fail an otherwise-successful load — that part of the design is unchanged and correct, since
+the new save has already succeeded by the time `Clear()` runs. What was missing is that the catch was
+empty: a failed `Clear()` was invisible, which is exactly the condition finding 5 above describes as
+compounding into the stale-reimport scenario this section already avoids structurally. The catch now
+logs the exception, named by key, rather than swallowing it silently — the same reasoning
+`SaveScheduler<T>.Dispose()` already follows for its own best-effort flush: a caught failure is not the
+same thing as a quiet one, and a comment explaining why a failure is tolerated is read by whoever opens
+this file, not by whoever is holding a device log wondering why a legacy entry never went away.
+
+### What ships, and where the composition asserts its own constraints
+
+`GameLifetimeScope.RegisterCoreServices` composes, by hand, from `SaveComponentFactory` rather than
+`SaveServiceFactory` — this composition needs an `ILegacyImport`, and `SaveServiceFactory` is
+documented above to never grow a parameter for one: **`SaveStorage.AtomicFile`, `SaveCodec.Json`,
+`SaveProtection.None`.** Unprotected and file-backed for the reason already given for
+`SaveFactoryInputs.Defaults()`'s own keys: this is a showcase with no key-management story to
+demonstrate, and `SaveProtection.None` keeps a developer's own save readable and hand-editable rather
+than hiding it behind a key that ships in the binary either way. `AtomicFile` over a plain `File` is
+the one place this composition spends more than the minimum: `SaveScheduler<T>` means a coalesced
+write can now land at any point in the app's lifecycle — mid-minigame, on a background thread's worth
+of wall-clock time later, at a pause/quit flush — rather than only inside one synchronous `Save()`
+call the way `DefaultResourceBankSaveHandle` always did, so the torn-write protection `AtomicFileStore`
+buys over `FileStore` (see `AtomicFileStore` above) is worth its small extra cost precisely because
+write timing is no longer fully in this adapter's own hands. `SaveCodec.Json`, not `JsonPretty`: this
+document already argues indentation is pure size once nothing is meant to read it in an editor, and an
+actual player's save is exactly that case, unlike the phase 8 demo panel's.
+
+Two constraints this composition depends on are asserted at the moment it is wired, in
+`GameLifetimeScope.RegisterCoreServices` and `CurrencyResourceBankSaveHandle`'s own constructor, both
+reachable by `GameLifetimeScopeTests` building a container from `RegisterCoreServices` exactly as it
+already does for every other registration — never left to be discovered on a device the first time a
+pause or a load actually depended on either:
+
+- `CurrencyResourceBankSaveHandle`'s constructor throws `SaveException.SynchronousLoadNeedsNonHoppingStore()`
+  if the `ISaveService` it was given does not answer `CompletesOnCallingThread == true` — see "`Load()`
+  blocks" above for why `Load()` cannot be correct without this.
+- The factory registering `SaveScheduler<CurrencySaveDocument>` throws
+  `SaveException.SchedulerCannotFlushBlocking(key)` if the scheduler it just built does not answer
+  `CanFlushBlocking == true` — because `GameLifetimeScope` calls `FlushBlocking` on it from both
+  `OnApplicationPause(true)` and `OnApplicationQuit()`, and a scheduler that could ever answer false
+  there would throw on every real pause and quit instead of saving.
+
+Both checks currently prove the same underlying fact twice, once from each consumer's own point of
+view, because this composition's scheduler and handler share one `ISaveService` instance — that
+redundancy is deliberate rather than an oversight: each consumer of a synchronous guarantee asserts its
+own dependency on it locally, the same shape 6a's `SaveComponentFactory.CreateStore`/`CreateProtector`
+guard already follows for `NoFactoryInputs`, rather than trusting a guard that happens to sit elsewhere
+to still be true if a later change ever gives the two consumers different `ISaveService` instances.
+
+`RegisterCoreServices` takes two further optional parameters for exactly this composition —
+`SaveFactoryInputs currencySaveInputs` and `string legacyCurrencyPlayerPrefsKey`, both defaulting to
+`null` and, from there, to production's own values (`SaveFactoryInputs.Defaults()` and
+`CurrencyLegacyImport.DefaultLegacyKey`) — the same shape `status` already established on this method
+for exactly this reason: a production call site changes nothing, and a test asserting against the real
+`RegisterCoreServices` gets a seam to redirect through instead of a copy to maintain. See "Redirecting
+this composition away from a developer's real save" below for why this exists and what it fixes.
+
+### The pause/quit flush lives on `GameLifetimeScope`
+
+`GameLifetimeScope` resolves the `SaveScheduler<CurrencySaveDocument>` singleton once, right after
+`base.Awake()` builds the container, and calls `FlushBlocking()` on it from both
+`OnApplicationPause(true)` and `OnApplicationQuit()`, catching and logging rather than letting either
+Unity callback throw — the same best-effort reasoning `SaveScheduler<T>.Dispose()` already follows for
+its own flush attempt, because "the composition is structurally correct" is not the same guarantee as
+"the disk write it triggers cannot fail" (a full disk, a revoked permission). This lives on
+`GameLifetimeScope` itself rather than a new dedicated component because it already is the
+`MonoBehaviour` that survives every scene load and already owns the one `Awake()` that builds the
+container everything else here is resolved from; a separate component would need its own
+`DontDestroyOnLoad` and its own path to the same container for no behaviour a second object would add.
+
+### Redirecting this composition away from a developer's real save
+
+A save composition is the one seam on this method where "no override, matching every other seam
+`RegisterCoreServices` wires" is not an acceptable default, and it is worth saying plainly why this one
+is different rather than leaving it to look like an inconsistency. `AddressablesAssetProvider` not
+being swappable through this method's signature costs a test nothing — it never touches a resource
+that outlives the test process. This composition is not that: without an override, every test that
+resolves `ICurrencyManager` writes a real file under the real `Application.persistentDataPath`, and — if
+that machine has a legacy `"ResourceBankSaveData_CurrencyType"` PlayerPrefs entry, which any developer
+who ever played the game before this phase does — actually performs the real legacy import: it imports
+that data and then deletes it, for good, from production code, the first time a test happens to resolve
+`ICurrencyManager`. `InMemoryResourceBankSaveHandler`'s own comment already states the rule this would
+otherwise break: a test "neither read[s] nor clobber[s] the real editor save." Losing data a developer
+cannot get back is worse than the debris a leaked key merely leaves behind, and the fix costs nothing
+in production: `RegisterCoreServices(builder, status, currencySaveInputs, legacyCurrencyPlayerPrefsKey)`
+takes both as optional parameters, precisely the shape `status` already established on this same method
+so a test keeps asserting against the real composition root rather than a copy of it. Production's own
+call site — `Configure` — passes neither, so nothing about the shipping game changes.
+
+`SaveFactoryInputs.RootDirectory` redirects the file half on its own — pointing `currencySaveInputs` at
+a temp directory keeps `AtomicFileStore` off the real save — but a temp file root does nothing about
+`CurrencyLegacyImport`, which reads and clears a PlayerPrefs key with no concept of a root directory at
+all. So `legacyCurrencyPlayerPrefsKey` is its own parameter rather than folded into
+`SaveFactoryInputs`: that type is `Company.ChestGame.Saving`'s own carrier for what `SaveComponentFactory`
+needs to build a store or a protector, and the legacy key is neither — it is `CurrencyLegacyImport`'s
+own concern, one `SaveComponentFactory` never touches, so giving `SaveFactoryInputs` a field for it would
+mean a `Company.ChestGame.Saving` type carrying a piece of state only `Company.ChestGame.Currency` ever
+reads, for a composition that does not even use `SaveFactoryInputs.PlayerPrefsKeyPrefix` today (this
+composition stores through `AtomicFile`, not `PlayerPrefs`). Passed straight through to
+`CurrencyLegacyImport`'s own constructor, which falls back to `DefaultLegacyKey` — the real
+`DefaultResourceBankSaveHandle<CurrencyType>` key — exactly when it is left null, the same
+`null`-means-"use the real one" shape `currencySaveInputs` already follows.
+
+**This closes exactly one of the two paths a test can reach this composition through, and saying so
+here is what the next section exists to correct.** A test that builds its own `ContainerBuilder` and
+calls `RegisterCoreServices` directly — every `GameLifetimeScopeTests` case — can now pass both
+parameters and never touch anything real. A test that boots the actual game cannot pass anything
+through this method at all, because it never calls this method directly; see "Sealing the boot path a
+test cannot pass arguments through" below for the path this section does not cover, and for the real
+data that path cost during this phase's own review before it was closed.
+
+### Sealing the boot path a test cannot pass arguments through
+
+`Configure(IContainerBuilder builder)` is Unity's own callback — `LifetimeScope.Awake()` calls it,
+with no way for anything to thread an argument through — and its body is
+`RegisterCoreServices(builder, _bootStatus != null ? _bootStatus : null)`, passing neither
+`currencySaveInputs` nor `legacyCurrencyPlayerPrefsKey`. `GameBootstrapperTests` is a `PlayMode` test
+that loads the real Boot scene and lets it run exactly as a player's device would: `Awake()` →
+`Configure()` → this exact zero-argument call → `ICurrencyManager` resolved for the game scene's
+`CurrencyWatcher` → `ResourceBank<T>`'s constructor → `CurrencyResourceBankSaveHandle.Load()` → the
+real `CurrencyLegacyImport` against the real `"ResourceBankSaveData_CurrencyType"` PlayerPrefs entry.
+Nothing about the previous section's two optional parameters touches any step of that chain, because
+none of it is reachable from outside `Configure()`'s own fixed signature.
+
+**This is not a hypothetical the previous section's fix left theoretically open.** During this phase's
+own gate run, this exact path deleted the reviewer's real legacy PlayerPrefs entry (670 Coins, 180
+Gems) and wrote a real `currency.sav` under that machine's real `Application.persistentDataPath` —
+recovered only because a manual backup happened to exist and the gate independently restored and
+verified it. The reason three people missed this in review is worth stating plainly rather than
+smoothing over: before this phase, this exact boot-time `Load()` call was harmless, because
+`DefaultResourceBankSaveHandle.Load()` only ever *read* `PlayerPrefs` — there was nothing under
+`Configure()`'s own call for a test to be careful about, because nothing reachable from it could lose
+anything. This phase turned that read into a one-time, irreversible migration without revisiting every
+caller of the method that now triggers it, and `Configure()`'s own zero-argument path was the one
+nobody re-examined.
+
+The fix could not take the previous section's shape — there is no seam in `Configure()`'s signature to
+add a parameter to — so it lives in what `RegisterCoreServices`' own defaulting resolves a left-`null`
+argument to, in `BuildCurrencySaveService`'s `DefaultCurrencySaveInputs()` and
+`DefaultLegacyCurrencyPlayerPrefsKey()`. `UNITY_INCLUDE_TESTS` is Unity's own answer to "is this
+compilation one a test might be running in": a scripting define the Editor sets for the *entire*
+compilation whenever test assemblies are part of it — every assembly, production code included, not
+only the ones whose own `asmdef` opts in via `defineConstraints` — specifically for the `EditMode`
+domain and for the player Unity builds to actually run `PlayMode` tests, and specifically not for a
+normal Editor Play session or a shipped build. Under it, `DefaultCurrencySaveInputs()` points
+`SaveFactoryInputs.RootDirectory` at `Application.temporaryCachePath` rather than
+`Application.persistentDataPath`, and `DefaultLegacyCurrencyPlayerPrefsKey()` returns
+`"Tests." + CurrencyLegacyImport.DefaultLegacyKey` rather than the real key — under which
+`CurrencyLegacyImport.IsPresent()` finds nothing, so the real legacy entry is never even read, let
+alone cleared.
+
+This lives in `RegisterCoreServices`' own defaulting rather than only inside `Configure()`'s call
+site, deliberately: it means a hand-built container that forgets to pass either optional parameter —
+any test written after this section, not only `GameBootstrapperTests` — is *also* protected, rather
+than relying on every future call site remembering to ask for it. `GameLifetimeScopeTests`'s own
+calls, whether or not they pass the explicit overrides the previous section added, now redirect either
+way.
+
+**What this does not cover, stated plainly rather than left to be discovered.** `UNITY_INCLUDE_TESTS`
+answers "was this compiled for a run that might include tests," not "is a test executing right now" —
+a `Development Build` with its own "Include Test Assemblies" option checked would also define it,
+which would point that real player's save at `Application.temporaryCachePath` too. This project's own
+tests never build a player that way — `docs/testing.md` runs both suites through the Editor, in batch
+mode — so this is a real gap in principle and not one this project's own pipeline currently exercises;
+it is the correct trade-off regardless, because the failure direction is a QA build's save landing
+somewhere temporary rather than a real player's save being read from or written to at all under a
+condition meant for a different device to have exercised this project's CI. Repeated test runs also
+share whatever the temp directory and the `"Tests."`-prefixed `PlayerPrefs` key still hold from a
+previous run — neither location is scrubbed by anything this phase adds — which can make a test that
+assumes a pristine first run see leftover state from an earlier one. That is a test-isolation
+imperfection, not a data-loss risk, and is the trade this phase makes on purpose: recoverable debris
+under a clearly test-owned name, never the real thing.
+
 ## Not built yet
 
-Wiring `ThreadHoppingStore` into `SaveServiceFactory` or any composition root, and constructing a real
-`SaveScheduler<T>` anywhere — both are integration, and this phase is mechanism only. The concrete
-`ILegacyImport` adapter for `ResourceBank` and `CurrencyType`, the actual save model, the phase 8 demo
-panel, and any registration in `GameLifetimeScope`. The migration chain and the legacy-import seam
-exist as of phase 4; nothing has a real migration or a real legacy adapter to run yet, because both
-need a save model that does not exist until phase 7. Nothing in the game references this assembly yet.
+The wider save model phase 7 is scoped to build — chests progress and whatever else joins currency
+under a real, multi-field save — and the phase 8 demo panel. `SaveServiceFactory` still takes no
+parameter for a `SaveMigrator`, an `ILegacyImport`, a `ThreadHoppingStore` or a `SaveScheduler<T>`, by
+design; `GameLifetimeScope` is the only composition root that assembles any of those today, over
+currency alone. `ThreadHoppingStore` itself remains unwired into currency's own composition — see
+"`Load()` blocks" above for why this phase's `CurrencyResourceBankSaveHandle` structurally refuses to
+be paired with one — so the frame cost of encoding and writing currency's save still lands on the main
+thread, same as it always did under `DefaultResourceBankSaveHandle`, just now bounded to once per
+coalescing window rather than once per coin.

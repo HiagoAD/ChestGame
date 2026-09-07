@@ -47,6 +47,32 @@ namespace Company.ChestGame.Saving
         public static SaveException FlushWouldBlock(string key) =>
             new($"FlushBlocking on the save scheduler for '{key}' would need to leave the calling thread to finish, and blocking here would risk a deadlock; call FlushAsync instead, or build this scheduler over a save service whose store never hops off the calling thread");
 
+        public static SaveException NoFactoryInputs() =>
+            new("SaveComponentFactory needs a SaveFactoryInputs to build a store or protector that needs one, and was given none");
+
+        public static SaveException NoScheduler() =>
+            new("A synchronous save handler needs a SaveScheduler<T> to write through without blocking, and was given none");
+
+        // Thrown by a caller composing a handler that blocks on LoadAsync's result rather than
+        // awaiting it - a synchronous IResourceBankSaveHandler<T>.Load(), say, which has no UniTask
+        // in its own signature to hand the wait back through. Only safe when the ISaveService being
+        // blocked on always finishes on the calling thread; asserted once, at construction, rather
+        // than left to actually deadlock the one time a ThreadHoppingStore-backed composition is
+        // paired with it - see docs/saving.md, "FlushBlocking, and why it cannot deadlock", for the
+        // same reasoning applied to a blocking write instead of a blocking read.
+        public static SaveException SynchronousLoadNeedsNonHoppingStore() =>
+            new("A caller that blocks on LoadAsync's result needs an ISaveService whose store always completes on the calling thread; this one does not, and blocking on it would risk the same deadlock FlushBlocking already refuses to risk - compose this over a non-hopping store, or load asynchronously instead of blocking for the result");
+
+        // A composition root asserting its own SaveScheduler<T>.CanFlushBlocking at the moment it is
+        // wired, per docs/saving.md, "FlushBlocking, and why it cannot deadlock": a scheduler wired
+        // to a pause/quit handler that calls FlushBlocking must never be able to answer false, or
+        // every one of those calls throws FlushWouldBlock on a device instead of actually saving,
+        // the one place durability matters most. Distinct from FlushWouldBlock itself - that is a
+        // call-time race (a flush already in progress); this is a build-time wiring mistake, caught
+        // before a single MarkDirty call has ever happened.
+        public static SaveException SchedulerCannotFlushBlocking(string key) =>
+            new($"The save scheduler for '{key}' was wired to a pause/quit flush, but its ISaveService cannot guarantee FlushBlocking ever succeeds - compose it over a store that always completes on the calling thread");
+
         public static SaveException NoProtectorKey(string protectorId) =>
             new($"The '{protectorId}' protector needs key material to protect or unprotect a payload, and was given none");
 

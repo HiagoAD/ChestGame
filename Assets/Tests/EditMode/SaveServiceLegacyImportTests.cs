@@ -3,6 +3,8 @@ using Company.ChestGame.Saving;
 using Company.ChestGame.Tests.Common;
 using Newtonsoft.Json.Linq;
 using NUnit.Framework;
+using UnityEngine;
+using UnityEngine.TestTools;
 
 namespace Company.ChestGame.Tests.EditMode
 {
@@ -85,6 +87,14 @@ namespace Company.ChestGame.Tests.EditMode
             _legacyImport.Present = true;
             _legacyImport.ImportFunc = () => JObject.Parse(@"{""Value"":55}");
             _legacyImport.ClearThrows = true;
+
+            // A failed Clear() is now logged rather than only swallowed - see SaveService.cs,
+            // ImportLegacyOrFreshAsync's own catch. Expected here rather than left to fail this test
+            // as an unhandled log message, which is what newly-correct production behaviour ought to
+            // do to a test that has not been told to expect it yet - the two things this test's name
+            // claims (the load does not fail, the imported data is not lost) still have to hold
+            // regardless of what gets logged along the way.
+            LogAssert.Expect(LogType.Error, "Failed to clear the legacy save under 'profile' after importing it: FakeLegacyImport.Clear was configured to fail");
 
             TestState result = null;
             Assert.DoesNotThrow(() =>

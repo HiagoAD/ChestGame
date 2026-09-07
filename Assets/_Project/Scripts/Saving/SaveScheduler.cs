@@ -320,6 +320,28 @@ namespace Company.ChestGame.Saving
             }
             catch (Exception exception)
             {
+                // The one path through this class with nobody already positioned to report a
+                // failure: a window that elapsed organically from MarkDirty alone has no caller
+                // awaiting FlushAsync to observe this exception, so leaving it unlogged here means
+                // it escapes this .Forget()-ed UniTaskVoid to UniTaskScheduler's own
+                // unobserved-exception handler instead - which does log it, but with no key and
+                // nothing to say a save ever failed, on a loop that then repeats every window
+                // indefinitely against a cause that has not gone away (a full disk, a revoked
+                // permission). FlushBlocking and Dispose already attribute their own failures at
+                // their own call sites; this is the other one, so it is logged here unconditionally
+                // rather than only when nothing else is watching - an explicit FlushAsync caller
+                // that also logs its own catch gets one duplicate line, which is the direction to
+                // err in over the alternative of a caller that logs nothing and no one else did
+                // either.
+                //
+                // Retried at the same fixed coalesceWindowMilliseconds rather than backing off: a
+                // persistent failure is now loud on every attempt instead of silent on all of them,
+                // which is the property that mattered here, and backing off would change this
+                // class's one retry interval into two, depending on history a caller has no way to
+                // observe - the same ambiguity "Write coalescing" in docs/saving.md already refuses
+                // to let MarkDirty's own contract mean two things. See docs/saving.md, "A failed
+                // write now says so".
+                Debug.LogError($"SaveScheduler for '{_key}' failed to save and will retry in {_coalesceWindowMilliseconds}ms: {exception.Message}");
                 completion.TrySetException(exception);
             }
             finally

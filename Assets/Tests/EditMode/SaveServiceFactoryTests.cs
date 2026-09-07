@@ -55,7 +55,7 @@ namespace Company.ChestGame.Tests.EditMode
         [TestCaseSource(nameof(EveryStorage))]
         public void CreateFrom_EveryStorageMember_RoundTripsThroughItsBackend(SaveStorage storage)
         {
-            ISaveService service = SaveServiceFactory.CreateFrom(storage, SaveCodec.Json, SaveProtection.None, _root, _prefsPrefix);
+            ISaveService service = SaveServiceFactory.CreateFrom(storage, SaveCodec.Json, SaveProtection.None, SaveFactoryInputs.Defaults(_root, _prefsPrefix));
             TestState state = new() { Value = 42 };
 
             SynchronousUniTask.Complete(service.SaveAsync(Key, state, CancellationToken.None));
@@ -71,7 +71,7 @@ namespace Company.ChestGame.Tests.EditMode
         [Test]
         public void CreateFrom_File_IsBackedByFileStore_WhichNeverKeepsABackup()
         {
-            ISaveService service = SaveServiceFactory.CreateFrom(SaveStorage.File, SaveCodec.Json, SaveProtection.None, _root);
+            ISaveService service = SaveServiceFactory.CreateFrom(SaveStorage.File, SaveCodec.Json, SaveProtection.None, SaveFactoryInputs.Defaults(_root));
 
             SynchronousUniTask.Complete(service.SaveAsync(Key, new TestState { Value = 1 }, CancellationToken.None));
             SynchronousUniTask.Complete(service.SaveAsync(Key, new TestState { Value = 2 }, CancellationToken.None));
@@ -83,7 +83,7 @@ namespace Company.ChestGame.Tests.EditMode
         [Test]
         public void CreateFrom_AtomicFile_IsBackedByAtomicFileStore_WhichKeepsABackupAfterASecondSave()
         {
-            ISaveService service = SaveServiceFactory.CreateFrom(SaveStorage.AtomicFile, SaveCodec.Json, SaveProtection.None, _root);
+            ISaveService service = SaveServiceFactory.CreateFrom(SaveStorage.AtomicFile, SaveCodec.Json, SaveProtection.None, SaveFactoryInputs.Defaults(_root));
 
             SynchronousUniTask.Complete(service.SaveAsync(Key, new TestState { Value = 1 }, CancellationToken.None));
             SynchronousUniTask.Complete(service.SaveAsync(Key, new TestState { Value = 2 }, CancellationToken.None));
@@ -95,7 +95,7 @@ namespace Company.ChestGame.Tests.EditMode
         [Test]
         public void CreateFrom_PlayerPrefs_HonoursTheGivenKeyPrefix()
         {
-            ISaveService service = SaveServiceFactory.CreateFrom(SaveStorage.PlayerPrefs, SaveCodec.Json, SaveProtection.None, playerPrefsKeyPrefix: _prefsPrefix);
+            ISaveService service = SaveServiceFactory.CreateFrom(SaveStorage.PlayerPrefs, SaveCodec.Json, SaveProtection.None, SaveFactoryInputs.Defaults(playerPrefsKeyPrefix: _prefsPrefix));
 
             SynchronousUniTask.Complete(service.SaveAsync(Key, new TestState { Value = 5 }, CancellationToken.None));
 
@@ -108,7 +108,7 @@ namespace Company.ChestGame.Tests.EditMode
         [Test]
         public void CreateFrom_File_WritesUnderTheGivenRootDirectory_NotTheDefault()
         {
-            ISaveService service = SaveServiceFactory.CreateFrom(SaveStorage.File, SaveCodec.Json, SaveProtection.None, _root);
+            ISaveService service = SaveServiceFactory.CreateFrom(SaveStorage.File, SaveCodec.Json, SaveProtection.None, SaveFactoryInputs.Defaults(_root));
 
             SynchronousUniTask.Complete(service.SaveAsync(Key, new TestState { Value = 1 }, CancellationToken.None));
 
@@ -121,7 +121,7 @@ namespace Company.ChestGame.Tests.EditMode
         [Test]
         public void CreateFrom_WithAnOutOfRangeStorage_FallsBackToAWorkingFileBackedService()
         {
-            ISaveService service = SaveServiceFactory.CreateFrom((SaveStorage)99, SaveCodec.Json, SaveProtection.None, _root);
+            ISaveService service = SaveServiceFactory.CreateFrom((SaveStorage)99, SaveCodec.Json, SaveProtection.None, SaveFactoryInputs.Defaults(_root));
             TestState state = new() { Value = 7 };
 
             SynchronousUniTask.Complete(service.SaveAsync(Key, state, CancellationToken.None));

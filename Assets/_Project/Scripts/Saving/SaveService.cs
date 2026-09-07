@@ -3,6 +3,7 @@ using System.Text;
 using System.Threading;
 using Cysharp.Threading.Tasks;
 using Newtonsoft.Json.Linq;
+using UnityEngine;
 
 namespace Company.ChestGame.Saving
 {
@@ -155,11 +156,17 @@ namespace Company.ChestGame.Saving
             {
                 _legacyImport.Clear();
             }
-            catch
+            catch (Exception exception) when (exception is not OperationCanceledException)
             {
                 // Best-effort, the same reasoning AtomicFileStore's own temp-file cleanup follows:
                 // the new save already succeeded, so a legacy entry that fails to clear is an inert
                 // leftover, not a lost one, and must not turn a successful load into a failure.
+                // Logged rather than only swallowed, though: a caught-and-silent failure here is
+                // invisible to whoever next wonders why a legacy entry is still sitting there, the
+                // same reasoning SaveScheduler<T>.Dispose() already follows for its own best-effort
+                // flush - a comment explaining a loss is read by whoever opens this file, not by
+                // whoever is holding a device log.
+                Debug.LogError($"Failed to clear the legacy save under '{key}' after importing it: {exception.Message}");
             }
 
             return imported;
