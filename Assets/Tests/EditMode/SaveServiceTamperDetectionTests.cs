@@ -80,12 +80,11 @@ namespace Company.ChestGame.Tests.EditMode
             SynchronousUniTask.Complete(service.SaveAsync(Key, new TestState { Value = 99, Label = "chest" }, CancellationToken.None));
             TamperStoredPayload(store, "json", protector.Id, protector.IsTextSafe);
 
-            SaveException error = Assert.Throws<SaveException>(
-                () => SynchronousUniTask.Result(service.LoadAsync<TestState>(Key, CancellationToken.None)));
+            SaveTamperedException error = Assert.Throws<SaveTamperedException>(
+                () => SynchronousUniTask.Result(service.LoadAsync<TestState>(Key, CancellationToken.None)),
+                "a proven tamper has to arrive as SaveTamperedException, never as the generic SaveException");
 
             StringAssert.Contains("integrity check", error.Message);
-            StringAssert.DoesNotContain("could not be read back", error.Message,
-                "a proven tamper has to read as PayloadTampered, never as the generic PayloadUnreadable");
         }
 
         [Test]
@@ -102,9 +101,9 @@ namespace Company.ChestGame.Tests.EditMode
             SaveException error = Assert.Throws<SaveException>(
                 () => SynchronousUniTask.Result(service.LoadAsync<TestState>(Key, CancellationToken.None)));
 
-            StringAssert.Contains("could not be read back", error.Message);
-            StringAssert.DoesNotContain("integrity check", error.Message,
+            Assert.IsNotInstanceOf<SaveTamperedException>(error,
                 "an unprotected save has no MAC to fail; a corrupted body has to read as PayloadUnreadable, never as PayloadTampered");
+            StringAssert.Contains("could not be read back", error.Message);
         }
 
         // --- Property 4: a different key reads as tampering, for both protectors -----------------
@@ -122,7 +121,7 @@ namespace Company.ChestGame.Tests.EditMode
 
             SynchronousUniTask.Complete(writer.SaveAsync(Key, new TestState { Value = 42, Label = "chest" }, CancellationToken.None));
 
-            SaveException error = Assert.Throws<SaveException>(
+            SaveTamperedException error = Assert.Throws<SaveTamperedException>(
                 () => SynchronousUniTask.Result(reader.LoadAsync<TestState>(Key, CancellationToken.None)));
 
             StringAssert.Contains("integrity check", error.Message);

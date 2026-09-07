@@ -1,0 +1,78 @@
+<ui:UXML xmlns:ui="UnityEngine.UIElements" editor-extension-mode="False">
+    <Style src="SaveInspector.uss" />
+
+    <!-- Two independent children of the document root, never nested - see PoolingDemo.uxml's own
+         header for why. Exactly one is on screen at a time; SaveInspectorPanel swaps them. -->
+    <ui:VisualElement name="chrome" class="chrome">
+
+        <ui:VisualElement name="title-bar" class="row row--title">
+            <ui:VisualElement class="heading">
+                <ui:Label text="Save Inspector" class="title" />
+                <ui:Label text="STORAGE, CODEC, PROTECTION" class="caption" />
+            </ui:VisualElement>
+            <ui:Button name="close-button" text="Close" class="btn btn--ghost" />
+        </ui:VisualElement>
+
+        <!-- Three axes, one segmented control each. Button text is overwritten from the enum in
+             code, so a reorder cannot mislabel one - see SaveInspectorPanel.BindSegment. -->
+        <ui:VisualElement name="axis-storage" class="row row--axis">
+            <ui:Label text="Storage" class="axis-label" />
+            <ui:VisualElement class="segmented">
+                <ui:Button name="storage-0" text="-" class="btn btn--segment btn--segment--first" />
+                <ui:Button name="storage-1" text="-" class="btn btn--segment" />
+                <ui:Button name="storage-2" text="-" class="btn btn--segment" />
+                <ui:Button name="storage-3" text="-" class="btn btn--segment" />
+            </ui:VisualElement>
+        </ui:VisualElement>
+
+        <ui:VisualElement name="axis-codec" class="row row--axis">
+            <ui:Label text="Codec" class="axis-label" />
+            <ui:VisualElement class="segmented">
+                <ui:Button name="codec-0" text="-" class="btn btn--segment btn--segment--first" />
+                <ui:Button name="codec-1" text="-" class="btn btn--segment" />
+                <ui:Button name="codec-2" text="-" class="btn btn--segment" />
+            </ui:VisualElement>
+        </ui:VisualElement>
+
+        <ui:VisualElement name="axis-protection" class="row row--axis">
+            <ui:Label text="Protection" class="axis-label" />
+            <ui:VisualElement class="segmented">
+                <ui:Button name="protection-0" text="-" class="btn btn--segment btn--segment--first" />
+                <ui:Button name="protection-1" text="-" class="btn btn--segment" />
+                <ui:Button name="protection-2" text="-" class="btn btn--segment" />
+                <ui:Button name="protection-3" text="-" class="btn btn--segment" />
+                <ui:Button name="protection-4" text="-" class="btn btn--segment" />
+            </ui:VisualElement>
+        </ui:VisualElement>
+
+        <ui:VisualElement name="controls-run" class="row">
+            <ui:Button name="save-button" text="Save" class="btn btn--primary" />
+            <ui:Button name="tamper-button" text="Tamper" class="btn btn--danger" />
+        </ui:VisualElement>
+
+        <ui:VisualElement class="card readout">
+            <ui:Label name="readout-label" class="readout__text" />
+            <ui:Label name="timings-label" class="readout__meta" />
+        </ui:VisualElement>
+
+        <!-- What actually landed in the store, read back rather than re-encoded - see
+             SavePipelineProbe. Scrollable and truncated past a stated size, so one long payload
+             cannot break this layout. -->
+        <ui:VisualElement name="bytes-card" class="card bytes-card">
+            <ui:Label text="Stored bytes" class="card__title" />
+            <ui:ScrollView name="bytes-scroll" mode="Vertical" class="bytes-scroll">
+                <ui:Label name="bytes-label" class="bytes-text" />
+            </ui:ScrollView>
+            <ui:Label text="The header above is always plain JSON; the body stops being readable once a protector runs on it." class="readout__meta" />
+        </ui:VisualElement>
+
+        <!-- The point of the panel: an accepted edit and a refused one read differently, carried by
+             a class SaveInspector.uss reacts to - see SaveInspectorPanel.ShowTamperResult. -->
+        <ui:VisualElement name="tamper-readout" class="card tamper-readout">
+            <ui:Label name="tamper-label" class="readout__text" />
+        </ui:VisualElement>
+
+    </ui:VisualElement>
+
+    <ui:Button name="toggle-button" text="Save Inspector" class="btn btn--primary toggle" />
+</ui:UXML>

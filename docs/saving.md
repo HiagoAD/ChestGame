@@ -451,6 +451,16 @@ read it," which no site downstream of `LoadAsync` could otherwise distinguish. E
 protector or codec throws — a bad base64 string, a truncated gzip stream — still lands on
 `PayloadUnreadable`, unchanged from before this phase.
 
+**That claim was true in prose and false in the type system until phase 8 tested it.** Both outcomes
+were a plain `SaveException`, separable only by matching `"integrity check"` against the message —
+which the phase 3 tests duly did, and which nobody noticed was a gap for as long as only tests needed
+the answer. The save inspector is the first non-test caller that has to act on the distinction, and
+having to grep an error message to find it is the evidence the API could not say what this section
+claims. `SaveException.PayloadTampered` now returns `SaveTamperedException`, a sealed subclass, so
+`catch (SaveException)` everywhere keeps behaving exactly as before while a caller that cares can ask
+by type. The message is unchanged; the tests now assert on the type and keep the message assertion as
+a secondary check rather than the whole contract.
+
 One ambiguity is inherent to a MAC rather than a gap in this design: a body encrypted or signed under
 a different key than the one `LoadAsync` is configured with fails its comparison exactly the way a
 genuinely tampered body does, and `IPayloadProtector` has no way to tell the two apart. A protector
@@ -1640,6 +1650,97 @@ or `"meta"` load — both simply read as a first run when nothing is stored. Ren
 touch `GameBootstrapperTests`, `GameLifetimeScopeTests` and this file for no behavioural gain, so the
 names stay and their declarations say what they actually govern now. It is a debt, and it is recorded
 as one.
+
+## The save inspector
+
+`Company.ChestGame.Saving.Demo` is a leaf assembly referencing only `Company.ChestGame.Saving`,
+`Company.ChestGame.Common` and UniTask. Nothing in the game references it and it references nothing in
+the game — the arrangement `Company.ChestGame.Pooling.Demo` already settled on, for the documented
+reason that a demonstration the game depends on makes "what does this feature actually need" stop
+having an honest answer. It follows that the demo owns its own `SaveInspectorDocument` rather than
+borrowing `CurrencySaveDocument`.
+
+### Why the probe builds from `SaveComponentFactory` rather than `SaveServiceFactory`
+
+`SavePipelineProbe.RunAsync` needs the concrete `ISaveStore` back after the write, so it can read the
+bytes that actually landed rather than re-encoding the document and displaying something that merely
+should match. `SaveServiceFactory` hands back an assembled `ISaveService` and nothing else, so the
+probe composes from `CreateStore`/`CreateCodec`/`CreateProtector` — the same reason
+`GameLifetimeScope` assembles currency's pipeline by hand. Save, load and the raw read are timed
+separately.
+
+### The bytes are always renderable, and that is structural
+
+Rendering looked like it would need a judgment call per combination — text for the readable ones, a
+hex dump for the opaque ones. Measured across all fifteen codec/protector pairs, **every combination
+this factory can build stores valid UTF-8 end to end.** That is not luck: `SaveEnvelope` is always
+plaintext JSON, and a non-text-safe body always travels the envelope's own base64 path rather than
+being embedded raw. So the hex fallback in `SavePipelineProbe.Render` is real, exercised code, but
+unreachable for anything shipped today, and it is commented as such rather than left looking
+load-bearing.
+
+What this makes visible on screen is the more interesting thing anyway: the envelope header stays
+readable in every single combination while the body stops being readable, which is the design rule
+from "The envelope" made literal — a build can always tell which schema it is holding, even one it
+cannot decrypt.
+
+The size baseline is the same document through Json + None into the same store, computed under a
+different key rather than hard-coded, so a change to the document or the envelope moves it
+automatically.
+
+### The tamper button, and why it edits two different ways
+
+`SaveTamper.RunAsync` edits a save the probe already wrote, then reloads it through the same
+combination. Which edit it applies is the entire demonstration:
+
+- **`None`, `Base64` and `Xor` are decoded, edited and re-encoded** — the balance rewritten to a new
+  value, exactly as a curious player with a decoder would, because the demo, like that player, either
+  holds the key or knows there is not one. This is what makes "obfuscation, not security" concrete
+  instead of asserted: watching a base64 payload accept a rewritten balance is worth more than any
+  sentence in the Axis C table.
+- **`Hmac` and `Aes` cannot be reached that way**, so a byte in the protected body is flipped instead
+  — the same `FlipLastByte` convention `SaveServiceTamperDetectionTests` already uses.
+
+Measured outcome, matching what the plan predicted before any of it was built: `None`, `Base64` and
+`Xor` hand back the tampered balance; `Hmac` and `Aes` reject it. The AES case was repeated to rule
+out its random IV producing a lucky pass, and both were checked with gzip in the mix, since a
+compressed body puts gzip's magic bytes *inside* the protected region without changing which edit
+path applies.
+
+### `SaveBenchmark`, and the number the plan got wrong
+
+`SaveBenchmark` walks all fifteen codec/protector pairs over `SaveStorage.InMemory` — never `File`,
+`AtomicFile` or `PlayerPrefs`, because this suite must not touch `Application.persistentDataPath` or a
+real `PlayerPrefs` table, and the encoded bytes are identical whichever store carries them. It logs
+and **asserts on no duration at all**, the rule `PoolBenchmark`'s own header gives: a timing assertion
+on a shared machine is the flaky test `docs/testing.md` exists to prevent. The only assertions are
+that a combination round-tripped its value and produced a positive byte count.
+
+It measures **two document sizes**, and that is the whole reason it is worth reading. The plan
+estimated gzip at "−70%". Measured:
+
+| | small (126 B baseline) | large (4113 B baseline) |
+|---|---|---|
+| `Json` + `None` | 126 B — 100% | 4113 B — 100% |
+| `Json` + `Aes` | 230 B — 183% | 5542 B — 135% |
+| `JsonGzip` + `None` | 176 B — **140%** | 220 B — **5%** |
+| `JsonGzip` + `Aes` | 255 B — 202% | 274 B — ~7% |
+
+**At the size this game actually saves, gzip costs 40% more than plaintext.** A gzip stream carries a
+header and trailer, its output is not text-safe so the envelope owes it base64 (+33%), and below a few
+hundred bytes there is nothing for compression to find that pays for either. At 4 KB the same codec
+saves 95%. One size would have answered the wrong question in either direction — measuring only the
+small one reads as "gzip is useless", only the large one as "always compress" — so the benchmark
+reports both and the crossover is the finding.
+
+Two things follow. `JsonCodec` remains the right default for this game, now on a measurement rather
+than an assumption. And the fixed costs are the ones worth knowing: every protector's overhead is
+near-constant in bytes, so it is punishing on a small save and negligible on a large one — `Aes` is
++83% of a 126-byte save and +35% of a 4 KB one, for the same handful of bytes of IV and tag.
+
+The large document is a repetitive 4000-character field, labelled as such in the report, because that
+is compression's best case rather than a typical payload — the 5% figure is a ceiling, not an
+estimate.
 
 ## Not built yet
 

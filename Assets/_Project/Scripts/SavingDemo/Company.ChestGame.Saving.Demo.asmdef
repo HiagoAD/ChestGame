@@ -1,16 +1,12 @@
 {
-    "name": "Company.ChestGame.Editor",
-    "rootNamespace": "Company.ChestGame.Editor",
+    "name": "Company.ChestGame.Saving.Demo",
+    "rootNamespace": "Company.ChestGame.Saving.Demo",
     "references": [
-        "Unity.Addressables.Editor",
-        "Unity.Addressables",
         "Company.ChestGame.Saving",
-        "Company.ChestGame.Saving.Demo",
+        "Company.ChestGame.Common",
         "UniTask"
     ],
-    "includePlatforms": [
-        "Editor"
-    ],
+    "includePlatforms": [],
     "excludePlatforms": [],
     "allowUnsafeCode": false,
     "overrideReferences": true,

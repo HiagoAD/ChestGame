@@ -89,6 +89,7 @@
   <Project Path="Unity.2D.Common.Runtime.csproj" />
   <Project Path="Unity.ScriptableBuildPipeline.csproj" />
   <Project Path="Company.ChestGame.Tests.Common.csproj" />
+  <Project Path="Company.ChestGame.Editor.csproj" />
   <Project Path="Company.ChestGame.Config.csproj" />
   <Project Path="Unity.InputSystem.TestFramework.csproj" />
   <Project Path="Unity.ShaderGraph.Utilities.csproj" />
@@ -97,6 +98,7 @@
   <Project Path="Company.ChestGame.Pooling.csproj" />
   <Project Path="Unity.2D.Aseprite.Common.csproj" />
   <Project Path="Company.ChestGame.Assets.csproj" />
+  <Project Path="Company.ChestGame.Saving.Demo.csproj" />
   <Project Path="Unity.CollabProxy.Editor.csproj" />
   <Project Path="Unity.RenderPipeline.Universal.ShaderLibrary.csproj" />
   <Project Path="UniTask.Editor.csproj" />
@@ -113,7 +115,6 @@
   <Project Path="Unity.Rendering.LightTransport.Editor.csproj" />
   <Project Path="Unity.Collections.Editor.csproj" />
   <Project Path="Company.ChestGame.UI.csproj" />
-  <Project Path="Company.ChestGame.Editor.csproj" />
   <Project Path="UniTask.DOTween.csproj" />
   <Project Path="Unity.RenderPipelines.Universal.Config.Runtime.csproj" />
   <Project Path="Unity.RenderPipelines.ShaderGraph.ShaderGraphLibrary.csproj" />

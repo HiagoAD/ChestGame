@@ -1,0 +1,284 @@
+/* Design tokens against the 1080x1920 reference SaveInspectorPanelSettings shares with the pooling
+   demo's own. Everything below refers to these rather than a literal colour. */
+:root {
+    --backdrop: rgb(14, 16, 22);
+    --surface: rgb(23, 26, 35);
+    --surface-raised: rgb(35, 39, 53);
+    --surface-hover: rgb(46, 51, 68);
+    --border: rgb(46, 52, 68);
+
+    --accent: rgb(59, 130, 246);
+    --accent-hover: rgb(96, 155, 250);
+    --accent-press: rgb(37, 99, 235);
+
+    --text: rgb(233, 236, 243);
+    --text-muted: rgb(138, 147, 168);
+    --on-accent: rgb(255, 255, 255);
+
+    /* The tamper readout's whole reason to exist: an accepted edit and a refused one must not
+       read alike. Danger is the Tamper button too, since what it does is destructive to trust. */
+    --danger: rgb(239, 68, 68);
+    --danger-hover: rgb(248, 113, 113);
+    --danger-press: rgb(220, 38, 38);
+    --danger-surface: rgb(53, 24, 26);
+
+    --safe: rgb(34, 197, 94);
+    --safe-surface: rgb(20, 40, 30);
+
+    --radius: 14px;
+    --space: 8px;
+    --gutter: 24px;
+}
+
+/* --- Shell ------------------------------------------------------------------------------- */
+
+.chrome {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    flex-direction: column;
+    background-color: var(--backdrop);
+    padding: var(--gutter);
+}
+
+.row {
+    flex-direction: row;
+    align-items: center;
+    height: 96px;
+    margin-bottom: 16px;
+    overflow: hidden;
+}
+
+.row--title {
+    height: 84px;
+    margin-bottom: var(--gutter);
+    justify-content: space-between;
+}
+
+.row--axis {
+    justify-content: flex-start;
+}
+
+.axis-label {
+    width: 190px;
+    margin-right: 12px;
+    font-size: 24px;
+    color: var(--text-muted);
+    -unity-font-style: bold;
+}
+
+/* --- Type -------------------------------------------------------------------------------- */
+
+.heading {
+    flex-direction: column;
+}
+
+.title {
+    font-size: 38px;
+    color: var(--text);
+    -unity-font-style: bold;
+    letter-spacing: 1px;
+}
+
+.caption {
+    font-size: 19px;
+    color: var(--text-muted);
+    -unity-font-style: bold;
+    letter-spacing: 2px;
+}
+
+.card__title {
+    font-size: 20px;
+    color: var(--text-muted);
+    -unity-font-style: bold;
+    margin-bottom: var(--space);
+}
+
+/* --- Buttons ----------------------------------------------------------------------------- */
+
+.btn {
+    min-height: 96px;
+    padding-left: 20px;
+    padding-right: 20px;
+    margin: 0;
+    margin-right: 12px;
+    border-width: 0;
+    border-radius: var(--radius);
+    white-space: nowrap;
+    -unity-text-align: middle-center;
+    transition-property: background-color, scale;
+    transition-duration: 0.12s;
+}
+
+.btn:active {
+    scale: 0.97 0.97;
+}
+
+.btn--primary {
+    font-size: 30px;
+    min-width: 150px;
+    background-color: var(--accent);
+    color: var(--on-accent);
+    -unity-font-style: bold;
+}
+
+.btn--primary:hover {
+    background-color: var(--accent-hover);
+}
+
+.btn--primary:active {
+    background-color: var(--accent-press);
+}
+
+/* Tamper is destructive to trust, not merely a second action next to Save, so it gets its own
+   colour rather than sharing btn--ghost with Close. */
+.btn--danger {
+    font-size: 30px;
+    min-width: 150px;
+    background-color: var(--danger);
+    color: var(--on-accent);
+    -unity-font-style: bold;
+}
+
+.btn--danger:hover {
+    background-color: var(--danger-hover);
+}
+
+.btn--danger:active {
+    background-color: var(--danger-press);
+}
+
+.btn--ghost {
+    font-size: 26px;
+    min-width: 150px;
+    background-color: var(--surface-raised);
+    color: var(--text);
+    border-width: 1px;
+    border-color: var(--border);
+}
+
+.btn--ghost:hover {
+    background-color: var(--surface-hover);
+}
+
+.segmented {
+    flex-direction: row;
+    overflow: hidden;
+    border-radius: var(--radius);
+    border-width: 1px;
+    border-color: var(--border);
+    margin-right: 12px;
+}
+
+.btn--segment {
+    font-size: 22px;
+    background-color: var(--surface-raised);
+    color: var(--text-muted);
+    border-radius: 0;
+    margin-right: 0;
+    border-left-width: 1px;
+    border-left-color: var(--border);
+}
+
+.btn--segment--first {
+    border-left-width: 0;
+}
+
+.btn--segment:hover {
+    background-color: var(--surface-hover);
+    color: var(--text);
+}
+
+.btn--segment.is-selected {
+    background-color: var(--accent);
+    color: var(--on-accent);
+    -unity-font-style: bold;
+}
+
+.toggle {
+    position: absolute;
+    top: 160px;
+    right: var(--gutter);
+    min-width: 240px;
+    font-size: 26px;
+}
+
+/* --- Cards ------------------------------------------------------------------------------- */
+
+.card {
+    flex-direction: column;
+    background-color: var(--surface);
+    border-radius: var(--radius);
+    border-width: 1px;
+    border-color: var(--border);
+    padding: 16px;
+    overflow: hidden;
+}
+
+.readout {
+    height: 170px;
+    margin-bottom: var(--gutter);
+}
+
+.readout__text {
+    font-size: 22px;
+    color: var(--text);
+    white-space: normal;
+    margin-bottom: var(--space);
+}
+
+.readout__meta {
+    font-size: 20px;
+    color: var(--text-muted);
+    white-space: normal;
+}
+
+/* --- Stored bytes -------------------------------------------------------------------------- */
+
+.bytes-card {
+    margin-bottom: var(--gutter);
+}
+
+.bytes-scroll {
+    height: 220px;
+    background-color: var(--backdrop);
+    border-radius: 8px;
+    padding: 8px;
+    margin-bottom: var(--space);
+}
+
+.bytes-text {
+    font-size: 18px;
+    color: var(--text-muted);
+    white-space: normal;
+}
+
+/* --- Tamper readout ------------------------------------------------------------------------ */
+
+/* Neutral until a result exists; ShowTamperResult adds exactly one of the two below. */
+.tamper-readout {
+    min-height: 140px;
+    justify-content: center;
+}
+
+.tamper-readout--accepted {
+    background-color: var(--danger-surface);
+    border-color: var(--danger);
+}
+
+.tamper-readout--accepted .readout__text {
+    color: var(--danger-hover);
+    -unity-font-style: bold;
+}
+
+.tamper-readout--rejected {
+    background-color: var(--safe-surface);
+    border-color: var(--safe);
+}
+
+.tamper-readout--rejected .readout__text {
+    color: var(--safe);
+    -unity-font-style: bold;
+}
