@@ -14,6 +14,8 @@ compile instead of quietly working.
 Company.ChestGame.Common      _Project/Scripts/Common/     leaf: engine seams, FrameBudgetedLoop, exceptions, catalog policy
 Company.ChestGame.Pooling     _Project/Scripts/Pooling/    leaf: the prefab pool seam and its four strategies
 Company.ChestGame.Pooling.Demo _Project/Scripts/PoolingDemo/ the standalone race panel; nothing in the game references it
+Company.ChestGame.Saving      _Project/Scripts/Saving/     the ISaveService seam, its stores, codecs, protectors and scheduler
+Company.ChestGame.Saving.Demo _Project/Scripts/SavingDemo/ the save inspector; nothing in the game references it
 Company.ChestGame.Assets      _Project/Scripts/Assets/     the only assembly that calls Addressables
 Company.ChestGame.Config      _Project/Scripts/Config/
 Company.ChestGame.Currency    _Project/Scripts/Currency/
@@ -23,7 +25,7 @@ Company.ChestGame.Rewards     _Project/Scripts/Rewards/
 Company.ChestGame.Gameplay    _Project/Scripts/Gameplay/   the shell: GameManager and nothing else
 Company.ChestGame.UI          _Project/Scripts/UI/
 Company.ChestGame.Core        _Project/Scripts/Core/       composition root, both LifetimeScopes
-Company.ChestGame.Editor      _Project/Scripts/Editor/     content build entry point
+Company.ChestGame.Editor      _Project/Scripts/Editor/     content build, save corpus and save inspector prefab generators
 
 Company.ChestGame.Minigame.Chests  _Project/Scripts/Minigames/Implementation/Minigames/
 

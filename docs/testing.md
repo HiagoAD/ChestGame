@@ -4,12 +4,12 @@ Two suites, split by what only a real engine can prove.
 
 | Suite | Ours | Wall time |
 |---|---|---|
-| EditMode | 262 | ~0.4 s |
-| PlayMode | 50 | ~23 s |
+| EditMode | 657 | ~1 s |
+| PlayMode | 69 | ~26 s |
 
 Reproduce them with `ci/run-tests.sh`; the wall times move a little run to run. The numbers are
 written here rather than linked because `ci-results/` is gitignored, so a fresh clone has none until
-it runs the suites itself. The EditMode runner reports 263: the
+it runs the suites itself. The EditMode runner reports 658: the
 Addressables package ships one editor test of its own
 (`AddressableAssets.DocExampleCode.TestStub.RequiredTest`) and Unity picks it up. It is not ours and
 is not counted above.
@@ -23,9 +23,11 @@ destroyed, that a popup really lands under its parent, and that the keys and aut
 game ships really do resolve through Addressables.
 
 The time difference is the point. The edit-mode suite runs the entire chest-opening flow, including
-cancellation, without waiting for anything, because `FakeGameClock` decides when a frame happens. The
-22 seconds in play mode are almost entirely one class waiting on real timers, which is why so little
-lives there.
+cancellation, without waiting for anything, because `FakeGameClock` decides when a frame happens. Two
+classes account for almost all of play mode's time — `ChestsMinigameIntegrationTests` at ~14 s waiting
+on real timers and `GameBootstrapperTests` at ~8 s loading real scenes — which is why so little else
+lives there. Everything the save system added to play mode costs about 2 s in total, because the parts
+that needed a real engine are the thread hop, a real `UIDocument` and a benchmark, not waiting.
 
 `FakeAssetProvider` keeps the fast suite off Addressables entirely, the same way `FakeGameClock` keeps
 it off the player loop. The four content sources are asked what key they want and what they do with
@@ -34,8 +36,8 @@ the answer, with no catalog and no bundle behind them.
 Play-mode tests assert settled states rather than mid-flight ones, so a slow frame on a cold CI runner
 cannot cause a spurious failure.
 
-The pooling demo's panel is the one fixture that tests authored assets rather than code. Its UI is a
-prefab, a `.uxml` and a `.uss`, and every way that breaks compiles perfectly: a renamed element, a
+Two fixtures test authored assets rather than code: the pooling demo's panel and the save inspector's.
+Both UIs are a prefab, a `.uxml` and a `.uss`, and every way that breaks compiles perfectly: a renamed element, a
 class the stylesheet no longer defines, a serialized field left empty. So those tests instantiate the
 real prefab and ask the panel questions no compiler can - does a tap actually land on this button
 (`panel.Pick`, not a display flag), is this control inside the box that paints the backdrop, do the
@@ -46,6 +48,28 @@ alternatives all mean shipping the demo somewhere the game itself does not need 
 That fixture exists because a stylesheet failure is silent. A selector USS cannot parse - `:nth-child`
 is one - discards the whole file with nothing in the console, and the panel renders with stock theme
 controls that are the right shape to pass any test asking only whether an element was found.
+
+### The save suites never touch a real save
+
+Every fixture that exercises a file-backed store writes into a per-fixture temp directory named with a
+GUID and deletes it in teardown, and every fixture that touches `PlayerPrefs` uses a GUID-suffixed key
+and calls `PlayerPrefs.Save()` after deleting it — a `DeleteKey` without that does not persist in batch
+mode, which is how a leaked key was first noticed. `Application.persistentDataPath` and the real
+`ResourceBankSaveData_CurrencyType` entry are off limits to both suites.
+
+This is a rule with a scar behind it. `GameBootstrapperTests` boots the real `Boot` scene, which runs
+the real `GameLifetimeScope.Configure()` — and `Configure` is Unity's own callback, so no test can pass
+it an argument. Before the static overrides existed, that fixture resolved the currency manager against
+a developer's actual save and deleted it. The seam that closed it is
+`GameLifetimeScope.CurrencySaveInputsOverride` and `LegacyCurrencyPlayerPrefsKeyOverride`, assigned on
+the line before `LoadSceneAsync` so the ordering rests on statement order rather than on how the
+framework sequences its setup attributes.
+
+Two consequences worth keeping. A teardown that deletes a save directory has to run *after* the
+container is disposed, because disposing a `SaveScheduler<T>` triggers its best-effort flush and
+recreates the directory — that leaked one directory per test until the delete moved to the end of
+`[UnityTearDown]`. And an aborted batch-mode run leaves the previous results XML in place, where it
+reads as a pass; delete it before every run and check the timestamp on the file you report from.
 
 Fakes live in `Tests/Common/` and are shared by both suites. There is deliberately no fake catalog:
 `PopupCatalog` and `MinigameCatalog` take plain lists, so the tests use the real ones.

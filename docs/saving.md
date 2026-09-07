@@ -1,16 +1,25 @@
 # Saving
 
-`Company.ChestGame.Saving` persists arbitrary state behind one seam, `ISaveService`. So far: three
+`Company.ChestGame.Saving` persists arbitrary state behind one seam, `ISaveService`. It holds three
 JSON codecs, five protectors, a versioned envelope, four stores (`File`, `AtomicFile`, `PlayerPrefs`,
-`InMemory`), the three selection enums, an authoring profile, a profile validator, the enum-to-type
-mapping (`SaveComponentFactory`), the environment and key material that mapping needs
-(`SaveFactoryInputs`), the thin convenience that assembles the two into a working, undecorated
-`ISaveService` (`SaveServiceFactory`), a migration chain, the seam a pre-envelope legacy import plugs
-into, a store decorator that hops encoded, protected bytes onto a worker thread and back
-(`ThreadHoppingStore`), and a write-coalescing scheduler (`SaveScheduler<T>`) built on top of
-`ISaveService` rather than inside it. Phase 6b is the first real caller: `Company.ChestGame.Currency`
-references this assembly to persist Coins and Gems through it — see "Currency: the first real caller"
-below.
+`InMemory`), three selection enums with an authoring profile and a validator over them, the
+enum-to-type mapping (`SaveComponentFactory`) and the environment and key material it needs
+(`SaveFactoryInputs`), a thin convenience that assembles those into an undecorated `ISaveService`
+(`SaveServiceFactory`), a migration chain, the seam a pre-envelope legacy import plugs into, a store
+decorator that hops encoded bytes onto a worker thread and back (`ThreadHoppingStore`), a
+write-coalescing scheduler (`SaveScheduler<T>`) built on top of `ISaveService` rather than inside it,
+and the registry that lets a composition root flush every scheduler at pause and quit without naming
+any of their types (`ISaveFlushRegistry`).
+
+The assembly knows nothing about chests, currency, minigames, popups or Addressables. Three keys go
+through it today, each from a different assembly: `"currency"` from `Company.ChestGame.Currency`,
+`"chests"` from `Company.ChestGame.Minigame.Chests`, and `"meta"` from `Company.ChestGame.Core`. A
+separate demo assembly, `Company.ChestGame.Saving.Demo`, makes the combination space visible and
+lets you tamper with a save to see which pipelines notice.
+
+Read it in whatever order suits you; the sections below go roughly from the seam outwards, and the
+reasoning behind the choices — including the ones that were wrong first — is in
+[design-decisions.md](design-decisions.md) sections 15 to 17.
 
 ## The shape, and what it copies
 
@@ -752,6 +761,12 @@ In the shape the pool strategy list in `docs/design-decisions.md` uses.
    `SaveFactoryInputs.Defaults()` unless a caller overrides it, so a test can redirect it exactly as
    it redirects `RootDirectory` rather than being stuck writing into whatever the default actually
    points at.
+5. Answer `CompletesOnCallingThread` honestly. It is not documentation — `SaveScheduler<T>` reads it
+   through `CanFlushBlocking`, `SaveFlushRegistry.Register` refuses a scheduler that answers false,
+   and `CurrencyResourceBankSaveHandle` and `ChestsMinigameController` both refuse at construction to
+   block on a load through a store that answers false. A backend that reaches the network or hops a
+   thread must say so, or the composition that wraps it will look correct and fail at
+   `OnApplicationPause` on a device.
 
 Nothing in `ISaveStore`, `SaveService` or `SaveException` needs to change: `SaveService` composes
 whatever `ISaveStore` it is handed, and a new backend reports its own storage failures through
