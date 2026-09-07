@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using Company.ChestGame.Assets;
 using Company.ChestGame.Common;
 using Company.ChestGame.Config;
@@ -28,9 +29,12 @@ namespace Company.ChestGame.Tests.EditMode
     // proved in GameBootstrapperTests.
     //
     // RegisterCoreServices' bare SetUp registration below (with no currency overrides) never
-    // resolves ICurrencyManager, the currency save handler, or the currency scheduler by itself -
-    // constructing SaveComponentFactory's store/protector does no IO on its own (see FileStore's and
-    // AtomicFileStore's constructors), so building _builder in SetUp for every test stays safe.
+    // resolves ICurrencyManager or the currency save handler by itself. It does resolve every
+    // SaveScheduler<T> the composition owns, because RegisterCoreServices asks a build callback to -
+    // see docs/saving.md, "An unregistered save looks exactly like a registered one" - but neither a
+    // scheduler's constructor nor SaveComponentFactory's store/protector performs any IO (checked
+    // against SaveScheduler<T>'s, FileStore's and AtomicFileStore's constructors, not assumed), so
+    // building _builder in SetUp for every test stays safe.
     // What is NOT safe is any individual test resolving one of those three: without an override,
     // that resolve would perform the real legacy import against the developer's actual
     // Application.persistentDataPath and real PlayerPrefs entry - see docs/saving.md, "Redirecting
@@ -182,12 +186,13 @@ namespace Company.ChestGame.Tests.EditMode
         [Test]
         public void CurrencySaveScheduler_ResolvesWithoutThrowing_AndCanFlushBlocking()
         {
-            // RegisterCoreServices asserts SchedulerCannotFlushBlocking itself, at the moment this
-            // type is resolved - see docs/saving.md, "What ships, and where the composition asserts
-            // its own constraints". This pins that the real composition never trips that guard
-            // today; if a future change ever wraps the currency store in a ThreadHoppingStore, this
-            // resolve starts throwing instead of silently shipping a scheduler that would fail the
-            // first real OnApplicationPause/OnApplicationQuit on a device.
+            // RegisterCoreServices' factory registers this scheduler with ISaveFlushRegistry the
+            // moment it is resolved, and Register itself throws SchedulerCannotFlushBlocking if
+            // CanFlushBlocking is false - see docs/saving.md, "What ships, and where the composition
+            // asserts its own constraints". This pins that the real composition never trips that
+            // guard today; if a future change ever wraps the currency store in a ThreadHoppingStore,
+            // this resolve starts throwing instead of silently shipping a scheduler that would fail
+            // the first real OnApplicationPause/OnApplicationQuit on a device.
             ContainerBuilder builder = new();
             (SaveFactoryInputs inputs, string legacyKey) = IsolatedCurrencyOverrides();
             GameLifetimeScope.RegisterCoreServices(builder, currencySaveInputs: inputs, legacyCurrencyPlayerPrefsKey: legacyKey);
@@ -197,6 +202,25 @@ namespace Company.ChestGame.Tests.EditMode
             SaveScheduler<CurrencySaveDocument> scheduler = null;
             Assert.DoesNotThrow(() => scheduler = container.Resolve<SaveScheduler<CurrencySaveDocument>>());
             Assert.IsTrue(scheduler.CanFlushBlocking);
+        }
+
+        [Test]
+        public void EverySaveThisCompositionOwns_IsRegisteredForThePauseQuitFlush()
+        {
+            // Building the container is the whole act: RegisterCoreServices' build callback resolves
+            // each scheduler it owns, and resolving is what registers it. An unregistered save is
+            // never flushed at pause/quit and looks identical in every other respect, so nothing
+            // else in this fixture would notice one going missing.
+            ContainerBuilder builder = new();
+            (SaveFactoryInputs inputs, string legacyKey) = IsolatedCurrencyOverrides();
+            GameLifetimeScope.RegisterCoreServices(builder, currencySaveInputs: inputs, legacyCurrencyPlayerPrefsKey: legacyKey);
+
+            using IObjectResolver container = builder.Build();
+
+            CollectionAssert.AreEquivalent(
+                new[] { CurrencyResourceBankSaveHandle.SaveKey, GameMetaSaveDocument.SaveKey },
+                container.Resolve<ISaveFlushRegistry>().Registered.Select(flushable => flushable.SaveKey).ToArray(),
+                "the shipped composition no longer flushes exactly the saves it owns at pause/quit");
         }
 
         [Test]

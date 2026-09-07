@@ -247,6 +247,30 @@ itself is swallowed rather than allowed to fail an otherwise-successful load —
 reasoning `AtomicFileStore`'s own temp-file cleanup follows — because the new save already exists and a
 leftover legacy entry is inert, not lost.
 
+### `TargetKey`, and the defect a second save key exposed
+
+`LoadAsync<T>(key, ct)` used to run `ImportLegacyOrFreshAsync` for *any* key whose store read answered
+null. That was harmless for exactly as long as `"currency"` was the only key any composition ever
+loaded — one import, one key, no way for them to disagree. Phase 7 adds `"chests"` and `"meta"` over
+the same registered `ISaveService`, and the moment it does, the old behaviour is a data-destruction
+path: the first load of `"chests"` on an upgrading install finds nothing stored, reaches the currency
+import, parses `{"ResourceAmount":{…}}`, deserialises it into a `ChestsRunSaveDocument` — which
+*succeeds*, because Newtonsoft ignores unknown fields and hands back a default-valued document —
+writes that under `"chests"`, and then calls `Clear()`. The currency legacy entry is gone before
+currency ever asked for it. Nothing throws, and the player's balance is simply zero on next launch.
+
+`ILegacyImport.TargetKey` is the save key an import's data belongs under.
+`ImportLegacyOrFreshAsync` compares it against the key it was actually asked for, ordinally, **before
+`IsPresent()` is ever called** — not merely before `Import()`, because asking an import whether it has
+data for a key it knows nothing about is already the wrong question regardless of the answer.
+`CurrencyLegacyImport.TargetKey` returns `CurrencyResourceBankSaveHandle.SaveKey` rather than
+restating the `"currency"` literal, so the two cannot drift.
+
+Worth stating what this does *not* fix: one `ILegacyImport` per `SaveService` is still the shape, so a
+composition needing legacy imports for two different keys needs two services or a composite import.
+Nothing needs that today, and a `TargetKey` that answers for exactly one key is the smallest thing
+that closes the defect.
+
 ## The golden corpus
 
 `Assets/Tests/EditMode/SaveCorpus/` holds one committed envelope file per historical schema version —
@@ -1316,16 +1340,62 @@ this composition away from a developer's real save" below for why this exists an
 
 ### The pause/quit flush lives on `GameLifetimeScope`
 
-`GameLifetimeScope` resolves the `SaveScheduler<CurrencySaveDocument>` singleton once, right after
-`base.Awake()` builds the container, and calls `FlushBlocking()` on it from both
-`OnApplicationPause(true)` and `OnApplicationQuit()`, catching and logging rather than letting either
-Unity callback throw — the same best-effort reasoning `SaveScheduler<T>.Dispose()` already follows for
-its own flush attempt, because "the composition is structurally correct" is not the same guarantee as
-"the disk write it triggers cannot fail" (a full disk, a revoked permission). This lives on
-`GameLifetimeScope` itself rather than a new dedicated component because it already is the
-`MonoBehaviour` that survives every scene load and already owns the one `Awake()` that builds the
-container everything else here is resolved from; a separate component would need its own
-`DontDestroyOnLoad` and its own path to the same container for no behaviour a second object would add.
+`GameLifetimeScope` calls `FlushAll()` on an `ISaveFlushRegistry` from both `OnApplicationPause(true)`
+and `OnApplicationQuit()`, catching and logging rather than letting either Unity callback throw — the
+same best-effort reasoning `SaveScheduler<T>.Dispose()` already follows for its own flush attempt,
+because "the composition is structurally correct" is not the same guarantee as "the disk write it
+triggers cannot fail" (a full disk, a revoked permission). This lives on `GameLifetimeScope` itself
+rather than a new dedicated component because it already is the `MonoBehaviour` that survives every
+scene load and already owns the one `Awake()` that builds the container everything else here is
+resolved from; a separate component would need its own `DontDestroyOnLoad` and its own path to the
+same container for no behaviour a second object would add.
+
+#### Why the flush stopped being one field
+
+This was originally a single resolved `SaveScheduler<CurrencySaveDocument>` field, flushed by name.
+That stops working the moment a second scheduler exists, and phase 7 adds one this assembly cannot
+even name: `SaveScheduler<ChestsRunSaveDocument>` lives in `Company.ChestGame.Minigame.Chests`, an
+assembly `Company.ChestGame.Core` deliberately does not reference — the same property that lets the
+shell start a minigame without knowing its concrete type. No per-type field can be written for a type
+this assembly cannot name.
+
+`ISaveFlushable` is the members `SaveScheduler<T>` already had — `CanFlushBlocking` and
+`FlushBlocking` — plus `SaveKey`, pulled into a seam, so `SaveScheduler<T> : IDisposable,
+ISaveFlushable` needed no new behaviour. `SaveKey` is on the seam rather than left private for one
+reason: a registry holding several schedulers has to be able to say *which* one failed. A flush error
+on a device that cannot name the save it lost is most of the way to no error at all, and phase 7 is
+precisely when the count goes from one to three.
+
+`SaveFlushRegistry.Register` throws `SaveException.SchedulerCannotFlushBlocking(flushable.SaveKey)`
+when `CanFlushBlocking` is false. Registering is a declaration that this save wants flushing at
+pause/quit, and one that cannot guarantee the flush ever succeeds is a wiring error — the same rule
+`GameLifetimeScope`'s currency factory used to assert on its own. That duplicate check is gone: one
+rule, enforced once, for every flushable rather than re-derived per composition.
+
+`FlushAll()` is fault-isolating over a snapshot. One flushable throwing is caught, logged naming its
+key, and the loop continues, because this runs from a lifecycle callback where nothing may propagate
+and where one bad scheduler must never cost every other one its flush. Snapshotted with `ToArray()`
+first so a flush that unregisters something — itself included — cannot invalidate the enumeration it
+is running inside. Like `SaveScheduler<T>`, the registry is main-thread-only and takes no locks.
+
+#### An unregistered save looks exactly like a registered one
+
+Registering is a side effect of each scheduler's factory registration, which means a scheduler nothing
+ever resolves is a scheduler nothing ever registered — and a save that is never flushed at pause/quit
+is indistinguishable, in every other respect, from one that is. It writes on its window like normal,
+it survives a clean quit on desktop, and it silently loses up to a window's worth of progress every
+time a mobile OS kills a backgrounded app. No assertion anywhere else would notice.
+
+Two things close that. `RegisterCoreServices` carries one `builder.RegisterBuildCallback(resolver =>
+resolver.Resolve<SaveScheduler<…>>())` line per scheduler it owns, so registration is a property of
+the container rather than of whoever happens to resolve first — and specifically not a line in
+`Awake()` that someone has to remember to add alongside the next save. And `ISaveFlushRegistry`
+exposes `Registered`, so `GameLifetimeScopeTests` can assert the shipped composition flushes exactly
+the set of keys it owns. Adding a save and forgetting to flush it now fails a test instead of shipping.
+
+A scheduler owned by an assembly the composition root cannot reference — the chests one — registers
+itself when its owner is injected and unregisters on `Dispose`, so it participates for exactly as long
+as it exists.
 
 ### Redirecting this composition away from a developer's real save
 
@@ -1430,14 +1500,157 @@ assumes a pristine first run see leftover state from an earlier one. That is a t
 imperfection, not a data-loss risk, and is the trade this phase makes on purpose: recoverable debris
 under a clearly test-owned name, never the real thing.
 
+## Beyond currency: chests and meta
+
+Phase 7 adds two more keys — `"chests"` and `"meta"` — over the one `ISaveService` currency already
+registered. Nothing in `ISaveCodec`, `IPayloadProtector`, `ISaveStore`, `SaveService` or
+`SaveScheduler<T>` changed to accommodate them, which was the point: adding a save was always meant to
+cost a document and a caller.
+
+### `ChestsRunSaveDocument`, and decision #9 made structural
+
+The document carries exactly two members, `ChestCount` and `OpenedChestIndices`, and "exactly" is
+load-bearing. There is no `Attempts` field because there is nothing for one to disagree with:
+`OpenChest` increments `Attempts` once per chest that finishes opening, so it is always
+`OpenedChestIndices.Count`, and two fields that can drift apart are a bug waiting to happen.
+`ChestCount` exists only to detect a config change between sessions.
+
+More importantly, **no member here is capable of naming the prize chest, a seed, or a per-chest
+state** — and that absence is the enforcement of decision #9, not a restatement of it. `CheckEndGame`
+ends the run in the same call that finds the prize, so a mid-run save is only ever taken while every
+opened chest is `Open_Empty`, and `BuildCurrentRunDocument` filters on that state explicitly rather
+than relying on the timing.
+
+Two tests hold it there. An allow-list test reflects over the serialized member set and fails on a
+third member, naming decision #9 in the message — the move `ChestsMinigamePrefabTests` already makes
+for the authored pool strategy. And the stronger one: two controllers open the same chests in the
+same order, seeded so a *different* chest would win on the next, undrawn attempt in each, and their
+persisted documents come out byte-identical through the real `JsonCodec`. **The payload does not move
+when the prize does.** Add a seed or a prize index and that test fails immediately, which is the
+difference between a decision that is documented and one that is enforced.
+
+### A scheduler the composition root cannot name has to register itself
+
+`Company.ChestGame.Core` does not reference `Company.ChestGame.Minigame.Chests`, so `GameLifetimeScope`
+cannot resolve, name, or flush `SaveScheduler<ChestsRunSaveDocument>`. This is the second real caller
+for `ISaveFlushRegistry` and the reason it exists: `ChestsMinigameController.Inject` builds its own
+scheduler over the injected `ISaveService` and `IGameClock` and registers it with the same singleton
+registry `GameLifetimeScope` flushes, then `Dispose` unregisters before disposing. A minigame
+participates in the pause/quit flush for exactly as long as it is running.
+
+Three ordering rules inside `Inject`, each closing a real failure rather than a hypothetical one:
+
+- **The guard runs first.** `SaveException.SynchronousLoadNeedsNonHoppingStore()` is thrown before
+  anything is built, because the restore load blocks the calling thread exactly the way
+  `CurrencyResourceBankSaveHandle.Load()` does. The existing exception already describes "a caller
+  that blocks on `LoadAsync`'s result" generically, so this reuses it rather than adding a twin.
+- **`Register` runs last.** `MinigameContainer.BeginAsync` destroys the view and releases content
+  when injection fails, but it does not `Dispose()` the controller — so a scheduler registered before
+  a throw would stay in the singleton registry for the life of the process, flushed at every
+  pause/quit, holding a dead controller's state, and accumulating one more per failed start.
+- **A corrupt run is discarded, not fatal.** A `SaveException` from the load is logged and answered
+  with no pending restore. This is the same call-site policy `GameBootstrapper` applies to meta and it
+  rests on the same test: a chests run holds nothing a player earned, because the win pays out through
+  currency's own save. Letting it escape would refuse to open the minigame *every time*, with nothing
+  in the game that ever clears the file. `NewGame()`'s discard branch then overwrites the unreadable
+  document, so the next launch reads cleanly — the save repairs itself. `SaveMigrationException` is
+  deliberately not caught: that is a wiring mistake, not a delivery failure.
+
+`Dispose` uses null-conditionals on both new fields. It was idempotent before this phase — every
+field it touched was null-safe — and `IDisposable` requires it to stay that way; a second call must
+not start throwing because phase 7 added state.
+
+### Restore, discard, and why it lives in `NewGame()`
+
+The load happens once in `Inject`, into a private field. **Restore happens on the first `NewGame()`
+call only** — the field is consumed and nulled — so every later call, which is a real restart, takes
+the same path a fresh install would.
+
+That placement is what makes the view free. `MinigameContainer.BeginAsync` injects, instantiates the
+view, and calls `SetController`, and only then does `GameManager` call `NewGame()` — by which point
+the view is subscribed to `OnStateChange`/`OnAttemptsChanged`, and `ChestsMinigameChestElementView.Init`
+re-drives itself from `ChestsMinigameChestModel.CurrentState` the moment the pool binds it. Restoring
+through the existing `Attempts` setter and `SetOpen` therefore needed **no view code at all**: the view
+was already built to re-derive its display from whatever the model holds, for the ordinary case of a
+chest opening live. Restore runs after every chest is `SetClosed()`, because `SetOpen` returns early
+on an already-open chest.
+
+A saved run is discarded rather than restored under three conditions, each a state a save can
+legitimately be in: `ChestCount` differs from the configured count (a server-side config change, which
+is the only thing that field exists to catch); an index is out of range or duplicated (a hand-edited
+or truncated save); or the opened count already reaches `TotalAttempts` (a run that had ended).
+Discarding also clears what is stored, so it is not re-read next launch. **A restart discards
+unconditionally too**, even when the saved run was perfectly valid: a player who restarts mid-run must
+not find that run resumable later.
+
+The odds survive an interruption exactly. `TryGiveChestPrize` computes
+`1 / (Chests.Count - Attempts + 1)` from nothing but the chest count and the attempt number, so a run
+restored at `k` opened chests draws on the same odds an uninterrupted run at `k` would. That is a
+property of decision #9 rather than a coincidence — a memoryless prize has nothing to restore.
+
+**What this deliberately does not fix:** the attempt budget is re-rollable. Progress is persisted
+through `SaveScheduler<T>`, so force-quitting inside the coalescing window refunds the attempt that
+was just spent. Save-scumming the *prize* gains nothing — the odds are `1 / (N - k + 1)` and
+re-rolling a lower `k` is strictly worse for the player — but the attempts are genuinely exploitable
+that way. Closing it means consuming the attempt at click time and flushing before the reveal, which
+trades a frame hitch on every chest for an exploit nobody is currently paying for. Written down rather
+than designed around.
+
+### `GameMetaSaveDocument`, and a claim that did not survive checking
+
+`Launches`, `FirstLaunchUnixMs`, `LastPlayedUnixMs`, all `long` Unix milliseconds. The reasoning for
+that shape needs a correction rather than a restatement.
+
+The assumption going in was that `JsonCodec`'s default `JsonConvert` settings would reinterpret a
+date-shaped string the same way "Value-exactness, and where the formatting stops" describes above.
+**Checked against the real `Newtonsoft.Json.dll` this project ships, over `JsonCodec`'s exact code
+path into a plain `string` property: it does not.** A nine-fractional-digit ISO timestamp, a bare
+calendar date, and a UTC-offset timestamp all round-tripped character for character. `DateParseHandling`
+applies when materializing into a *generic* member — `SaveEnvelope.Body` is a `JToken`, and the reader
+decides whether a string token is a date before anything downstream can say what CLR type it was
+headed for. A concretely `string`-typed property is read through a type-directed path that never
+consults the setting. That was `SaveEnvelope`'s bug specifically, and it does not generalise.
+
+`long` is still right here, on narrower grounds: it sidesteps timezone and format ambiguity outright
+rather than resting on a codec behaviour nobody would re-check the next time the Newtonsoft version
+underneath it moves. `IGameClock` has no wall clock, so `GameBootstrapper` reads
+`DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()` — the one wall-clock read in this phase.
+
+### A corrupt meta save is recoverable; a corrupt currency save is not
+
+`GameBootstrapper.StartAsync` records the launch first, inside its existing try, so a content failure
+afterwards still leaves an accurate count and timestamp behind and a genuine bug still reports to the
+boot label. Only the `LoadAsync` call is guarded: a `SaveException` is logged and answered with a
+fresh document, and boot continues as though this were a first launch's meta.
+
+This is a call-site policy, not a weakening of `ISaveService`'s contract — `LoadAsync` still throws as
+loudly as ever for every other caller. It rests entirely on what meta *is*: nothing in it is something
+a player earned or would notice missing. The identical choice for currency — silently resetting a
+corrupt balance to zero — would be indefensible, and the contrast is the point. Anything past the load
+is deliberately unguarded: a failure in `MarkDirty` is a bug in this phase's own code, not a corrupt
+save.
+
+### One `ISaveService`, three keys — and a naming debt
+
+`BuildCurrencySaveService`, `CurrencySaveInputsOverride` and `LegacyCurrencyPlayerPrefsKeyOverride`
+keep their currency-flavoured names, but the service they build is now what all three keys read and
+write through. That is safe for the reason phase 7a exists: `ILegacyImport.TargetKey` is checked
+before `IsPresent()` is asked anything, so `CurrencyLegacyImport` is never consulted for a `"chests"`
+or `"meta"` load — both simply read as a first run when nothing is stored. Renaming the three would
+touch `GameBootstrapperTests`, `GameLifetimeScopeTests` and this file for no behavioural gain, so the
+names stay and their declarations say what they actually govern now. It is a debt, and it is recorded
+as one.
+
 ## Not built yet
 
-The wider save model phase 7 is scoped to build — chests progress and whatever else joins currency
-under a real, multi-field save — and the phase 8 demo panel. `SaveServiceFactory` still takes no
+The phase 8 demo panel is what remains scoped and unbuilt. `SaveServiceFactory` still takes no
 parameter for a `SaveMigrator`, an `ILegacyImport`, a `ThreadHoppingStore` or a `SaveScheduler<T>`, by
-design; `GameLifetimeScope` is the only composition root that assembles any of those today, over
-currency alone. `ThreadHoppingStore` itself remains unwired into currency's own composition — see
-"`Load()` blocks" above for why this phase's `CurrencyResourceBankSaveHandle` structurally refuses to
-be paired with one — so the frame cost of encoding and writing currency's save still lands on the main
-thread, same as it always did under `DefaultResourceBankSaveHandle`, just now bounded to once per
-coalescing window rather than once per coin.
+design — see "`SaveComponentFactory`, `SaveFactoryInputs` and `SaveServiceFactory`" for why that
+ceiling is permanent rather than provisional. `GameLifetimeScope` is no longer the only place a
+`SaveScheduler<T>` is assembled: the chests minigame builds and registers its own across an assembly
+boundary the composition root cannot cross. `ThreadHoppingStore` remains unwired into every
+composition this game ships — see "`Load()` blocks" for why `CurrencyResourceBankSaveHandle`
+structurally refuses to be paired with one, and `ChestsMinigameController.Inject` now refuses for the
+same reason — so the frame cost of encoding and writing still lands on the main thread, same as it
+always did under `DefaultResourceBankSaveHandle`, just bounded to once per coalescing window rather
+than once per coin.

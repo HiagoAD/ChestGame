@@ -110,10 +110,10 @@ namespace Company.ChestGame.Tests.EditMode
         // and where the composition asserts its own constraints". GameLifetimeScope.RegisterCoreServices
         // hardcodes SaveStorage.AtomicFile for the currency store, so nothing reachable through its
         // own public parameters (currencySaveInputs, legacyCurrencyPlayerPrefsKey) can ever make
-        // that registration's own "if (!scheduler.CanFlushBlocking) throw ..." line actually fire -
-        // this pins the exception's own message contract instead, since the throw site itself is
-        // unreachable without either a production change or a fake standing in for the real
-        // registration. See this gate's report for the coverage gap named plainly.
+        // that registration's own ISaveFlushRegistry.Register call actually throw - this pins the
+        // exception's own message contract instead, since the throw site itself is unreachable
+        // without either a production change or a fake standing in for the real registration. See
+        // this gate's report for the coverage gap named plainly.
         [Test]
         public void SchedulerCannotFlushBlockingException_NamesTheKey_AndMentionsFlushBlocking()
         {

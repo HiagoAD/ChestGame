@@ -25,10 +25,11 @@ namespace Company.ChestGame.Tests.EditMode
     // This fixture avoids that entirely: the GameObject is left inactive for its whole life, which
     // defers Awake() indefinitely (Unity never calls Awake on a component whose GameObject has not
     // yet been active), so the container is never built and Configure() never runs. The private
-    // _currencySaveScheduler field - the only state either callback touches - is set directly
-    // through reflection to a scheduler built over an isolated in-memory FakeSaveStore, and the
-    // private OnApplicationPause/OnApplicationQuit methods are invoked the same way, since nothing
-    // in this process actually pauses or quits the application to call them for us.
+    // _saveFlushRegistry field - the only state either callback touches - is set directly through
+    // reflection to a real SaveFlushRegistry holding a scheduler built over an isolated in-memory
+    // FakeSaveStore, and the private OnApplicationPause/OnApplicationQuit methods are invoked the
+    // same way, since nothing in this process actually pauses or quits the application to call them
+    // for us.
     public class GameLifetimeScopePauseQuitFlushTests
     {
         private const string Key = "currency";
@@ -50,14 +51,14 @@ namespace Company.ChestGame.Tests.EditMode
             if (_gameObject != null) UnityEngine.Object.DestroyImmediate(_gameObject);
         }
 
-        private static FieldInfo SchedulerField() =>
-            typeof(GameLifetimeScope).GetField("_currencySaveScheduler", BindingFlags.Instance | BindingFlags.NonPublic);
+        private static FieldInfo RegistryField() =>
+            typeof(GameLifetimeScope).GetField("_saveFlushRegistry", BindingFlags.Instance | BindingFlags.NonPublic);
 
         private static MethodInfo LifecycleMethod(string name) =>
             typeof(GameLifetimeScope).GetMethod(name, BindingFlags.Instance | BindingFlags.NonPublic);
 
-        private void SetScheduler(SaveScheduler<CurrencySaveDocument> scheduler) =>
-            SchedulerField().SetValue(_scope, scheduler);
+        private void SetRegistry(ISaveFlushRegistry registry) =>
+            RegistryField().SetValue(_scope, registry);
 
         private void InvokeOnApplicationPause(bool pauseStatus) =>
             LifecycleMethod("OnApplicationPause").Invoke(_scope, new object[] { pauseStatus });
@@ -84,7 +85,9 @@ namespace Company.ChestGame.Tests.EditMode
         {
             (ISaveService service, FakeSaveStore store) = NewIsolatedService();
             SaveScheduler<CurrencySaveDocument> scheduler = new(service, Key, new FakeGameClock());
-            SetScheduler(scheduler);
+            SaveFlushRegistry registry = new();
+            registry.Register(scheduler);
+            SetRegistry(registry);
 
             scheduler.MarkDirty(new CurrencySaveDocument());
             Assert.IsTrue(scheduler.HasPendingWrite, "guard: something has to be pending for a flush to prove anything");
@@ -103,7 +106,9 @@ namespace Company.ChestGame.Tests.EditMode
         {
             (ISaveService service, FakeSaveStore _) = NewIsolatedService();
             SaveScheduler<CurrencySaveDocument> scheduler = new(service, Key, new FakeGameClock());
-            SetScheduler(scheduler);
+            SaveFlushRegistry registry = new();
+            registry.Register(scheduler);
+            SetRegistry(registry);
 
             scheduler.MarkDirty(new CurrencySaveDocument());
 
@@ -119,7 +124,9 @@ namespace Company.ChestGame.Tests.EditMode
         {
             (ISaveService service, FakeSaveStore store) = NewIsolatedService();
             SaveScheduler<CurrencySaveDocument> scheduler = new(service, Key, new FakeGameClock());
-            SetScheduler(scheduler);
+            SaveFlushRegistry registry = new();
+            registry.Register(scheduler);
+            SetRegistry(registry);
 
             scheduler.MarkDirty(new CurrencySaveDocument());
 
@@ -132,29 +139,37 @@ namespace Company.ChestGame.Tests.EditMode
         }
 
         [Test]
-        public void OnApplicationPause_True_WhenTheSchedulerThrows_LogsRatherThanPropagating()
+        public void OnApplicationPause_True_WhenAFlushableThrows_LogsRatherThanPropagating()
         {
             (ISaveService service, FakeSaveStore _) = NewIsolatedService();
             SaveScheduler<CurrencySaveDocument> scheduler = new(service, Key, new FakeGameClock());
+            SaveFlushRegistry registry = new();
+            registry.Register(scheduler);
             // A disposed scheduler's own FlushBlocking throws SchedulerDisposed - a real exception
-            // from the real type, not a fake standing in for one.
+            // from the real type, not a fake standing in for one. Disposing after registering:
+            // Register itself asserts CanFlushBlocking, which disposal does not change.
             scheduler.Dispose();
-            SetScheduler(scheduler);
+            SetRegistry(registry);
 
-            LogAssert.Expect(LogType.Error, new Regex(Regex.Escape("Failed to flush the currency save on pause/quit")));
+            // Logged by SaveFlushRegistry.FlushAll's own per-item catch, not by this callback's
+            // outer one - FlushAll never lets a single flushable's failure reach here at all - and
+            // naming the key, which is the whole reason ISaveFlushable carries one.
+            LogAssert.Expect(LogType.Error, new Regex(Regex.Escape($"The save under '{Key}' failed to flush on pause/quit")));
 
             Assert.DoesNotThrow(() => InvokeOnApplicationPause(true));
         }
 
         [Test]
-        public void OnApplicationQuit_WhenTheSchedulerThrows_LogsRatherThanPropagating()
+        public void OnApplicationQuit_WhenAFlushableThrows_LogsRatherThanPropagating()
         {
             (ISaveService service, FakeSaveStore _) = NewIsolatedService();
             SaveScheduler<CurrencySaveDocument> scheduler = new(service, Key, new FakeGameClock());
+            SaveFlushRegistry registry = new();
+            registry.Register(scheduler);
             scheduler.Dispose();
-            SetScheduler(scheduler);
+            SetRegistry(registry);
 
-            LogAssert.Expect(LogType.Error, new Regex(Regex.Escape("Failed to flush the currency save on pause/quit")));
+            LogAssert.Expect(LogType.Error, new Regex(Regex.Escape($"The save under '{Key}' failed to flush on pause/quit")));
 
             Assert.DoesNotThrow(() => InvokeOnApplicationQuit());
         }

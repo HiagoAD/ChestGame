@@ -23,8 +23,12 @@ namespace Company.ChestGame.Core
     {
         // Resolved once, right after the container that builds it, so OnApplicationPause and
         // OnApplicationQuit below - which Unity can call at any time - never have to reach into the
-        // container from inside a callback.
-        private SaveScheduler<CurrencySaveDocument> _currencySaveScheduler;
+        // container from inside a callback. Every scheduler this composition builds registers
+        // itself here through its own factory registration - see RegisterCoreServices - rather than
+        // this scope naming each one by its concrete type, which is what lets a scheduler defined
+        // in an assembly Core deliberately does not reference (Company.ChestGame.Minigame.Chests,
+        // say) still get flushed from here.
+        private ISaveFlushRegistry _saveFlushRegistry;
 
         protected override void Awake()
         {
@@ -34,7 +38,7 @@ namespace Company.ChestGame.Core
             // The game scene's scope descends from this one, so it has to survive the scene load.
             DontDestroyOnLoad(gameObject);
 
-            _currencySaveScheduler = Container.Resolve<SaveScheduler<CurrencySaveDocument>>();
+            _saveFlushRegistry = Container.Resolve<ISaveFlushRegistry>();
         }
 
         // The last callback with any durability guarantee on mobile - see docs/saving.md,
@@ -44,30 +48,30 @@ namespace Company.ChestGame.Core
         // OnApplicationPause(true) returns.
         private void OnApplicationPause(bool pauseStatus)
         {
-            if (pauseStatus) FlushCurrencySaveOrLog();
+            if (pauseStatus) FlushAllSavesOrLog();
         }
 
         // OnApplicationPause(true) does not fire on most desktop platforms on quit, so this is the
         // equivalent close for the same window there.
-        private void OnApplicationQuit() => FlushCurrencySaveOrLog();
+        private void OnApplicationQuit() => FlushAllSavesOrLog();
 
-        // CurrencyResourceBankSaveHandle's own constructor already refuses any composition where
-        // FlushBlocking could ever need to leave the calling thread to finish - see
-        // RegisterCoreServices and CurrencyResourceBankSaveHandle's header - so FlushWouldBlock is
-        // not a realistic outcome here. Still wrapped rather than trusted blindly: "the composition
-        // is structurally correct" is not the same guarantee as "the disk write it triggers cannot
-        // fail" (a full disk, a revoked permission), and an OnApplicationPause/OnApplicationQuit
-        // callback throwing is worse than one that logs and returns - the same reasoning
-        // SaveScheduler<T>.Dispose() already follows for its own best-effort flush.
-        private void FlushCurrencySaveOrLog()
+        // Every scheduler registered with _saveFlushRegistry already had CanFlushBlocking asserted
+        // at the moment it registered - see ISaveFlushRegistry.Register - so a FlushWouldBlock here
+        // is not a realistic outcome, and FlushAll itself is fault-isolating per flushable already.
+        // Still wrapped rather than trusted blindly: "the composition is structurally correct" is
+        // not the same guarantee as "the disk write it triggers cannot fail" (a full disk, a revoked
+        // permission), and an OnApplicationPause/OnApplicationQuit callback throwing is worse than
+        // one that logs and returns - the same reasoning SaveScheduler<T>.Dispose() already follows
+        // for its own best-effort flush.
+        private void FlushAllSavesOrLog()
         {
             try
             {
-                _currencySaveScheduler.FlushBlocking();
+                _saveFlushRegistry.FlushAll();
             }
             catch (Exception exception)
             {
-                Debug.LogError($"Failed to flush the currency save on pause/quit: {exception.Message}");
+                Debug.LogError($"Failed to flush saves on pause/quit: {exception.Message}");
             }
         }
 
@@ -115,6 +119,13 @@ namespace Company.ChestGame.Core
             builder.Register<IPopupListSource, AddressablesPopupListSource>(Lifetime.Singleton);
             builder.Register<IPopupParentSource, AddressablesPopupParentSource>(Lifetime.Singleton);
 
+            // Every SaveScheduler<T> this composition builds registers itself here - see
+            // ISaveFlushRegistry - so OnApplicationPause/OnApplicationQuit can flush every one of
+            // them without this scope ever naming a concrete scheduler type, including one defined
+            // in an assembly Core does not reference. See docs/saving.md, "The pause/quit flush
+            // lives on GameLifetimeScope".
+            builder.Register<ISaveFlushRegistry, SaveFlushRegistry>(Lifetime.Singleton);
+
             // Currency's save pipeline: a file-backed, unprotected, non-hopping ISaveService - see
             // docs/saving.md, "What ships, and where the composition asserts its own constraints" -
             // assembled by hand from SaveComponentFactory rather than through SaveServiceFactory,
@@ -134,18 +145,42 @@ namespace Company.ChestGame.Core
                     CurrencyResourceBankSaveHandle.SaveKey,
                     resolver.Resolve<IGameClock>());
 
-                // Asserted here, at the moment this composition is wired, rather than left to the
-                // first OnApplicationPause/OnApplicationQuit callback on a device: GameLifetimeScope
-                // calls FlushBlocking on this instance from both, so CanFlushBlocking has to be true
-                // for whatever is actually registered above. Reachable by any test that builds a
-                // container from RegisterCoreServices and resolves this type, the same way
-                // GameLifetimeScopeTests already resolves everything else this method registers.
-                if (!scheduler.CanFlushBlocking) throw SaveException.SchedulerCannotFlushBlocking(CurrencyResourceBankSaveHandle.SaveKey);
+                // Registering is itself the assertion that this scheduler can flush blocking - see
+                // ISaveFlushRegistry.Register, which throws if it cannot - so this factory no longer
+                // duplicates that check on its own. In the factory rather than beside it so every
+                // route to this singleton registers it exactly once, the build callback below and a
+                // test's own direct resolve alike.
+                resolver.Resolve<ISaveFlushRegistry>().Register(scheduler);
 
                 return scheduler;
             }, Lifetime.Singleton);
 
+            // Forced at container-build time rather than left to whoever happens to resolve the
+            // scheduler first. Registering with ISaveFlushRegistry is a side effect of the factory
+            // above, so a scheduler nothing resolves is a scheduler nothing registered - and an
+            // unregistered save is simply never flushed at pause/quit while looking identical in
+            // every other respect. One line here per scheduler this composition owns keeps that a
+            // property of the container, assertable through ISaveFlushRegistry.Registered, rather
+            // than a line in Awake() somebody has to remember to add alongside the next save.
+            builder.RegisterBuildCallback(resolver => resolver.Resolve<SaveScheduler<CurrencySaveDocument>>());
+
             builder.Register<IResourceBankSaveHandler<CurrencyType>, CurrencyResourceBankSaveHandle>(Lifetime.Singleton);
+
+            // Recorded by GameBootstrapper on every launch, over the same ISaveService currency
+            // saves through - see the note on BuildCurrencySaveService below.
+            builder.Register<SaveScheduler<GameMetaSaveDocument>>(resolver =>
+            {
+                SaveScheduler<GameMetaSaveDocument> scheduler = new(
+                    resolver.Resolve<ISaveService>(),
+                    GameMetaSaveDocument.SaveKey,
+                    resolver.Resolve<IGameClock>());
+
+                resolver.Resolve<ISaveFlushRegistry>().Register(scheduler);
+
+                return scheduler;
+            }, Lifetime.Singleton);
+
+            builder.RegisterBuildCallback(resolver => resolver.Resolve<SaveScheduler<GameMetaSaveDocument>>());
 
             builder.Register<ICurrencyManager, CurrencyManager>(Lifetime.Singleton);
 
@@ -179,6 +214,13 @@ namespace Company.ChestGame.Core
         // That resolution is not the same constant in every context - see DefaultCurrencySaveInputs
         // and DefaultLegacyCurrencyPlayerPrefsKey below for why a caller that explicitly passes null
         // does not always get the same answer production does.
+        //
+        // Kept its currency-flavoured name rather than renamed to something like BuildSaveService:
+        // the one ISaveService this builds is now the single registered service every key in this
+        // composition saves through - meta and the chests minigame's own scheduler resolve it too,
+        // not only currency's. Renaming this and its two overrides below would touch
+        // GameBootstrapperTests, GameLifetimeScopeTests and this file's own docs for no behavioural
+        // gain, so the name stays and this comment says what it actually governs now.
         private static ISaveService BuildCurrencySaveService(SaveFactoryInputs inputs, string legacyPlayerPrefsKey)
         {
             inputs ??= DefaultCurrencySaveInputs();

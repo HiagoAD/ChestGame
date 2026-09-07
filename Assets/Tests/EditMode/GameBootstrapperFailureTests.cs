@@ -1,9 +1,13 @@
 using System;
+using System.Text.RegularExpressions;
 using System.Threading;
 using Company.ChestGame.Common;
 using Company.ChestGame.Core;
+using Company.ChestGame.Saving;
 using Company.ChestGame.Tests.Common;
 using NUnit.Framework;
+using UnityEngine;
+using UnityEngine.TestTools;
 
 namespace Company.ChestGame.Tests.EditMode
 {
@@ -17,6 +21,9 @@ namespace Company.ChestGame.Tests.EditMode
 
         private FakeGameConfigSource _configSource;
         private RecordingBootStatus _status;
+        private FakeSaveStore _saveStore;
+        private ISaveService _saveService;
+        private SaveScheduler<GameMetaSaveDocument> _metaScheduler;
 
         private GameBootstrapper _bootstrapper;
 
@@ -25,6 +32,9 @@ namespace Company.ChestGame.Tests.EditMode
         {
             _configSource = new FakeGameConfigSource();
             _status = new RecordingBootStatus();
+            _saveStore = new FakeSaveStore();
+            _saveService = new SaveService(new JsonCodec(), new NoProtection(), _saveStore);
+            _metaScheduler = new SaveScheduler<GameMetaSaveDocument>(_saveService, GameMetaSaveDocument.SaveKey, new FakeGameClock());
 
             // Only the first source is ever reached: the loader stops at a failure rather than
             // reading on. The rest are present because the loader needs four.
@@ -37,8 +47,11 @@ namespace Company.ChestGame.Tests.EditMode
             // No root scope, because it is not touched until the step after the load. Moving
             // CreateChild ahead of the load would fail here with a NullReferenceException, which is
             // the right answer.
-            _bootstrapper = new GameBootstrapper(loader, null, _status);
+            _bootstrapper = new GameBootstrapper(loader, null, _status, _saveService, _metaScheduler);
         }
+
+        [TearDown]
+        public void TearDown() => _metaScheduler.Dispose();
 
         [Test]
         public void StartAsync_WhenContentCannotBeLoaded_TellsThePlayerWhy()
@@ -101,6 +114,64 @@ namespace Company.ChestGame.Tests.EditMode
 
             Assert.AreEqual(LOADING_MESSAGE, _status.LastMessage,
                 "boot reported a failure for what was only a shutdown");
+        }
+
+        // --- Meta: recorded early enough that a later content failure does not lose it ------
+
+        [Test]
+        public void StartAsync_RecordsALaunch_EvenWhenContentCannotBeLoaded()
+        {
+            _configSource.FailWith = new MissingAssetException("GameConfig", "Game config");
+
+            Assert.Throws<MissingAssetException>(
+                () => SynchronousUniTask.Complete(_bootstrapper.StartAsync(CancellationToken.None)));
+
+            _metaScheduler.FlushBlocking();
+            GameMetaSaveDocument meta = SynchronousUniTask.Result(
+                _saveService.LoadAsync<GameMetaSaveDocument>(GameMetaSaveDocument.SaveKey, CancellationToken.None));
+
+            Assert.AreEqual(1, meta.Launches);
+            Assert.Greater(meta.FirstLaunchUnixMs, 0);
+            Assert.AreEqual(meta.FirstLaunchUnixMs, meta.LastPlayedUnixMs);
+        }
+
+        [Test]
+        public void StartAsync_OnASecondLaunch_IncrementsLaunchesAndKeepsTheFirstLaunchTimestamp()
+        {
+            _configSource.FailWith = new MissingAssetException("GameConfig", "Game config");
+
+            Assert.Throws<MissingAssetException>(
+                () => SynchronousUniTask.Complete(_bootstrapper.StartAsync(CancellationToken.None)));
+            _metaScheduler.FlushBlocking();
+            GameMetaSaveDocument first = SynchronousUniTask.Result(
+                _saveService.LoadAsync<GameMetaSaveDocument>(GameMetaSaveDocument.SaveKey, CancellationToken.None));
+
+            Assert.Throws<MissingAssetException>(
+                () => SynchronousUniTask.Complete(_bootstrapper.StartAsync(CancellationToken.None)));
+            _metaScheduler.FlushBlocking();
+            GameMetaSaveDocument second = SynchronousUniTask.Result(
+                _saveService.LoadAsync<GameMetaSaveDocument>(GameMetaSaveDocument.SaveKey, CancellationToken.None));
+
+            Assert.AreEqual(2, second.Launches);
+            Assert.AreEqual(first.FirstLaunchUnixMs, second.FirstLaunchUnixMs,
+                "the first-launch timestamp must never move once set");
+        }
+
+        [Test]
+        public void StartAsync_WhenTheMetaSaveIsCorrupt_LogsAndStillPropagatesTheContentFailure()
+        {
+            // Never bytes SaveService's own pipeline could have written - PayloadUnreadable, the
+            // same failure a genuinely truncated save would report.
+            _saveStore.Seed(GameMetaSaveDocument.SaveKey, System.Text.Encoding.UTF8.GetBytes("not json"));
+            _configSource.FailWith = new MissingAssetException("GameConfig", "Game config");
+
+            LogAssert.Expect(LogType.Error, new Regex(Regex.Escape("The meta save could not be read and is being reset")));
+
+            MissingAssetException error = Assert.Throws<MissingAssetException>(
+                () => SynchronousUniTask.Complete(_bootstrapper.StartAsync(CancellationToken.None)));
+
+            Assert.AreEqual("GameConfig", error.AssetPath,
+                "a corrupt meta save must not brick boot or replace the real failure with a SaveException");
         }
 
         // What IBootStatus was told, which is otherwise invisible: SilentBootStatus keeps the

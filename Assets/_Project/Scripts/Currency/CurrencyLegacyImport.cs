@@ -35,6 +35,12 @@ namespace Company.ChestGame.Currency
             _legacyKey = string.IsNullOrEmpty(legacyKey) ? DefaultLegacyKey : legacyKey;
         }
 
+        // Always "currency", regardless of which PlayerPrefs key this instance reads from - the
+        // legacy key above is where the old data lives, this is where it belongs once imported.
+        // CurrencyResourceBankSaveHandle.SaveKey rather than the literal, so the two can never drift
+        // - both live in this assembly.
+        public string TargetKey => CurrencyResourceBankSaveHandle.SaveKey;
+
         // Present means "there is a value here that behaves like data", not merely "the key exists".
         // DefaultResourceBankSaveHandle<T>.Save(null) - never triggered by ResourceBank itself, but
         // not something PlayerPrefs stops anyone from having written by hand - writes the JSON

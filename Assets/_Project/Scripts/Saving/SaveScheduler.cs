@@ -28,7 +28,12 @@ namespace Company.ChestGame.Saving
     // the only thing that ever leaves it is the write ISaveService.SaveAsync performs somewhere
     // inside its own composed store - see ThreadHoppingStore - and every place that touches these
     // fields runs before that hop starts or after it has already returned control here.
-    public class SaveScheduler<T> : IDisposable where T : class
+    //
+    // ISaveFlushable needs no new code here: CanFlushBlocking and FlushBlocking below already carry
+    // exactly its two members. What that buys is a composition root registering this with an
+    // ISaveFlushRegistry without ever naming SaveScheduler<T> itself - see docs/saving.md, "The
+    // pause/quit flush lives on GameLifetimeScope".
+    public class SaveScheduler<T> : IDisposable, ISaveFlushable where T : class
     {
         // Long enough that a burst of MarkDirty calls from one interaction - several chests opened
         // in a row, a combo of pickups in one frame - collapses into one write; short enough that a
@@ -70,6 +75,8 @@ namespace Company.ChestGame.Saving
         // discover it is false at the one moment durability matters. See docs/saving.md,
         // "FlushBlocking, and why it cannot deadlock".
         public bool CanFlushBlocking => _saveService.CompletesOnCallingThread;
+
+        public string SaveKey => _key;
 
         public SaveScheduler(ISaveService saveService, string key, IGameClock clock,
             int coalesceWindowMilliseconds = DefaultCoalesceWindowMilliseconds)

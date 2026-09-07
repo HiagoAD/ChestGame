@@ -168,5 +168,42 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.AreEqual(42, result.Value, "cancellation after the durable write must not lose the imported value");
             Assert.IsTrue(SynchronousUniTask.Result(_store.ExistsAsync(Key, CancellationToken.None)));
         }
+
+        // --- TargetKey ------------------------------------------------------------------------
+
+        [Test]
+        public void LoadAsync_ForAKeyThisImportDoesNotTarget_NeverAsksItAnything()
+        {
+            _legacyImport.Present = true;
+            _legacyImport.ImportFunc = () => JObject.Parse(@"{""Value"":123}");
+
+            TestState result = SynchronousUniTask.Result(_service.LoadAsync<TestState>("some-other-key", CancellationToken.None));
+
+            Assert.AreEqual(0, result.Value, "a key this import does not target has to read as a first run, not as the imported document");
+            Assert.AreEqual(0, _legacyImport.IsPresentCallCount,
+                "the wrong key must not even be asked whether legacy data exists - see docs/saving.md, 'TargetKey, and the defect a second save key exposed'");
+            Assert.AreEqual(0, _legacyImport.ImportCallCount);
+            Assert.AreEqual(0, _legacyImport.ClearCallCount);
+            Assert.IsFalse(SynchronousUniTask.Result(_store.ExistsAsync("some-other-key", CancellationToken.None)),
+                "an untargeted key must not have the legacy document written under it");
+        }
+
+        [Test]
+        public void LoadAsync_AfterAnUntargetedKeyWasLoadedFirst_TheTargetedKeyStillImports()
+        {
+            // The whole phase 7a regression, end to end. Before TargetKey, loading any second key
+            // first would import the legacy document under that key and then Clear() it - so by the
+            // time the key it actually belonged to asked, the data was already gone and the player
+            // booted at zero with nothing thrown anywhere.
+            _legacyImport.Present = true;
+            _legacyImport.ImportFunc = () => JObject.Parse(@"{""Value"":123}");
+
+            SynchronousUniTask.Result(_service.LoadAsync<TestState>("chests", CancellationToken.None));
+            TestState targeted = SynchronousUniTask.Result(_service.LoadAsync<TestState>(Key, CancellationToken.None));
+
+            Assert.AreEqual(123, targeted.Value, "the untargeted load consumed the import the targeted key was still waiting for");
+            Assert.AreEqual(1, _legacyImport.ImportCallCount);
+            Assert.AreEqual(1, _legacyImport.ClearCallCount);
+        }
     }
 }

@@ -35,13 +35,14 @@ namespace Company.ChestGame.Tests.PlayMode
     // real "ResourceBankSaveData_CurrencyType" PlayerPrefs entry the moment the Game scene's
     // CurrencyWatcher is injected. GameLifetimeScope.CurrencySaveInputsOverride/
     // LegacyCurrencyPlayerPrefsKeyOverride are the seam this fixture has instead of arguments - see
-    // docs/saving.md, "Sealing the boot path a test cannot pass arguments through". Set in [SetUp],
-    // which the Unity Test Framework runs before [UnitySetUp] (and therefore before the scene, and
-    // Awake/Configure, ever load), cleared in [TearDown], which runs after [UnityTearDown] -
-    // unconditionally, so a failing test cannot leak either override into a fixture that runs after
-    // this one. No assertion in this file changed for this - only the composition this fixture boots
-    // against is now redirected, the same test hygiene every other fixture in this work already
-    // follows with its own per-fixture temp root and GUID key.
+    // docs/saving.md, "Sealing the boot path a test cannot pass arguments through". Assigned from
+    // [UnitySetUp] on the line before the scene load rather than from any earlier hook, so the
+    // ordering rests on statement order inside one coroutine rather than on how the framework
+    // sequences its setup attributes; cleared in [TearDown] unconditionally, so a failing test
+    // cannot leak either override into a fixture that runs after this one. No assertion in this
+    // file changed for this - only the composition this fixture boots against is now redirected,
+    // the same test hygiene every other fixture in this work already follows with its own
+    // per-fixture temp root and GUID key.
     public class GameBootstrapperTests
     {
         private const string BOOT_SCENE = "Boot";
@@ -58,8 +59,11 @@ namespace Company.ChestGame.Tests.PlayMode
             GameLifetimeScope.CurrencySaveInputsOverride = null;
             GameLifetimeScope.LegacyCurrencyPlayerPrefsKeyOverride = null;
 
-            if (_currencySaveRoot != null && Directory.Exists(_currencySaveRoot)) Directory.Delete(_currencySaveRoot, recursive: true);
-
+            // The save root is deleted at the end of CleanUp instead, not here: destroying the root
+            // scope disposes the container, which disposes every SaveScheduler<T> in it, and their
+            // best-effort Dispose flush writes through AtomicFileStore - which recreates the root
+            // directory. Deleting from this method leaked one directory holding a meta.sav per test,
+            // because meta is written on every boot where currency only writes when a balance moves.
             if (_legacyPlayerPrefsKey != null)
             {
                 PlayerPrefs.DeleteKey(_legacyPlayerPrefsKey);
@@ -71,10 +75,11 @@ namespace Company.ChestGame.Tests.PlayMode
         [UnitySetUp]
         public IEnumerator BootTheGame()
         {
-            // Set here rather than in a [SetUp]: UnitySetUp runs before SetUp, so a [SetUp] would
-            // assign these after LoadSceneAsync below has already driven GameLifetimeScope.Awake()
-            // -> Configure(), which reads them once and builds the save service from what it finds.
-            // Assigning immediately before the load is the only ordering that cannot be wrong.
+            // Immediately before the LoadSceneAsync below, which is what drives
+            // GameLifetimeScope.Awake() -> Configure(); that reads both once and builds the save
+            // service from what it finds. Statement order in this one coroutine is the whole
+            // guarantee - no setup-attribute ordering is assumed, because a stale claim about one
+            // is what defeated this seam once already.
             _currencySaveRoot = Path.Combine(Path.GetTempPath(), "ChestGameSaveTests_" + System.Guid.NewGuid().ToString("N"));
             _legacyPlayerPrefsKey = "ChestGameSaveTests.Legacy." + System.Guid.NewGuid().ToString("N");
 
@@ -120,6 +125,12 @@ namespace Company.ChestGame.Tests.PlayMode
                 SceneManager.SetActiveScene(empty);
                 yield return SceneManager.UnloadSceneAsync(game);
             }
+
+            // Last, and in this method rather than in [TearDown], so it lands after every scheduler
+            // the destroyed container just disposed has finished its own flush - see
+            // RestoreTheCurrencySaveOverrides. Ordering by statement inside one coroutine rather
+            // than by which teardown attribute the framework runs first.
+            if (_currencySaveRoot != null && Directory.Exists(_currencySaveRoot)) Directory.Delete(_currencySaveRoot, recursive: true);
         }
 
         [Test]

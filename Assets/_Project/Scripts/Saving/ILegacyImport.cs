@@ -13,6 +13,11 @@ namespace Company.ChestGame.Saving
     // something this assembly could implement itself.
     public interface ILegacyImport
     {
+        // The save key this import's data belongs under. SaveService only ever consults this import
+        // when asked to load that exact key, compared ordinally - never for any other key, even one
+        // whose own store also answers nothing. See docs/saving.md, "The legacy import".
+        string TargetKey { get; }
+
         // Whether the legacy data this import knows how to read is still there. Must answer false
         // once Clear() has actually removed it - a stale true here is what would let the import run
         // twice.

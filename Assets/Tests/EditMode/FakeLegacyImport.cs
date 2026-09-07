@@ -11,15 +11,30 @@ namespace Company.ChestGame.Tests.EditMode
     // it from the call counts alone.
     public class FakeLegacyImport : ILegacyImport
     {
+        // Defaults to "profile", the key every existing test against this fake already loads under
+        // - settable too, for a test that needs a different key to prove SaveService only ever
+        // consults this import for the one key it targets.
+        public string TargetKey { get; set; }
+
         public bool Present { get; set; }
         public Func<JObject> ImportFunc { get; set; }
         public Action OnClear { get; set; }
         public bool ClearThrows { get; set; }
 
+        public int IsPresentCallCount { get; private set; }
         public int ImportCallCount { get; private set; }
         public int ClearCallCount { get; private set; }
 
-        public bool IsPresent() => Present;
+        public FakeLegacyImport(string targetKey = "profile")
+        {
+            TargetKey = targetKey;
+        }
+
+        public bool IsPresent()
+        {
+            IsPresentCallCount++;
+            return Present;
+        }
 
         public JObject Import()
         {

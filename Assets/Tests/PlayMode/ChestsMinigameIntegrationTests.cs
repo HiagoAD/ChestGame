@@ -4,6 +4,7 @@ using System.Linq;
 using Company.ChestGame.Common;
 using Company.ChestGame.Minigame.Chests;
 using Company.ChestGame.Minigame.Chests.Internal;
+using Company.ChestGame.Saving;
 using Company.ChestGame.Tests.Common;
 using NUnit.Framework;
 using UnityEngine;
@@ -31,7 +32,11 @@ namespace Company.ChestGame.Tests.PlayMode
             _random = new FakeRandomProvider { NextValue = 1f };
             _controller = new ChestsMinigameController();
             _controller.Configure(config);
-            _controller.Inject(_rewards, _random, new UnityGameClock());
+
+            // A real ISaveService over InMemoryStore: a legitimate production choice
+            // (docs/saving.md), and this assembly cannot reach the EditMode-only FakeSaveStore.
+            ISaveService saveService = new SaveService(new JsonCodec(), new NoProtection(), new InMemoryStore());
+            _controller.Inject(_rewards, _random, new UnityGameClock(), saveService, new SaveFlushRegistry());
         }
 
         [TearDown]

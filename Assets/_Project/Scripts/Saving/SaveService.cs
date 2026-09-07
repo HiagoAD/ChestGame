@@ -126,7 +126,11 @@ namespace Company.ChestGame.Saving
         // perfectly accurate after a partial run.
         private async UniTask<T> ImportLegacyOrFreshAsync<T>(string key, CancellationToken ct) where T : class, new()
         {
-            if (_legacyImport == null || !_legacyImport.IsPresent()) return new T();
+            // TargetKey checked before IsPresent() is ever called: a legacy import wired for a
+            // different key must not even be asked whether it has data, let alone have that data
+            // imported into this one - see docs/saving.md, "The legacy import", for the defect this
+            // guards against once a second save key exists.
+            if (_legacyImport == null || !string.Equals(_legacyImport.TargetKey, key, StringComparison.Ordinal) || !_legacyImport.IsPresent()) return new T();
 
             T imported;
             try

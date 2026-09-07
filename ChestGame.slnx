@@ -77,12 +77,12 @@
   <Project Path="Company.ChestGame.Minigame.csproj" />
   <Project Path="Unity.InputSystem.ForUI.csproj" />
   <Project Path="Company.ChestGame.Minigame.Chests.csproj" />
+  <Project Path="Company.ChestGame.Core.csproj" />
   <Project Path="Unity.Collections.CodeGen.csproj" />
   <Project Path="Unity.2D.Tilemap.Extras.csproj" />
   <Project Path="Unity.Addressables.csproj" />
   <Project Path="Unity.2D.Animation.Runtime.csproj" />
   <Project Path="Unity.Mathematics.Editor.csproj" />
-  <Project Path="Company.ChestGame.Core.csproj" />
   <Project Path="Unity.VisualScripting.SettingsProvider.Editor.csproj" />
   <Project Path="UnityEditor.UI.Analytics.csproj" />
   <Project Path="UniTask.TextMeshPro.csproj" />
