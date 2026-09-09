@@ -160,11 +160,20 @@ can parse cleanly and still describe a round that can never be played or never e
 
 ### The controller
 
-`ChestsMinigameController` holds the chest states, the remaining attempts, the async opening and the
-reward distribution. It touches neither `UnityEngine.Random` nor `Time` directly. Both arrive through
-the seams described in [architecture.md](architecture.md).
+`ChestsMinigameController` holds the chest states, the remaining attempts, the async opening, the
+reward distribution and the run save. It touches neither `UnityEngine.Random` nor `Time` directly.
+Both arrive through the seams described in [architecture.md](architecture.md).
 
 `Configure` lands before injection and sizes the chest list from the config.
+
+`Inject` builds the controller's own `SaveScheduler<ChestsRunSaveDocument>` and registers it with
+`ISaveFlushRegistry`, because `Company.ChestGame.Core` does not reference this assembly and so cannot
+build one for it. It also loads whatever run was left pending, holding it for the first `NewGame`
+call rather than applying it immediately. A saved run this build cannot read is logged and discarded
+rather than thrown: it holds no reward a player earned, since the win pays out through currency's own
+save. Registration happens last, so nothing throwing above it can leave a scheduler registered for
+the lifetime of the process against a half-injected controller. `Dispose` unregisters and disposes
+the scheduler, and stays idempotent.
 
 A click spawns two concurrent UniTasks under one cancellation token: one updates the chest's progress
 every frame through `IGameClock.NextFrame`, which lasts exactly one update loop the way
@@ -178,12 +187,24 @@ other, so there is no true multithreading here.
 `NewGame` cancels any opening chest and closes all of them, which supports restarts. It does not
 support the number of chests changing between games.
 
+It is also where a pending run is resolved. The first call after `Inject` restores that run if it
+still fits (the saved chest count matches, no index is out of range or repeated, and the run had
+attempts left) and discards it otherwise, overwriting the save with an empty document. A restored
+run resumes its attempt count rather than starting at zero. Every later call discards first, so a
+restart is never itself resumable, and finishing a run overwrites the save in the same call that
+opens the prize chest, so a finished run never resumes.
+
 ### Prize odds
 
 The prize location is calculated on every attempt rather than stored, to avoid being discoverable
 through memory inspection. That is unrealistic for a production game and any real anti-cheat effort
-would need far more, but it works as a demonstration. The simpler approach would be to save the
-winning chest index at new game.
+would need far more, but it works as a demonstration.
+
+The simpler approach would have been to pick the winning chest index at new game and keep it. **Do
+not reintroduce that now that the run is saved**: it would put the prize location on disk, which is
+the one thing `ChestsRunSaveDocument` is shaped to make impossible, and two tests pin it there: an
+allow-list over the serialized members and an invariance test over the written bytes. See design
+decision [#17](design-decisions.md#17-decision-9-is-enforced-by-the-save-models-shape-not-by-a-comment).
 
 The odds model exactly one prize among the chests. With N chests and k already opened empty, the one
 being opened now holds it with probability 1/(N - k). `Attempts` has already been incremented by that

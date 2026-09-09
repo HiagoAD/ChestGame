@@ -7,6 +7,7 @@
         "Company.ChestGame.Minigame",
         "Company.ChestGame.Pooling",
         "Company.ChestGame.Rewards",
+        "Company.ChestGame.Saving",
         "UniTask",
         "Unity.TextMeshPro",
         "UnityEngine.UI",

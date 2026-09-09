@@ -3,7 +3,10 @@
     "rootNamespace": "Company.ChestGame.Editor",
     "references": [
         "Unity.Addressables.Editor",
-        "Unity.Addressables"
+        "Unity.Addressables",
+        "Company.ChestGame.Saving",
+        "Company.ChestGame.Saving.Demo",
+        "UniTask"
     ],
     "includePlatforms": [
         "Editor"

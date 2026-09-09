@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Company.ChestGame.Minigame.Chests;
 using Company.ChestGame.Minigame.Chests.Internal;
+using Company.ChestGame.Saving;
 using Company.ChestGame.Tests.Common;
 using NUnit.Framework;
 
@@ -21,12 +22,17 @@ namespace Company.ChestGame.Tests.EditMode
         private FakeGameClock _clock;
         private ChestsMinigameController _controller;
 
+        private ISaveService _saveService;
+        private ISaveFlushRegistry _flushRegistry;
+
         [SetUp]
         public void SetUp()
         {
             _rewards = new FakeRewardsManager();
             _random = new FakeRandomProvider();
             _clock = new FakeGameClock { DeltaTime = 0.05f };
+            _saveService = new SaveService(new JsonCodec(), new NoProtection(), new FakeSaveStore());
+            _flushRegistry = new SaveFlushRegistry();
             _controller = new ChestsMinigameController();
         }
 
@@ -35,11 +41,13 @@ namespace Company.ChestGame.Tests.EditMode
 
         // Mirrors the framework's own order: ChestsMinigameSO configures the controller,
         // MinigameManager.Get injects it afterwards. The real config type rather than a fake,
-        // because it is a plain validated value.
+        // because it is a plain validated value. A real ISaveService over a FakeSaveStore rather
+        // than a mock: ChestsMinigameSaveTests is where the save behaviour itself is pinned, so
+        // this fixture only needs Inject to succeed the same way it always has.
         private void ConfigureAndInject(int chestCount = 4, int attemptsCount = 4)
         {
             _controller.Configure(ChestsMinigameConfig.Create(chestCount, attemptsCount, OpenMilliseconds));
-            _controller.Inject(_rewards, _random, _clock);
+            _controller.Inject(_rewards, _random, _clock, _saveService, _flushRegistry);
         }
 
         // Clicks a chest and lets it run all the way to open.

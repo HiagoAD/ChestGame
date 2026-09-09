@@ -4,7 +4,9 @@ using System.Threading;
 using Company.ChestGame.Common;
 using Company.ChestGame.Minigame.Core;
 using Company.ChestGame.Rewards;
+using Company.ChestGame.Saving;
 using Cysharp.Threading.Tasks;
+using UnityEngine;
 using VContainer;
 using VContainer.Unity;
 
@@ -54,12 +56,18 @@ namespace Company.ChestGame.Minigame.Chests.Internal
         private IRandomProvider _random;
         private IGameClock _clock;
 
+        private ISaveFlushRegistry _flushRegistry;
+        private SaveScheduler<ChestsRunSaveDocument> _scheduler;
+
+        // Loaded once during Inject, consumed by the first NewGame call after it.
+        private ChestsRunSaveDocument _pendingRestore;
+
         private State _state = State.NotStarted;
         private int _attempts = 0;
 
 
-        // Handed over by ChestsMinigameSO before injection. It has to land first, because the chest
-        // list is sized from it.
+        // Call before Inject and before NewGame: the chest list is sized from this, and nothing
+        // works until it has run.
         public void Configure(ChestsMinigameConfig config)
         {
             _timeToOpenChestMiliseconds = config.TimeToOpenChestMiliseconds;
@@ -73,12 +81,42 @@ namespace Company.ChestGame.Minigame.Chests.Internal
             Chests = chests.AsReadOnly();
         }
 
+        // Call after Configure. Builds the save scheduler this controller owns and registers it for
+        // flushing, so Dispose must run when the minigame ends or that registration outlives it.
         [Inject]
-        public void Inject(IRewardsManager rewardsManager, IRandomProvider random, IGameClock clock)
+        public void Inject(IRewardsManager rewardsManager, IRandomProvider random, IGameClock clock,
+            ISaveService saveService, ISaveFlushRegistry saveFlushRegistry)
         {
             _rewardsManager = rewardsManager;
             _random = random;
             _clock = clock;
+
+            // The restore below blocks on a load, which is only safe when the service never leaves
+            // the calling thread. Refused here rather than deadlocking later.
+            if (!saveService.CompletesOnCallingThread) throw SaveException.SynchronousLoadNeedsNonHoppingStore();
+
+            _flushRegistry = saveFlushRegistry;
+            _scheduler = new SaveScheduler<ChestsRunSaveDocument>(saveService, ChestsRunSaveDocument.SaveKey, clock);
+
+            try
+            {
+                _pendingRestore = saveService
+                    .LoadAsync<ChestsRunSaveDocument>(ChestsRunSaveDocument.SaveKey, CancellationToken.None)
+                    .GetAwaiter()
+                    .GetResult();
+            }
+            // An unreadable run is discarded rather than fatal: the next NewGame overwrites it, so
+            // the save repairs itself instead of refusing to open the minigame on every launch.
+            // Only this failure is caught; a wiring mistake still propagates.
+            catch (SaveException exception)
+            {
+                Debug.LogError($"The saved chests run could not be read and is being discarded: {exception.Message}");
+                _pendingRestore = null;
+            }
+
+            // Last on purpose: anything above throwing must not leave a registration behind for a
+            // controller that never finished being injected and so will never be disposed.
+            _flushRegistry.Register(_scheduler);
         }
 
         public override void Dispose()
@@ -90,9 +128,19 @@ namespace Company.ChestGame.Minigame.Chests.Internal
             OnStateChange = null;
             OnGameFinished = null;
             OnAttemptsChanged = null;
+
+            // Null-conditional so a second Dispose is still a no-op.
+            _flushRegistry?.Unregister(_scheduler);
+            _scheduler?.Dispose();
+            _flushRegistry = null;
+            _scheduler = null;
         }
 
-        // Supports restarts, but not the number of chests changing between games.
+        // Starts a round. The first call after Inject resumes a saved run if one still fits this
+        // configuration and discards it otherwise; every later call always starts fresh, so a
+        // restart is never itself resumable. Safe to call repeatedly, and safe after Dispose.
+        //
+        // Supports restarts, but not the number of chests changing between rounds.
         public override void NewGame()
         {
             CancelOpeningToken();
@@ -104,7 +152,63 @@ namespace Company.ChestGame.Minigame.Chests.Internal
                 chest.SetClosed();
             }
 
+            ChestsRunSaveDocument restore = _pendingRestore;
+            _pendingRestore = null;
+
+            if (restore != null && !ShouldDiscardRestore(restore))
+            {
+                RestoreFrom(restore);
+            }
+            else
+            {
+                _scheduler?.MarkDirty(new ChestsRunSaveDocument());
+            }
+
             CurrentState = State.Playing;
+        }
+
+        // Each condition is a state a stored run can legitimately be in: a configuration that
+        // changed between sessions, an edited or truncated save, or a run that had already ended.
+        private bool ShouldDiscardRestore(ChestsRunSaveDocument document)
+        {
+            List<int> indices = document.OpenedChestIndices ?? new List<int>();
+
+            if (document.ChestCount != Chests.Count) return true;
+            if (indices.Count >= TotalAttempts) return true;
+
+            HashSet<int> seen = new();
+            foreach (int index in indices)
+            {
+                if (index < 0 || index >= Chests.Count) return true;
+                if (!seen.Add(index)) return true;
+            }
+
+            return false;
+        }
+
+        // Must run on a board whose chests are all closed: opening one that is already open is a
+        // no-op, so restoring onto anything else silently does nothing.
+        private void RestoreFrom(ChestsRunSaveDocument document)
+        {
+            foreach (int index in document.OpenedChestIndices)
+            {
+                Chests[index].SetOpen(false);
+            }
+
+            Attempts = document.OpenedChestIndices.Count;
+        }
+
+        // Only ever records chests opened empty, so a stored run cannot say where the prize is.
+        // Keep it that way: a round that finds the prize ends in the same call, and stores nothing.
+        private ChestsRunSaveDocument BuildCurrentRunDocument()
+        {
+            List<int> opened = new();
+            for (int i = 0; i < Chests.Count; i++)
+            {
+                if (Chests[i].CurrentState == ChestsMinigameChestModel.State.Open_Empty) opened.Add(i);
+            }
+
+            return new ChestsRunSaveDocument { ChestCount = Chests.Count, OpenedChestIndices = opened };
         }
 
         // Spawns the two tasks that drive the chest, opening and open, under one token. The delay is
@@ -175,15 +279,17 @@ namespace Company.ChestGame.Minigame.Chests.Internal
             bool hasChestPrize = TryGiveChestPrize();
             chest.SetOpen(hasChestPrize);
 
+            _scheduler?.MarkDirty(BuildCurrentRunDocument());
+
             CheckEndGame(hasChestPrize);
         }
 
-        // The prize location is drawn per attempt rather than stored, to avoid memory inspection.
+        // Drawn per attempt and never stored anywhere, which is what keeps the prize location out
+        // of memory and out of any save.
         //
-        // The odds model exactly one prize among the chests: with N chests and k already opened
-        // empty, this one holds it with probability 1/(N - k). Attempts is already incremented by
-        // here, so k is (Attempts - 1). Dropping the +1 makes the odds reach certainty one chest
-        // early and the last chest could never hold the prize.
+        // With N chests and k already opened empty, this one holds the prize with probability
+        // 1/(N - k). Attempts is already incremented by here, so k is (Attempts - 1). Dropping that
+        // +1 makes the odds reach certainty one chest early and the last chest can never win.
         private bool TryGiveChestPrize()
         {
             float prizeChance = 1 / (float)(Chests.Count - Attempts + 1);
@@ -200,12 +306,15 @@ namespace Company.ChestGame.Minigame.Chests.Internal
             if (hasChestPrize)
             {
                 CurrentState = State.Ended;
+                // Overwrites what opening the chest just recorded, so a finished run never resumes.
+                _scheduler?.MarkDirty(new ChestsRunSaveDocument());
                 _rewardsManager.GiveRandomCurrencyReward("ChestsMinigame");
                 OnGameFinished?.Invoke(true);
             }
             else if (Attempts >= TotalAttempts)
             {
                 CurrentState = State.Ended;
+                _scheduler?.MarkDirty(new ChestsRunSaveDocument());
                 OnGameFinished?.Invoke(false);
             }
         }

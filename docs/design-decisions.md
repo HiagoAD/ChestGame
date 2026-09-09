@@ -290,3 +290,69 @@ flaky test that `docs/testing.md`'s play-mode rule exists to prevent.
 The table above therefore comes from `PoolBenchmark`, which measures and **logs** without asserting on
 any duration. Its only assertion is the deterministic one the timings are a consequence of: a pooled
 rebuild instantiates nothing and the baseline instantiates a full board.
+
+## 15. Saving composes three axes rather than picking one
+
+Pooling's variants are mutually exclusive — a pool is one of four things — so `PoolFactory.Create`
+maps one enum to one implementation. Saving's are not. Where the bytes land, how an object becomes
+bytes, and what protects them are three independent choices, and a flat enum covering them would need
+four by three by five members. So the enum-and-factory shape survives, but `SaveComponentFactory`
+answers *which store, which codec, which protector* and the composition root assembles the chain.
+
+That boundary was drawn in the wrong place first. `SaveServiceFactory` was built to return a finished
+`ISaveService`, and by the time a real consumer existed it could not build what the game actually
+needed: it knew nothing about the migrator, the legacy import or the scheduler, so it could only
+produce the one configuration a shipping game does not want. It also held the default XOR, HMAC and
+AES keys, which undid the reason the protectors take keys as constructor arguments. The fix was to
+split the mapping from the assembly, and the lesson is the one the factory's own model already showed:
+`PoolFactory` maps a strategy to a pool, it does not build the screen the pool lives in.
+
+**None of the protection is security, and the docs say so in those words.** The key ships inside the
+binary and the state is in RAM regardless. Signing raises the cost of cheating from "open the file in
+Notepad" to "decompile the player", and encryption adds "and find the key". Neither does anything
+about a memory editor. That is why the save inspector's tamper button is the demo rather than the
+table above it: watching `NoProtection` accept an edited balance and `HmacSignedProtector` refuse the
+identical edit is the honest version of the claim.
+
+The one number in the plan that a measurement contradicted is worth keeping visible. Gzip was
+estimated at −70%; measured, it *costs* 40% at the size this game actually saves and saves 95% at 4 KB.
+`SaveBenchmark` reports both sizes rather than one, because either alone answers the wrong question.
+
+## 16. The version lives outside whatever protects the body
+
+`SaveEnvelope` is always plaintext: a version, the codec and protector ids, and an opaque body. The
+version is therefore knowable before anything decides how to decode the rest. Put it inside the
+protected body and a key rotation you get wrong is unrecoverable — there is no way to learn what you
+are holding. A save from a newer build is refused with a typed failure rather than partially read,
+because half-loading a future save silently deletes progress a player can see they had.
+
+The corollary took a defect to find. The envelope has to round-trip a body's *values* exactly, and the
+obvious implementation loses that silently: deserialising through a JSON object model forgets the text
+it came from, so `1.50` returns as `1.5` and `"2026-09-01"` returns as `"2026-09-01T00:00:00"`. The
+second is in this game's own save model, so the corruption was live with no protection involved at
+all. The envelope captures the body as literal source text instead.
+
+Worth stating precisely, because a later phase tested the general claim and it did not hold:
+`DateParseHandling` only reinterprets a string when it is materialised into a *generic* member, which
+is what `SaveEnvelope.Body` is. A concretely `string`-typed property round-trips untouched. That was
+the envelope's bug specifically, not a property of the codec.
+
+## 17. Decision #9 is enforced by the save model's shape, not by a comment
+
+[#9](#9-prize-location-calculated-per-run) computes the prize chest per attempt so it is never in
+memory to be found. Writing it to disk would undo that quietly and completely, so
+`ChestsRunSaveDocument` carries exactly two members — the chest count and which chests are open — and
+has no field capable of naming the prize, a seed, or a per-chest state. Finding the prize ends the run
+in the same call, so a mid-run save can only ever hold empty chests.
+
+Two tests hold it there, and they catch different things. An allow-list over the serialized members
+fails on a third member of any kind. And an invariance test opens the same chests in the same order on
+two controllers seeded so a *different* chest would win next, then asserts the payloads are
+byte-identical: the save does not merely avoid storing where the prize is, it does not move when the
+prize does. A mutation check confirmed both can fail — an unpopulated `PrizeChestIndex` trips only the
+allow-list, and populating it from the draw trips the invariance test too.
+
+What this deliberately does not fix is written down rather than designed around: the attempt budget is
+re-rollable by force-quitting inside the coalescing window. The prize gains nothing from save-scumming
+— the odds are `1 / (N - k + 1)` and re-rolling a lower `k` is strictly worse — but the attempts are
+genuinely exploitable, and closing it costs a frame hitch on every chest.

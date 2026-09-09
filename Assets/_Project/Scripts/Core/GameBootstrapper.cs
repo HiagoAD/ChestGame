@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using Company.ChestGame.Minigame;
+using Company.ChestGame.Saving;
 using Cysharp.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.SceneManagement;
@@ -9,10 +10,10 @@ using VContainer.Unity;
 
 namespace Company.ChestGame.Core
 {
-    // The boot scene's only job, in the order the whole design rests on: load the content, build
-    // the scope that consumes it, fetch whatever the minigames want up front, then open the game
-    // scene with that scope already standing. Nothing downstream can exist before its data arrived,
-    // which is why no service has to ask whether loading has finished.
+    // Boot scene's only job: load the content, build the scope that consumes it, fetch whatever
+    // the minigames want up front, then open the game scene with that scope already standing.
+    // Nothing downstream exists before its data arrived, so no service ever has to ask whether
+    // loading has finished.
     public class GameBootstrapper : IAsyncStartable
     {
         public const string GAME_SCENE_NAME = "Game";
@@ -29,23 +30,31 @@ namespace Company.ChestGame.Core
         private readonly GameContentLoader _loader;
         private readonly LifetimeScope _rootScope;
         private readonly IBootStatus _status;
+        private readonly ISaveService _saveService;
+        private readonly SaveScheduler<GameMetaSaveDocument> _metaScheduler;
 
         private LifetimeScope _gameScope;
 
-        public GameBootstrapper(GameContentLoader loader, LifetimeScope rootScope, IBootStatus status)
+        public GameBootstrapper(GameContentLoader loader, LifetimeScope rootScope, IBootStatus status,
+            ISaveService saveService, SaveScheduler<GameMetaSaveDocument> metaScheduler)
         {
             _loader = loader;
             _rootScope = rootScope;
             _status = status;
+            _saveService = saveService;
+            _metaScheduler = metaScheduler;
         }
 
-        // A failure is reported to the label and then rethrown rather than swallowed. Returning
-        // normally would be a lie the rest of boot is built on: the game scene was never loaded and
-        // no service downstream exists.
+        // A failure is reported to the label, then rethrown rather than swallowed. Returning
+        // normally here would claim the game scene loaded and its services exist when neither did.
         public async UniTask StartAsync(CancellationToken cancellation)
         {
             try
             {
+                // Early, so a content failure below still gets recorded as a launch. Meta's own
+                // failure never becomes a boot failure - see RecordLaunchAsync.
+                await RecordLaunchAsync(cancellation);
+
                 _status.Report(LOADING_MESSAGE);
 
                 LoadedContent content = await _loader.LoadAsync(cancellation);
@@ -77,6 +86,31 @@ namespace Company.ChestGame.Core
                 _status.Report($"{FAILED_MESSAGE} {failure.Message}");
                 throw;
             }
+        }
+
+        // Only the load is guarded: an unreadable meta save is reset to a fresh document rather
+        // than failing boot. A failure past this point is a bug, not a corrupt save, and fails
+        // boot like any other.
+        private async UniTask RecordLaunchAsync(CancellationToken ct)
+        {
+            GameMetaSaveDocument meta;
+            try
+            {
+                meta = await _saveService.LoadAsync<GameMetaSaveDocument>(GameMetaSaveDocument.SaveKey, ct);
+            }
+            catch (SaveException exception)
+            {
+                Debug.LogError($"The meta save could not be read and is being reset: {exception.Message}");
+                meta = new GameMetaSaveDocument();
+            }
+
+            long now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+
+            meta.Launches++;
+            if (meta.FirstLaunchUnixMs == 0) meta.FirstLaunchUnixMs = now;
+            meta.LastPlayedUnixMs = now;
+
+            _metaScheduler.MarkDirty(meta);
         }
 
         // The preloader reports a number because a number is all it knows; wording is the shell's.

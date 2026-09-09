@@ -4,6 +4,7 @@ using Company.ChestGame.Common;
 using Company.ChestGame.Minigame.Chests;
 using Company.ChestGame.Minigame.Chests.Internal;
 using Company.ChestGame.Pooling;
+using Company.ChestGame.Saving;
 using Company.ChestGame.Tests.Common;
 using NUnit.Framework;
 using TMPro;
@@ -39,7 +40,12 @@ namespace Company.ChestGame.Tests.PlayMode
             _controller = new ChestsMinigameController();
             _controller.Configure(ChestsMinigameConfig.Create(
                 chestCount: BoardSize, attempsCount: BoardSize, timeToOpenChestMiliseconds: 1000));
-            _controller.Inject(new FakeRewardsManager(), new FakeRandomProvider(), new UnityGameClock());
+
+            // A real ISaveService over InMemoryStore rather than a test double: InMemoryStore is a
+            // legitimate production choice for exactly this reason (docs/saving.md), and this
+            // fixture's own PlayMode assembly cannot reference the EditMode-only FakeSaveStore.
+            ISaveService saveService = new SaveService(new JsonCodec(), new NoProtection(), new InMemoryStore());
+            _controller.Inject(new FakeRewardsManager(), new FakeRandomProvider(), new UnityGameClock(), saveService, new SaveFlushRegistry());
         }
 
         [TearDown]

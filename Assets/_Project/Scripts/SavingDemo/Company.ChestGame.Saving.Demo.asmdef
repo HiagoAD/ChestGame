@@ -1,0 +1,18 @@
+{
+    "name": "Company.ChestGame.Saving.Demo",
+    "rootNamespace": "Company.ChestGame.Saving.Demo",
+    "references": [
+        "Company.ChestGame.Saving",
+        "Company.ChestGame.Common",
+        "UniTask"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": true,
+    "precompiledReferences": [],
+    "autoReferenced": false,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
