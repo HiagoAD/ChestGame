@@ -5,12 +5,14 @@ namespace Company.ChestGame.Saving
     {
         string Id { get; }
 
-        // Whether Protect's output is still valid JSON once this has run on top of the codec. Same
-        // meaning, and same trap, as ISaveCodec.IsTextSafe.
+        // Answer true only if Protect's output is still valid JSON. Valid UTF-8 is not enough.
         bool IsTextSafe { get; }
 
         byte[] Protect(byte[] plain);
 
+        // Reverses Protect. An implementation that can detect an edit throws
+        // PayloadTamperedException when the bytes no longer match what it produced; one that cannot
+        // returns whatever the edited bytes decode to.
         byte[] Unprotect(byte[] stored);
     }
 }

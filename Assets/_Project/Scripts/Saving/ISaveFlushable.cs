@@ -1,22 +1,21 @@
 namespace Company.ChestGame.Saving
 {
-    // The pause/quit flush seam a scheduler-shaped type participates in without a composition root
-    // ever naming its concrete type. SaveScheduler<T> already carries both members with these exact
-    // signatures, so it needs no new code beyond declaring it implements this. See docs/saving.md,
-    // "The pause/quit flush lives on GameLifetimeScope".
+    // Something holding unwritten state that can be forced to disk synchronously, at a moment when
+    // there is no time left to await anything.
     public interface ISaveFlushable
     {
-        // See SaveScheduler<T>.CanFlushBlocking - answered ahead of time, at composition time, from
-        // whatever this flushable is built over.
+        // Whether FlushBlocking can ever succeed on this instance. Answerable before any state is
+        // pending, so a caller can refuse a bad wiring at construction rather than at the one moment
+        // durability matters.
         bool CanFlushBlocking { get; }
 
-        // See SaveScheduler<T>.FlushBlocking - genuinely synchronous end to end, never a blocking
-        // wait on work that itself needs the calling thread to finish.
+        // Writes whatever is pending and returns only once it is durable. Synchronous end to end:
+        // it must never block on work that itself needs the calling thread to finish. Throws when
+        // CanFlushBlocking is false.
         void FlushBlocking();
 
-        // The save key this flushable writes under. On the seam rather than only on SaveScheduler<T>
-        // so a registry holding several can name the one that failed - a flush error on a device
-        // that cannot say which save it lost is most of the way to no error at all.
+        // The save key this writes under, so a caller holding several can name this one in a
+        // failure.
         string SaveKey { get; }
     }
 }

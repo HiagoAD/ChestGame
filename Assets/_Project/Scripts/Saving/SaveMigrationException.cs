@@ -2,14 +2,11 @@ using System;
 
 namespace Company.ChestGame.Saving
 {
-    // A migration chain was wired or walked in a way only a developer could cause. Deliberately not
-    // under ChestGameException, for the reason PoolException and FrameBudgetException are not
-    // either: two migrations claiming the same FromVersion, a target below the version already
-    // stored, or a step handing back no document at all, are wiring mistakes rather than something a
-    // player's own save can trigger - see docs/saving.md and the exception hierarchy in
-    // docs/architecture.md. A stored save this build genuinely has no path forward for is
-    // SaveException.NoMigrationPath instead, because that one can happen to a player who did nothing
-    // wrong.
+    // A migration chain was wired or walked in a way only a developer could cause: two migrations
+    // claiming the same FromVersion, a target below the version already stored, or a step handing
+    // back no document at all. A stored save this build genuinely has no path forward for is
+    // SaveException.NoMigrationPath instead, because that one can happen to a player who did
+    // nothing wrong. See docs/saving.md for why this sits beside SaveException instead of under it.
     public class SaveMigrationException : InvalidOperationException
     {
         public SaveMigrationException(string message) : base(message) { }

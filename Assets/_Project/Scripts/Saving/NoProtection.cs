@@ -1,6 +1,6 @@
 namespace Company.ChestGame.Saving
 {
-    // The baseline every other protector is measured against, the way DirectSpawner is pooling's.
+    // The baseline every other protector is measured against: no protection at all.
     public class NoProtection : IPayloadProtector
     {
         public string Id => "none";

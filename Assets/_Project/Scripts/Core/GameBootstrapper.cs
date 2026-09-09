@@ -10,10 +10,10 @@ using VContainer.Unity;
 
 namespace Company.ChestGame.Core
 {
-    // The boot scene's only job, in the order the whole design rests on: load the content, build
-    // the scope that consumes it, fetch whatever the minigames want up front, then open the game
-    // scene with that scope already standing. Nothing downstream can exist before its data arrived,
-    // which is why no service has to ask whether loading has finished.
+    // Boot scene's only job: load the content, build the scope that consumes it, fetch whatever
+    // the minigames want up front, then open the game scene with that scope already standing.
+    // Nothing downstream exists before its data arrived, so no service ever has to ask whether
+    // loading has finished.
     public class GameBootstrapper : IAsyncStartable
     {
         public const string GAME_SCENE_NAME = "Game";
@@ -45,9 +45,8 @@ namespace Company.ChestGame.Core
             _metaScheduler = metaScheduler;
         }
 
-        // A failure is reported to the label and then rethrown rather than swallowed. Returning
-        // normally would be a lie the rest of boot is built on: the game scene was never loaded and
-        // no service downstream exists.
+        // A failure is reported to the label, then rethrown rather than swallowed. Returning
+        // normally here would claim the game scene loaded and its services exist when neither did.
         public async UniTask StartAsync(CancellationToken cancellation)
         {
             try
@@ -89,10 +88,9 @@ namespace Company.ChestGame.Core
             }
         }
 
-        // Meta holds nothing a player earned, so a save this build cannot read is recoverable by
-        // resetting it - unlike the identical choice for currency, which would not be. Only the
-        // load is guarded: a failure past this point is a real bug, not a corrupt save, and should
-        // fail boot exactly like any other.
+        // Only the load is guarded: an unreadable meta save is reset to a fresh document rather
+        // than failing boot. A failure past this point is a bug, not a corrupt save, and fails
+        // boot like any other.
         private async UniTask RecordLaunchAsync(CancellationToken ct)
         {
             GameMetaSaveDocument meta;

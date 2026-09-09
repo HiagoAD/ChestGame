@@ -7,13 +7,10 @@ namespace Company.ChestGame.Saving
 {
     // Bytes as a base64 PlayerPrefs string - PlayerPrefs only holds strings, so the store resolves
     // that mismatch rather than every caller knowing about it. The prefix is a constructor argument
-    // for the same reason FileStore's root is: a test can namespace itself away from the real editor
-    // prefs. See docs/saving.md for which of FileStore's key rules carry over here and which do not.
+    // so a test can namespace itself away from the real editor prefs.
     //
     // IMainThreadOnlyStore because every member below is a PlayerPrefs call, and PlayerPrefs is a
-    // Unity API like any other - main-thread only. ThreadHoppingStore reads this marker to know to
-    // leave this store alone rather than moving its calls to a worker thread. See docs/saving.md,
-    // "The thread hop".
+    // Unity API like any other - main-thread only.
     public class PlayerPrefsStore : ISaveStore, IMainThreadOnlyStore
     {
         private readonly string _keyPrefix;
@@ -77,8 +74,8 @@ namespace Company.ChestGame.Saving
         // one says it never leaves it anyway, which happens to make both answers agree here.
         public bool CompletesOnCallingThread => true;
 
-        // Only NoKey carries over from SaveKeyPath: a PlayerPrefs key has no file system to escape
-        // and no separator that means anything to it, so the rest of FileStore's rules do not apply.
+        // Only presence is checked: a PlayerPrefs key has no file system to escape and no separator
+        // that means anything to it, so the rest of SaveKeyPath's rules do not apply here.
         private string PrefsKeyFor(string key)
         {
             SaveKeyPath.EnsurePresent(key);

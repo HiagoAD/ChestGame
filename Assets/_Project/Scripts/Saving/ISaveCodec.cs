@@ -5,23 +5,18 @@ namespace Company.ChestGame.Saving
     {
         string Id { get; }
 
-        // Valid JSON, not merely valid UTF-8 text: SaveEnvelope embeds a text-safe body raw, so a
-        // codec emitting a bare unquoted string would corrupt the envelope while still round
-        // tripping through UTF8Encoding.
+        // Answer true only if Encode's output is valid JSON. Valid UTF-8 is not enough: a bare
+        // unquoted string survives a text round trip and still corrupts the document it is
+        // embedded in.
         bool IsTextSafe { get; }
 
         byte[] Encode<T>(T value);
 
         T Decode<T>(byte[] bytes);
 
-        // The codec's own bytes as a JSON document - decompressed first if this codec compresses,
-        // but otherwise untouched. This is what makes migration possible: a migration rewrites a
-        // document into a shape today's T no longer matches, which is the one thing Decode<T> is
-        // built never to do. Every codec this assembly ships is JSON underneath - compact, indented,
-        // or gzipped - so this method reaches that JSON directly instead of every migration needing
-        // to know how each codec gets there. That is a real constraint this method hard-codes rather
-        // than hides: a codec that were not JSON-shaped under here could not participate in
-        // migration at all.
+        // The same bytes as a JSON document: decompressed or decoded as far as this codec needs,
+        // and otherwise untouched. Use it to read a stored document whose shape no longer matches
+        // any T. An implementation that is not JSON underneath cannot satisfy this.
         string ToJson(byte[] encoded);
     }
 }

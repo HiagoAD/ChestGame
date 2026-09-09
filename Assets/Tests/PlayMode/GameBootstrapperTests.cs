@@ -29,20 +29,15 @@ namespace Company.ChestGame.Tests.PlayMode
     // integration proof for the same reason, since every key the game ships is resolved by the boot
     // flow.
     //
-    // Booting the real Boot scene means the real GameLifetimeScope.Awake() -> Configure() ->
-    // RegisterCoreServices(builder, status) - the exact zero-argument call that, without redirecting
-    // it, resolves ICurrencyManager against the developer's real Application.persistentDataPath and
-    // real "ResourceBankSaveData_CurrencyType" PlayerPrefs entry the moment the Game scene's
-    // CurrencyWatcher is injected. GameLifetimeScope.CurrencySaveInputsOverride/
-    // LegacyCurrencyPlayerPrefsKeyOverride are the seam this fixture has instead of arguments - see
-    // docs/saving.md, "Sealing the boot path a test cannot pass arguments through". Assigned from
-    // [UnitySetUp] on the line before the scene load rather than from any earlier hook, so the
-    // ordering rests on statement order inside one coroutine rather than on how the framework
-    // sequences its setup attributes; cleared in [TearDown] unconditionally, so a failing test
-    // cannot leak either override into a fixture that runs after this one. No assertion in this
-    // file changed for this - only the composition this fixture boots against is now redirected,
-    // the same test hygiene every other fixture in this work already follows with its own
-    // per-fixture temp root and GUID key.
+    // Booting the real Boot scene runs the real Configure() -> RegisterCoreServices, the exact
+    // zero-argument call that would otherwise resolve ICurrencyManager against the developer's real
+    // persistentDataPath and real "ResourceBankSaveData_CurrencyType" entry as soon as the Game
+    // scene's CurrencyWatcher is injected. The static overrides are the seam this fixture has
+    // instead of arguments. Assigned on the line before the scene load rather than from an earlier
+    // hook, so the ordering rests on statement order in one coroutine rather than on how the
+    // framework sequences its setup attributes, and cleared unconditionally so a failing test
+    // cannot leak one into the next fixture. See docs/saving.md, "Sealing the boot path a test
+    // cannot pass arguments through".
     public class GameBootstrapperTests
     {
         private const string BOOT_SCENE = "Boot";
@@ -75,11 +70,10 @@ namespace Company.ChestGame.Tests.PlayMode
         [UnitySetUp]
         public IEnumerator BootTheGame()
         {
-            // Immediately before the LoadSceneAsync below, which is what drives
-            // GameLifetimeScope.Awake() -> Configure(); that reads both once and builds the save
-            // service from what it finds. Statement order in this one coroutine is the whole
-            // guarantee - no setup-attribute ordering is assumed, because a stale claim about one
-            // is what defeated this seam once already.
+            // Immediately before the LoadSceneAsync below, which drives Configure(); that reads
+            // both once and builds the save service from what it finds. Statement order in this one
+            // coroutine is the whole guarantee - a stale claim about attribute ordering is what
+            // defeated this seam once already.
             _currencySaveRoot = Path.Combine(Path.GetTempPath(), "ChestGameSaveTests_" + System.Guid.NewGuid().ToString("N"));
             _legacyPlayerPrefsKey = "ChestGameSaveTests.Legacy." + System.Guid.NewGuid().ToString("N");
 

@@ -4,15 +4,13 @@ using System.Collections.Generic;
 namespace Company.ChestGame.Saving
 {
     // Human-readable warnings about a profile's codec/protector combination. Never errors: nothing
-    // returned here stops SaveServiceFactory from building whatever the profile actually asks for.
-    // Worth having now that SaveCodec and SaveProtection each carry more than one real choice.
+    // returned here prevents a service being built from the profile it warns about.
     public static class SaveProfileValidator
     {
         public static IReadOnlyList<string> Validate(SaveProfileSO profile)
         {
-            // Unity-null, not C#-null, for the reason SaveServiceFactory.Create checks it the same
-            // way: a destroyed profile has nothing to warn about, only something for the factory to
-            // refuse outright.
+            // Unity-null, not C#-null: a destroyed profile has nothing to warn about, and refusing
+            // it outright is a different method's job.
             if (profile == null) return Array.Empty<string>();
 
             return Validate(profile.Codec, profile.Protection);
@@ -30,11 +28,10 @@ namespace Company.ChestGame.Saving
                     "for and then thrown away.");
             }
 
-            // Deliberately not warned about: JsonGzip paired with an encrypting protector. The
-            // pipeline is state -> ISaveCodec -> IPayloadProtector (SaveService.SaveAsync encodes
-            // first and protects what the codec returned), so gzip always compresses the plaintext
-            // before anything encrypts it. "Compression after encryption buys nothing" is true, but
-            // it describes the opposite order to the one this pipeline runs — encrypting a codec's
+            // Deliberately not warned about: JsonGzip paired with an encrypting protector. Encoding
+            // always runs before protecting, so gzip always compresses the plaintext before
+            // anything encrypts it. "Compression after encryption buys nothing" is true, but
+            // it describes the opposite order to the one this pipeline runs: encrypting a codec's
             // output can never make that codec's own compression pointless, because the compression
             // already happened first. That failure mode would need IPayloadProtector to run before
             // ISaveCodec, which nothing in this architecture does.

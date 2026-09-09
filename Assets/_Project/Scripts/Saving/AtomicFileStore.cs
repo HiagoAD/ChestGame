@@ -5,11 +5,11 @@ using Cysharp.Threading.Tasks;
 
 namespace Company.ChestGame.Saving
 {
-    // One file per key, like FileStore, but survives a kill at any point during a write: the new
-    // bytes land in a temp file first, and only then get swapped into place, with the file they
-    // replace kept as a .bak rather than deleted. Read prefers the live file and falls back to the
-    // .bak when it is absent or unreadable - that fallback is the reason this class exists. See
-    // docs/saving.md for what it does and does not protect against.
+    // One file per key. Survives a kill at any point during a write: the new bytes land in a temp
+    // file first, and only then get swapped into place, with the file they replace kept as a .bak
+    // rather than deleted. Reading prefers the live file and falls back to the .bak when the live
+    // one is absent or unreadable - that fallback is not dead code to clean up. See docs/saving.md
+    // for what it does and does not protect against.
     public class AtomicFileStore : ISaveStore
     {
         private const string TempExtension = ".tmp";
@@ -40,9 +40,8 @@ namespace Company.ChestGame.Saving
             }
             catch (Exception exception) when (IsStorageFailure(exception))
             {
-                // A stale temp file next to a live save reads as a second, half-recoverable copy
-                // to anyone looking at the directory. Cleanup failure must not replace or mask the
-                // failure that put us here.
+                // Deleted here too, even though the write already failed: leaving it behind would
+                // look like a second, half-recoverable copy of the save next to the live one.
                 TryDeleteTempFile(tempPath);
                 throw SaveException.Io(key, exception);
             }
@@ -128,9 +127,9 @@ namespace Company.ChestGame.Saving
             stream.Flush(true);
         }
 
-        // File.Replace is preferred because it is the platform's own swap-and-keep-a-backup
-        // primitive, but it is not guaranteed available - see docs/saving.md - so a failure falls
-        // back to a manual sequence that still leaves the previous file as .bak.
+        // Prefers File.Replace, the platform's own swap-and-keep-a-backup primitive, but that is
+        // not guaranteed to be available, so a failure falls back to a manual sequence that still
+        // leaves the previous file as .bak.
         private static void Swap(string tempPath, string livePath, string backupPath)
         {
             if (!File.Exists(livePath))

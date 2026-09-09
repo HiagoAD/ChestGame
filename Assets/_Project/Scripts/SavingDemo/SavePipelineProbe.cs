@@ -6,10 +6,9 @@ using Cysharp.Threading.Tasks;
 
 namespace Company.ChestGame.Saving.Demo
 {
-    // Runs one storage/codec/protection combination end to end. Built straight from
-    // SaveComponentFactory rather than SaveServiceFactory: this needs the concrete ISaveStore
-    // afterwards to read back what actually landed, and SaveServiceFactory hands back only the
-    // assembled ISaveService. See docs/saving.md, "SaveComponentFactory ... and SaveServiceFactory".
+    // Runs one storage/codec/protection combination end to end, composing the components directly
+    // rather than going through SaveServiceFactory. See docs/saving.md, "Why the probe builds from
+    // SaveComponentFactory rather than SaveServiceFactory".
     public static class SavePipelineProbe
     {
         // throwOnInvalidBytes: true - the default UTF8Encoding silently replaces bad sequences with
@@ -41,19 +40,16 @@ namespace Company.ChestGame.Saving.Demo
                 readStopwatch.Elapsed.TotalMilliseconds, loaded);
         }
 
-        // The plaintext baseline every combination's size is measured against: the same document,
-        // the same store, Json + None. Runs the probe again under a different key rather than
-        // hard-coding a number, so a change to SaveInspectorDocument or SaveEnvelope's own shape is
-        // reflected here too.
+        // The plaintext baseline every combination's size is measured against. Runs the probe
+        // again under a different key rather than hard-coding a number, so a change to
+        // SaveInspectorDocument or SaveEnvelope's shape is reflected here too.
         public static UniTask<SaveProbeResult> RunBaselineAsync(SaveStorage storage, SaveFactoryInputs inputs,
             string baselineKey, SaveInspectorDocument document, CancellationToken ct) =>
             RunAsync(storage, SaveCodec.Json, SaveProtection.None, inputs, baselineKey, document, ct);
 
-        // Envelope headers are always plaintext JSON, and a non-text-safe body always travels the
-        // envelope's own base64 path rather than being embedded raw - see docs/saving.md, "The
-        // envelope" - so every combination SaveComponentFactory can build stores valid UTF-8 end to
-        // end, measured across all fifteen codec/protector pairs. The hex fallback is for whatever
-        // stops that being true, not for anything this assembly ships today.
+        // isHexDump is true only when bytes is not valid UTF-8. Nothing this factory can build
+        // today produces that - every combination stores valid UTF-8 end to end - so the hex path
+        // exists for a byte sequence nothing ships today.
         public static (string text, bool isHexDump) Render(byte[] bytes)
         {
             if (bytes == null || bytes.Length == 0) return (string.Empty, false);

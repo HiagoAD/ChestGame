@@ -78,8 +78,34 @@ Fakes live in `Tests/Common/` and are shared by both suites. There is deliberate
 `RegisterLoadedServices` themselves rather than a copy of them, so dropping a registration from the
 composition root fails there.
 
-For the fixture-by-fixture map, see [context/assemblies-and-tests.md](context/assemblies-and-tests.md)
-section 8 and [context/self-contained-minigames.md](context/self-contained-minigames.md) section 8.
+### The save fixtures
+
+The two context files each map the fixtures their own work added, so neither covers the save suite:
+[context/assemblies-and-tests.md](context/assemblies-and-tests.md) section 8 has the original
+testability work, [context/self-contained-minigames.md](context/self-contained-minigames.md) section 8
+the content-delivery work, and the save fixtures are mapped here.
+
+Thirty-five EditMode fixtures and four PlayMode ones, by what they protect:
+
+| Area | Fixtures |
+|---|---|
+| Stores | `FileStoreTests`, `AtomicFileStoreTests`, `PlayerPrefsStoreTests`, `InMemoryStoreTests`, `SaveStoreContractTests` (one shared contract across all four), `ThreadHoppingStoreTests`, `SaveStoreCompletesOnCallingThreadTests` |
+| Codecs | `GzipJsonCodecTests`, `PrettyJsonCodecTests`, `SaveCodecToJsonTests`, `SaveCodecEnvelopeValueExactnessTests` |
+| Protectors | `AesProtectorTests`, `HmacSignedProtectorTests`, `XorObfuscatorTests`, `Base64ObfuscatorTests` |
+| Envelope and corpus | `SaveEnvelopeTests`, `SaveGoldenCorpusTests` (bytes an older build really wrote) |
+| The service | `SaveServiceTests`, `SaveServiceMigrationTests`, `SaveServiceLegacyImportTests`, `SaveServiceTamperDetectionTests`, `SaveServiceCompletesOnCallingThreadTests`, `SaveMigratorTests` |
+| Factory and profile | `SaveServiceFactoryTests`, `SaveServiceFactoryCrossProductTests` (every storage/codec/protector triple), `SaveProfileSOTests`, `SaveProfileValidatorTests` |
+| Scheduler and flush | `SaveSchedulerTests`, `SaveFlushRegistryTests`, `GameLifetimeScopePauseQuitFlushTests` |
+| Currency | `CurrencyResourceBankSaveHandleTests`, `CurrencyLegacyImportIntegrationTests` |
+| Chests | `ChestsMinigameSaveTests` (including the two that pin decision #17) |
+| The inspector | `SavePipelineProbeTests`, `SaveTamperTests` |
+
+| PlayMode fixture | What only play mode can prove |
+|---|---|
+| `SaveSchedulerPlayModeTests` | The coalescing window against a real player loop, and the disposal flush with its logged loss |
+| `ThreadHoppingStorePlayModeTests` | That the hop really leaves and returns to the main thread |
+| `SaveInspectorPanelPlayModeTests` | The authored inspector UI: real prefab, `.uxml` and `.uss` still bind |
+| `SaveBenchmark` | Logs the size numbers `saving.md` quotes; asserts round-trips and byte counts, never a duration |
 
 ## Two settings the suites depend on
 

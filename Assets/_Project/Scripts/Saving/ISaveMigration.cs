@@ -2,12 +2,14 @@ using Newtonsoft.Json.Linq;
 
 namespace Company.ChestGame.Saving
 {
-    // One step of the migration chain, from FromVersion to FromVersion + 1 and never further -
-    // SaveMigrator is what walks a chain of these, not something any single step does on its own.
+    // One step of a migration chain. A step advances a document exactly one version and never
+    // further; walking several is the caller's job.
     public interface ISaveMigration
     {
+        // The version this step reads. It writes FromVersion + 1.
         int FromVersion { get; }
 
+        // The document advanced one version. Never null.
         JObject Apply(JObject document);
     }
 }

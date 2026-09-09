@@ -3,10 +3,9 @@ using System.IO.Compression;
 
 namespace Company.ChestGame.Saving
 {
-    // JsonCodec's own bytes, gzipped. Composes JsonCodec rather than duplicating its serialization,
-    // the way SaveKeyPath's header warns duplication gets found. IsTextSafe is false even though
-    // the codec it wraps is text-safe: gzip's magic bytes are not JSON, so this codec's output
-    // would corrupt the envelope if embedded raw instead of base64.
+    // JsonCodec's own bytes, gzipped. IsTextSafe is false even though the wrapped codec is
+    // text-safe: gzip's magic bytes are not JSON, and embedding them raw instead of base64 would
+    // corrupt the envelope.
     public class GzipJsonCodec : ISaveCodec
     {
         private readonly JsonCodec _json = new();
@@ -33,9 +32,7 @@ namespace Company.ChestGame.Saving
         // failure against.
         public T Decode<T>(byte[] bytes) => _json.Decode<T>(Decompress(bytes));
 
-        // Decompresses first, then defers to JsonCodec.ToJson for the same reason Decode<T> defers
-        // to JsonCodec.Decode<T> above: this codec's own contribution is the gzip layer, not the
-        // JSON underneath it.
+        // Decompresses first, then defers to JsonCodec.ToJson.
         public string ToJson(byte[] encoded) => _json.ToJson(Decompress(encoded));
 
         private static byte[] Decompress(byte[] bytes)

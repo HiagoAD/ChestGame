@@ -5,10 +5,9 @@ namespace Company.ChestGame.Saving
 {
     // Prepends an HMAC-SHA256 of the payload to the payload itself, so Unprotect can prove the
     // bytes it was handed are exactly what this key signed, not a modified stand-in for them.
-    // IsTextSafe is false: the signature is arbitrary bytes, not JSON. This proves integrity only -
-    // the payload itself travels unencrypted underneath the signature, so anyone holding the file
-    // can still read it once it clears the envelope's own base64. Pick AesProtector as well if the
-    // save also needs to be unreadable; see SaveProfileValidator.
+    // IsTextSafe is false: the signature is arbitrary bytes, not JSON. Proves integrity only - the
+    // payload itself travels unencrypted underneath the signature, readable by anyone who reaches
+    // it.
     public class HmacSignedProtector : IPayloadProtector
     {
         private const int SignatureLength = 32; // SHA-256 output size, fixed regardless of key length.
@@ -35,10 +34,8 @@ namespace Company.ChestGame.Saving
             return result;
         }
 
-        // A short-or-mismatched signature both mean the same thing to a protector with no key of
-        // its own to explain the difference: this is not what Protect produced. Both throw
-        // PayloadTamperedException, which SaveService alone catches and turns into
-        // SaveException.PayloadTampered.
+        // A too-short payload and a mismatched signature mean the same thing to a protector with no
+        // key of its own to explain the difference: both throw PayloadTamperedException.
         public byte[] Unprotect(byte[] stored)
         {
             if (stored.Length < SignatureLength)

@@ -3,9 +3,9 @@ using System.IO;
 
 namespace Company.ChestGame.Saving
 {
-    // Every filename-store key rule FileStoreTests pins, in one place FileStore and AtomicFileStore
-    // both call, so a fifth rule or a reordered check cannot land in one and not the other. See
-    // docs/saving.md for why the order of the checks is load-bearing.
+    // Every key rule a filename-based store needs, gathered in one place so a reordered check or a
+    // new rule cannot land in one caller and not another. See docs/saving.md for why the order of
+    // the checks is load-bearing.
     internal static class SaveKeyPath
     {
         private const string Extension = ".sav";

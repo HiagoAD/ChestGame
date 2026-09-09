@@ -28,20 +28,17 @@ namespace Company.ChestGame.Tests.EditMode
     // asset, which is what keeps it assertable in edit mode. What the shipped assets contain is
     // proved in GameBootstrapperTests.
     //
-    // RegisterCoreServices' bare SetUp registration below (with no currency overrides) never
-    // resolves ICurrencyManager or the currency save handler by itself. It does resolve every
-    // SaveScheduler<T> the composition owns, because RegisterCoreServices asks a build callback to -
-    // see docs/saving.md, "An unregistered save looks exactly like a registered one" - but neither a
-    // scheduler's constructor nor SaveComponentFactory's store/protector performs any IO (checked
-    // against SaveScheduler<T>'s, FileStore's and AtomicFileStore's constructors, not assumed), so
-    // building _builder in SetUp for every test stays safe.
-    // What is NOT safe is any individual test resolving one of those three: without an override,
-    // that resolve would perform the real legacy import against the developer's actual
-    // Application.persistentDataPath and real PlayerPrefs entry - see docs/saving.md, "Redirecting
-    // this composition away from a developer's real save". Every test below that touches any of
-    // those three builds its own isolated ContainerBuilder through IsolatedCurrencyOverrides()
-    // instead of reusing _builder, the same shape ABootStatusHandedIn_IsTheOneTheGameReportsThrough
-    // already used for its own reason.
+    // The bare SetUp registration below carries no currency overrides. That is safe only because
+    // nothing it builds performs IO: it does resolve every SaveScheduler<T> the composition owns,
+    // through RegisterCoreServices' build callback, but no scheduler, FileStore or AtomicFileStore
+    // constructor touches disk (checked, not assumed).
+    //
+    // What is NOT safe is a test resolving ICurrencyManager, the currency save handler or the
+    // currency scheduler from it: without an override that performs the real legacy import against
+    // the developer's actual persistentDataPath and real PlayerPrefs entry. Every test below that
+    // touches any of the three builds its own container through IsolatedCurrencyOverrides()
+    // instead. See docs/saving.md, "Redirecting this composition away from a developer's real
+    // save".
     public class GameLifetimeScopeTests
     {
         private ContainerBuilder _builder;
@@ -138,10 +135,8 @@ namespace Company.ChestGame.Tests.EditMode
         public void EveryEngineFacingSeam_HasAProductionImplementation()
         {
             // The seams exist so tests can substitute them; the real game still has to get real
-            // ones. Resolves the currency save handler, which construction alone does not touch
-            // disk or PlayerPrefs for - isolated anyway, both because that safety fact is not this
-            // test's to rely on and to stay consistent with every other test here that resolves any
-            // of the three currency-composition types.
+            // ones. Isolated even though constructing the save handler alone touches nothing, so no
+            // test here depends on that staying true.
             ContainerBuilder builder = new();
             (SaveFactoryInputs inputs, string legacyKey) = IsolatedCurrencyOverrides();
             GameLifetimeScope.RegisterCoreServices(builder, currencySaveInputs: inputs, legacyCurrencyPlayerPrefsKey: legacyKey);
@@ -163,11 +158,8 @@ namespace Company.ChestGame.Tests.EditMode
         public void CurrencyManager_ResolvesWithTheRegisteredSaveHandler()
         {
             // CurrencyManager takes its save handler as its only constructor argument, so this
-            // fails outright if the scope stops registering one. Isolated: without
-            // currencySaveInputs/legacyCurrencyPlayerPrefsKey, resolving ICurrencyManager performs
-            // the real legacy import against the developer's actual Application.persistentDataPath
-            // and real PlayerPrefs entry - see docs/saving.md, "Redirecting this composition away
-            // from a developer's real save".
+            // fails outright if the scope stops registering one. Isolated because resolving
+            // ICurrencyManager runs the real legacy import - see the fixture header.
             ContainerBuilder builder = new();
             (SaveFactoryInputs inputs, string legacyKey) = IsolatedCurrencyOverrides();
             GameLifetimeScope.RegisterCoreServices(builder, currencySaveInputs: inputs, legacyCurrencyPlayerPrefsKey: legacyKey);
@@ -186,13 +178,10 @@ namespace Company.ChestGame.Tests.EditMode
         [Test]
         public void CurrencySaveScheduler_ResolvesWithoutThrowing_AndCanFlushBlocking()
         {
-            // RegisterCoreServices' factory registers this scheduler with ISaveFlushRegistry the
-            // moment it is resolved, and Register itself throws SchedulerCannotFlushBlocking if
-            // CanFlushBlocking is false - see docs/saving.md, "What ships, and where the composition
-            // asserts its own constraints". This pins that the real composition never trips that
-            // guard today; if a future change ever wraps the currency store in a ThreadHoppingStore,
-            // this resolve starts throwing instead of silently shipping a scheduler that would fail
-            // the first real OnApplicationPause/OnApplicationQuit on a device.
+            // Resolving registers the scheduler, and Register throws SchedulerCannotFlushBlocking
+            // when CanFlushBlocking is false. So if a future change wraps the currency store in a
+            // ThreadHoppingStore, this resolve starts throwing here rather than shipping a scheduler
+            // that fails the first real pause or quit on a device.
             ContainerBuilder builder = new();
             (SaveFactoryInputs inputs, string legacyKey) = IsolatedCurrencyOverrides();
             GameLifetimeScope.RegisterCoreServices(builder, currencySaveInputs: inputs, legacyCurrencyPlayerPrefsKey: legacyKey);
@@ -207,10 +196,9 @@ namespace Company.ChestGame.Tests.EditMode
         [Test]
         public void EverySaveThisCompositionOwns_IsRegisteredForThePauseQuitFlush()
         {
-            // Building the container is the whole act: RegisterCoreServices' build callback resolves
-            // each scheduler it owns, and resolving is what registers it. An unregistered save is
-            // never flushed at pause/quit and looks identical in every other respect, so nothing
-            // else in this fixture would notice one going missing.
+            // Building the container is the whole act: the build callback resolves each scheduler,
+            // and resolving is what registers it. An unregistered save is never flushed at
+            // pause/quit and looks identical otherwise, so nothing else here would notice.
             ContainerBuilder builder = new();
             (SaveFactoryInputs inputs, string legacyKey) = IsolatedCurrencyOverrides();
             GameLifetimeScope.RegisterCoreServices(builder, currencySaveInputs: inputs, legacyCurrencyPlayerPrefsKey: legacyKey);
@@ -283,12 +271,9 @@ namespace Company.ChestGame.Tests.EditMode
         public void EveryLoadedServiceTheGameResolves_HasASatisfiableObjectGraph()
         {
             // The three services whose constructors reach outside themselves: PopupManager needs a
-            // catalog and a parent provider, MinigameManager needs a catalog and the resolver,
-            // RewardsManager reaches across both halves - including ICurrencyManager, which is why
-            // this needs its own isolated registration rather than the bare one from SetUp: without
-            // an override, resolving RewardsManager here would transitively resolve
-            // ICurrencyManager and perform the real legacy import against the developer's actual
-            // save location.
+            // catalog and a parent provider, MinigameManager needs a catalog and the resolver, and
+            // RewardsManager reaches across both halves. Isolated because it resolves
+            // ICurrencyManager transitively - see the fixture header.
             ContainerBuilder builder = new();
             (SaveFactoryInputs inputs, string legacyKey) = IsolatedCurrencyOverrides();
             GameLifetimeScope.RegisterCoreServices(builder, currencySaveInputs: inputs, legacyCurrencyPlayerPrefsKey: legacyKey);

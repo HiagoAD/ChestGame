@@ -296,7 +296,7 @@ rebuild instantiates nothing and the baseline instantiates a full board.
 Pooling's variants are mutually exclusive — a pool is one of four things — so `PoolFactory.Create`
 maps one enum to one implementation. Saving's are not. Where the bytes land, how an object becomes
 bytes, and what protects them are three independent choices, and a flat enum covering them would need
-six by four by five members. So the enum-and-factory shape survives, but `SaveComponentFactory`
+four by three by five members. So the enum-and-factory shape survives, but `SaveComponentFactory`
 answers *which store, which codec, which protector* and the composition root assembles the chain.
 
 That boundary was drawn in the wrong place first. `SaveServiceFactory` was built to return a finished

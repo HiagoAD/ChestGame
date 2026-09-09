@@ -3,8 +3,8 @@ using Newtonsoft.Json;
 
 namespace Company.ChestGame.Saving
 {
-    // JsonCodec with indentation. Same data, formatted for a developer reading the file rather than
-    // for size — development and the phase 8 demo.
+    // JsonCodec with indentation: the same data, formatted for a person to read rather than for
+    // size.
     public class PrettyJsonCodec : ISaveCodec
     {
         private static readonly UTF8Encoding Utf8 = new(false);

@@ -10,14 +10,8 @@ namespace Company.ChestGame.Saving
     // PayloadTamperedException instead of as a padding or block-alignment error out of the AES
     // transform itself.
     //
-    // Not AesGcm: this project ships apiCompatibilityLevel 6 (.NET Standard 2.1) with IL2CPP on
-    // Android, and AesGcm is documented to throw PlatformNotSupportedException there because the
-    // native crypto library IL2CPP links does not carry AEAD support on every platform this game
-    // targets. CBC-then-HMAC needs two primitives instead of one, but both are the plain
-    // System.Security.Cryptography surface that has shipped since long before .NET Standard 2.1.
-    //
-    // IsTextSafe is false: ciphertext is not JSON. The key material ships inside the binary either
-    // way — see docs/saving.md for what that does and does not buy.
+    // IsTextSafe is false: ciphertext is not JSON. See docs/saving.md for what the key shipping
+    // inside the binary does and does not buy.
     public class AesProtector : IPayloadProtector
     {
         private const int IvLength = 16; // AES block size.
@@ -29,10 +23,8 @@ namespace Company.ChestGame.Saving
         public string Id => "aes";
         public bool IsTextSafe => false;
 
-        // One key in, two keys out: encryption and authentication each get their own subkey
-        // derived from it, rather than one secret doing both jobs. Reusing a single key across two
-        // different primitives is a well-known way to weaken both; the derivation costs nothing and
-        // avoids it.
+        // One key in, two keys out: encryption and authentication each derive their own subkey
+        // from it, rather than one secret doing both jobs.
         public AesProtector(byte[] key)
         {
             if (key == null || key.Length == 0) throw SaveException.NoProtectorKey(Id);
@@ -66,9 +58,8 @@ namespace Company.ChestGame.Saving
             return result;
         }
 
-        // The tag is checked before a single byte reaches AES: decrypting first and finding out
-        // afterwards that the bytes were never valid would mean this class ran attacker-influenced
-        // bytes through a block cipher before it had any reason to trust them.
+        // Checks the tag before a single byte reaches AES, so a failed check never runs untrusted
+        // bytes through the cipher.
         public byte[] Unprotect(byte[] stored)
         {
             if (stored.Length < IvLength + TagLength)

@@ -4,9 +4,8 @@ using UnityEngine;
 
 namespace Company.ChestGame.Saving
 {
-    // Main-thread only, no locking - the same constraint SaveScheduler<T> already places on itself,
-    // for the same reason: everything below is only ever touched from the thread Unity calls its
-    // own lifecycle callbacks on.
+    // Main-thread only, no locking: everything below is only ever touched from the thread Unity
+    // calls its own lifecycle callbacks on.
     public class SaveFlushRegistry : ISaveFlushRegistry
     {
         private readonly List<ISaveFlushable> _flushables = new();
@@ -35,10 +34,9 @@ namespace Company.ChestGame.Saving
                 }
                 catch (Exception exception)
                 {
-                    // Best-effort, the same reasoning SaveScheduler<T>.Dispose() and SaveService's
-                    // own legacy-Clear() catch already follow: this runs from
-                    // OnApplicationPause/OnApplicationQuit, where one failure must never stop every
-                    // other flushable from getting its own chance.
+                    // Swallowed on purpose: this runs from OnApplicationPause/OnApplicationQuit,
+                    // where one flushable failing must never stop every other one from getting its
+                    // own chance.
                     Debug.LogError($"The save under '{flushable.SaveKey}' failed to flush on pause/quit: {exception.Message}");
                 }
             }

@@ -5,9 +5,9 @@ using Cysharp.Threading.Tasks;
 
 namespace Company.ChestGame.Saving
 {
-    // Bytes in a dictionary rather than on disk - the general form of
-    // Tests/Common/InMemoryResourceBankSaveHandler, and a legitimate production choice for an editor
-    // mode that must leave the real save alone rather than only a test double.
+    // Bytes in a dictionary rather than on disk. Not only a test double: pointing a save
+    // composition at this is a legitimate production choice for an editor mode that must never
+    // touch the real save.
     public class InMemoryStore : ISaveStore
     {
         private readonly Dictionary<string, byte[]> _bytesByKey = new();

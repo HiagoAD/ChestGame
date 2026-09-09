@@ -6,9 +6,8 @@ using UnityEngine.UIElements;
 namespace Company.ChestGame.Editor
 {
     // Builds Assets/_Project/UI/SaveInspector/SaveInspector.prefab from the authored .uxml and
-    // PanelSettings, the same reason SaveCorpusGenerator exists: a committed, reproducible asset
-    // rather than hand-written prefab YAML. Safe to re-run - unlike the golden corpus, this prefab
-    // is not a historical artefact, only a build of the two source assets.
+    // PanelSettings: a committed, reproducible asset rather than hand-written prefab YAML. Safe to
+    // re-run - this prefab is not a historical artefact, only a build of the two source assets.
     public static class SaveInspectorPrefabGenerator
     {
         private const string UxmlPath = "Assets/_Project/UI/SaveInspector/SaveInspector.uxml";

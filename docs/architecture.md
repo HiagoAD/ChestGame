@@ -114,14 +114,22 @@ The game starts in `Scenes/Boot.unity`, not in the game scene. Opening `Game.uni
 work: its scope expects a parent that only the boot scene builds.
 
 `GameLifetimeScope` lives in the boot scene, registers everything that needs no asset, and survives
-the scene load through `DontDestroyOnLoad`. `GameBootstrapper` then does four things, in the order
+the scene load through `DontDestroyOnLoad`. `GameBootstrapper` then does five things, in the order
 the whole design rests on:
 
-1. `GameContentLoader` reads every source.
-2. `RegisterLoadedServices` builds a child scope from what came back.
-3. `MinigameContentPreloader` fetches whatever asked to arrive up front.
-4. `Game.unity` opens, and its own `GameSceneLifetimeScope` is parented to that scope through
+1. `RecordLaunchAsync` loads the meta save, increments the launch count and stamps the play times,
+   then hands it to the meta scheduler. First, so a content failure below still gets recorded as a
+   launch.
+2. `GameContentLoader` reads every source.
+3. `RegisterLoadedServices` builds a child scope from what came back.
+4. `MinigameContentPreloader` fetches whatever asked to arrive up front.
+5. `Game.unity` opens, and its own `GameSceneLifetimeScope` is parented to that scope through
    `LifetimeScope.EnqueueParent`.
+
+Step 1 is the only one whose failure is not a boot failure. A meta save this build cannot read is
+logged and reset to a fresh document, because meta holds nothing a player earned; the identical
+choice for currency would not be safe. Everything past the load is unguarded, so a failure there
+fails boot like any other. See [saving.md](saving.md) for what meta holds.
 
 `GameSceneLifetimeScope` is the game scene's scope and it registers nothing: its `Configure` is
 empty. It exists to be the scene's injection root, so `GameManager` and `CurrencyWatcher` are
@@ -151,9 +159,17 @@ the real composition root instead of a hand-copied duplicate. `GameLifetimeScope
 composition root fails there.
 
 `RegisterCoreServices` holds everything that can be built the moment the container is: the two engine
-seams, `IAssetProvider`, the four content sources, the save handler, `CurrencyManager`,
-`GameContentLoader` and the bootstrapper. That is what lets the boot scene resolve the loader and the
-bootstrapper before a single file has been read.
+seams, `IAssetProvider`, the four content sources, the whole save composition, the save handler,
+`CurrencyManager`, `GameContentLoader` and the bootstrapper. That is what lets the boot scene resolve
+the loader and the bootstrapper before a single file has been read.
+
+The save half of that list is five registrations rather than one. `ISaveFlushRegistry`; the single
+`ISaveService` every key in this composition saves through, assembled by hand because it needs a
+legacy import; and a `SaveScheduler<T>` each for currency and for meta, every one of them followed by
+a `RegisterBuildCallback` that resolves it. The callbacks are load-bearing rather than tidiness:
+registering a scheduler with `ISaveFlushRegistry` is a side effect of resolving it, so a scheduler
+nothing resolves is a scheduler nothing registered, and an unregistered save is simply never flushed
+at pause or quit while looking identical in every other respect.
 
 `RegisterLoadedServices` holds the half that cannot exist until content has arrived. It registers
 seven things, in two shapes.
@@ -172,6 +188,17 @@ rather than to core because it needs the catalog.
 The bootstrapper is registered as its interfaces rather than through `RegisterEntryPoint`. A
 `LifetimeScope` installs the entry point dispatcher itself, so the real game still runs it, while a
 container a test builds by hand stays inert and does not boot the game from a registration assertion.
+
+### The pause/quit flush
+
+`GameLifetimeScope` is also where saves are forced to disk. It resolves `ISaveFlushRegistry` once in
+`Awake`, and both `OnApplicationPause(true)` and `OnApplicationQuit()` call `FlushAll()` on it,
+catching and logging rather than letting a Unity callback throw. Without it, a scheduler's coalescing
+window is a real data-loss window every time the OS suspends or kills a backgrounded app.
+
+Schedulers register themselves rather than being named here, which is what lets the chests minigame -
+in an assembly `Core` deliberately does not reference - have its own run save flushed from the same
+place. See [saving.md](saving.md), "The pause/quit flush lives on GameLifetimeScope".
 
 ### Telling the player what boot is doing
 
@@ -221,8 +248,22 @@ problem, so it is left to blow up where it can be seen.
 `OnDestroy` ends whatever is running, so the controller is disposed and the view destroyed rather
 than left to the garbage collector with live subscriptions.
 
-There is no persistence in the minigame itself. Attempts reset on every new game. Currencies persist,
-including between sessions.
+An unfinished chests run persists, and so do currencies, including between sessions.
+`ChestsRunSaveDocument` carries exactly two members, the chest count and which chests are open, and
+the controller builds its own `SaveScheduler<ChestsRunSaveDocument>` because `Core` cannot reach into
+this assembly to build one for it.
+
+A restored run resumes its attempt count rather than resetting it: `Attempts` comes back as the
+number of chests that were open. A run is discarded instead of restored when the saved chest count no
+longer matches the configuration, when the indices are out of range or repeated, or when the run had
+already used its attempts. Each of those is a state a save can legitimately be in, from a config
+change or a hand-edited file, rather than defensive paranoia. Finishing
+a run overwrites the save with an empty document in the same call, so a finished run never resumes.
+
+The save cannot name where the prize is, and that is structural rather than a convention: see design
+decision [#17](design-decisions.md#17-decision-9-is-enforced-by-the-save-models-shape-not-by-a-comment),
+which also records the one thing this deliberately does not close: the attempt budget is re-rollable
+by force-quitting inside the coalescing window.
 
 ## Config pipeline
 
@@ -318,22 +359,29 @@ broken download alike, and nothing about it names Addressables.
 `ChestGameException` is the base. Under it: `MissingAssetException` (nothing ships under that key),
 `AssetLoadException` (the key resolved and the load itself failed), `ContentDownloadTimeoutException`
 (the fetch never answered), `InvalidCatalogException` (the asset is there and its contents are
-wrong), `GameConfigException`, `MinigameNotFoundException`, `MinigameAlreadyRunningException` and
-`PopupNotFoundException`.
+wrong), `GameConfigException`, `MinigameNotFoundException`, `MinigameAlreadyRunningException`,
+`PopupNotFoundException`, and `SaveException` with its subclass `SaveTamperedException` (a full disk,
+a save a newer build wrote, a file that got truncated - all things that happen to a player who wired
+the game correctly).
 
 No bare `throw new Exception` remains in game code. A test asserting "this throws" should not be
 satisfied by an unrelated `NullReferenceException` from somewhere inside the call, and a caller
 should be able to tell a missing asset from a malformed one.
 
-Two typed failures sit deliberately **outside** that base: `PoolException` and `FrameBudgetException`,
-both under `InvalidOperationException`. Being under `ChestGameException` is not a label in this
-project, it is behaviour — `GameManager` catches exactly that base, turns whatever it caught into a
-content-unavailable popup and treats it as handled, on the understanding that anything outside it is
-a bug and is left to blow up where it can be seen. Everything those two types report is a wiring
-mistake: an unassigned prefab slot, a holder that was never built, a view that was never injected.
+Four typed failures sit deliberately **outside** that base, all under `InvalidOperationException`:
+`PoolException`, `FrameBudgetException`, `SaveMigrationException` and `SaveInspectorException`. Being
+under `ChestGameException` is not a label in this project, it is behaviour. `GameManager` catches
+exactly that base, turns whatever it caught into a content-unavailable popup and treats it as
+handled, on the understanding that anything outside it is a bug and is left to blow up where it can
+be seen. Everything those four types report is a wiring mistake: an unassigned prefab slot, a holder
+that was never built, a view that was never injected, two migrations claiming the same `FromVersion`.
 Reporting one of those as a delivery failure would tell a player their connection is bad and swallow
 the bug that caused it. `PrefabPoolTests` and `FrameBudgetedLoopTests` each pin that with an
 `IsNotInstanceOf<ChestGameException>`, so a later tidy-up of the hierarchy cannot quietly undo it.
+
+Saving draws the same line twice, which is why it appears on both sides above: a save a build has no
+path forward for is data and stays `SaveException.NoMigrationPath`, while a broken migration chain is
+wiring and is `SaveMigrationException`. See [saving.md](saving.md), "Exceptions".
 
 `InvalidCatalogException` carries its offending key as `object`, because the catalogs index by
 different things: a container type for the type-keyed lookups, an authored string id for the
@@ -346,7 +394,14 @@ a blank-looking id is otherwise invisible.
 events (`OnCurrencyChanged`, `OnCurrencyCollected`, `OnCurrencySpent`) and persistence. Add
 currencies by extending the `CurrencyType` enum. It takes an
 `IResourceBankSaveHandler<CurrencyType>` as its only constructor argument, registered in the scope,
-so a test can hand it an in-memory save instead of PlayerPrefs.
+so a test can hand it an in-memory save instead of the real one.
+
+The balance lives in a file, not in PlayerPrefs: `CurrencyResourceBankSaveHandle` writes through
+`ISaveService` to `<persistentDataPath>/Saves/currency.sav`, as readable, unprotected JSON swapped
+into place rather than overwritten. PlayerPrefs holds only the one-time legacy import - the
+`ResourceBankSaveData_CurrencyType` entry an already-installed player still has, which is read once
+and then renamed to `ResourceBankSaveData_CurrencyType.migrated` rather than deleted. Do not read
+that entry as the live balance; it is spent. See [saving.md](saving.md), "The legacy import".
 
 The class also marks the places a production game would hook up analytics and a currency purchase
 flow, both left as commented examples.

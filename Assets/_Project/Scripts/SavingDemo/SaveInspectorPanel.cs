@@ -6,9 +6,8 @@ using UnityEngine.UIElements;
 
 namespace Company.ChestGame.Saving.Demo
 {
-    // The UI half of the phase 8a probe/tamper pair: authored chrome in SaveInspector.uxml, this
-    // class only binds to it - query by name, set text, toggle a class. See
-    // Company.ChestGame.Pooling.Demo.PoolingDemoPanel, which this mirrors, and docs/saving.md, "The
+    // The UI half of the probe/tamper pair: the chrome is authored in SaveInspector.uxml and this
+    // class only binds to it - query by name, set text, toggle a class. See docs/saving.md, "The
     // save inspector".
     public sealed class SaveInspectorPanel : MonoBehaviour
     {
@@ -24,9 +23,8 @@ namespace Company.ChestGame.Saving.Demo
 
         private const long TamperedBalance = 999999;
 
-        // A payload this small never gets close to this in the shipped demo document; it exists so
-        // a much larger one still leaves the layout intact rather than proving anything about
-        // today's fixture.
+        // Nothing the shipped demo document produces comes close to this. It is here so a much
+        // larger payload still leaves the layout intact.
         private const int MaxRenderedCharacters = 4000;
 
         // Declaration order, not display order picked here - a reordering of the enum (against its
@@ -254,10 +252,9 @@ namespace Company.ChestGame.Saving.Demo
             SetBytesText(result);
         }
 
-        // Every combination this factory can build stores valid UTF-8 - see
-        // SavePipelineProbe.Render - so RenderedText is what actually shows here; IsHexDump only
-        // ever fires against bytes nothing shipped today produces. Truncated rather than rendered in
-        // full past a stated size, so one long payload cannot break the layout around it.
+        // Every combination this factory can build stores valid UTF-8 - see SavePipelineProbe.Render
+        // - so RenderedText is what shows here and IsHexDump fires only against bytes nothing ships
+        // today. Truncated past a stated size so one long payload cannot break the layout.
         private void SetBytesText(SaveProbeResult result)
         {
             string text = result.RenderedText;
@@ -286,9 +283,9 @@ namespace Company.ChestGame.Saving.Demo
             if (_busy || !_hasSaved) return;
             SetBusy(true);
 
-            // The combination Save last wrote under, not whatever the selector currently shows - a
-            // tamper against a combination nothing was ever saved under would just fail to parse,
-            // which is not the demonstration this button exists for.
+            // The combination Save last wrote under, not whatever the selector shows now: tampering
+            // with a combination nothing was saved under would just fail to parse, which is not the
+            // demonstration this button exists for.
             SaveStorage storage = _savedStorage;
             SaveCodec codec = _savedCodec;
             SaveProtection protection = _savedProtection;
@@ -316,7 +313,6 @@ namespace Company.ChestGame.Saving.Demo
         }
 
         // The point of the whole panel: an accepted edit and a refused one must not look alike.
-        // Carried by a class the stylesheet reacts to, never a colour set from here.
         private void ShowTamperResult(SaveStorage storage, SaveCodec codec, SaveProtection protection, SaveTamperResult result)
         {
             bool accepted = result.Outcome == SaveTamperOutcome.Loaded;

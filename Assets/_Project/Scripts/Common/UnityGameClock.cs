@@ -4,17 +4,9 @@ using UnityEngine;
 
 namespace Company.ChestGame.Common
 {
-    // The production clock. Both waits respect Time.timeScale, so pausing the game pauses any chest
-    // mid-open.
-    //
-    // The same fact is a latent trap for anything else that ever waits on Delay for a reason that
-    // has nothing to do with a chest: SaveScheduler<T>'s coalescing window is IGameClock.Delay under
-    // it, so a future pause menu that sets Time.timeScale to 0 would stop currency (and anything
-    // else built on SaveScheduler<T>) from persisting at all until unpause - MarkDirty still records
-    // what changed, but the window that turns it into a real write never elapses. Nothing in this
-    // game sets Time.timeScale today, so this is not a live bug, only a place a future change can
-    // introduce one without touching a single line here. See docs/saving.md, "A frozen clock is a
-    // frozen save".
+    // The production clock. Both waits respect Time.timeScale, so setting it to zero stops every
+    // caller waiting on this clock, not only animation. Anything that must keep running while the
+    // game is paused needs a different clock or an unscaled wait.
     public class UnityGameClock : IGameClock
     {
         public float DeltaTime => Time.deltaTime;
@@ -26,10 +18,8 @@ namespace Company.ChestGame.Common
 
         public UniTask NextFrame(CancellationToken cancellationToken) => UniTask.Yield(cancellationToken);
 
-        // ignoreTimeScale defaults to false on this overload - the choice this type's own header
-        // warns about - rather than passed explicitly, so a future reader diffing this file for
-        // "what changed" sees the argument appear, not a default silently keep meaning what it
-        // always meant.
+        // ignoreTimeScale is left at its false default - the choice the header warns about - so
+        // that a future change to it shows up as an argument appearing rather than a silent edit.
         public UniTask Delay(int milliseconds, CancellationToken cancellationToken) =>
             UniTask.Delay(milliseconds, cancellationToken: cancellationToken);
     }

@@ -1,10 +1,10 @@
 namespace Company.ChestGame.Saving
 {
-    // Repeating-key XOR — its own inverse, which is why one method drives both directions.
+    // Repeating-key XOR, its own inverse, which is why one method drives both directions.
     // IsTextSafe is false: the output is arbitrary bytes, not JSON. This hides a save from a casual
-    // look at the file and nothing more — JSON's own repeated field names give a known-plaintext
+    // look at the file and nothing more: JSON's own repeated field names give a known-plaintext
     // attack against a repeating key an easy foothold, so treat this as obfuscation, never as
-    // encryption. AesProtector is the type that actually claims confidentiality.
+    // encryption.
     public class XorObfuscator : IPayloadProtector
     {
         private readonly byte[] _key;
