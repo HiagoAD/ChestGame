@@ -1,30 +1,17 @@
 namespace Company.ChestGame.Saving
 {
-    // Maps each selection enum to the concrete component it names, one entry point per axis:
-    // CreateStore, CreateCodec, CreateProtector. Assembling the results into a working save
-    // pipeline happens elsewhere; this only ever hands back one component at a time. See
-    // docs/saving.md for the reasoning behind that split.
+    // Turns each selection enum into the component it names. CreateStore, CreateCodec and
+    // CreateProtector each hand back one component, never an assembled save pipeline. A value this
+    // build does not recognise, such as one serialized by a newer build, gets the default - File,
+    // Json or None - rather than an exception. See docs/saving.md for the reasoning behind this.
     public static class SaveComponentFactory
     {
-        // Shared rather than built fresh per call: the other three backends already let two stores
-        // built from identical arguments see each other's writes, and a fresh InMemoryStore per
-        // call would be the one backend that does not - silently losing whatever was "saved" to the
-        // instance nobody kept a reference to. A test wanting an isolated instance constructs
-        // InMemoryStore directly instead of going through here.
+        // Every InMemory store handed out is this one instance, so what it holds lasts for the life
+        // of the process however many times it is requested. Construct InMemoryStore directly for
+        // an isolated one.
         private static readonly InMemoryStore SharedInMemoryStore = new();
 
-        // inputs is guarded here or nowhere: the components built below never see it, only the one
-        // field this method pulls out of it. Required even for InMemory, which reads nothing from
-        // it, so a caller who later adds a File- or PlayerPrefs-backed profile does not inherit an
-        // inputs that only worked by accident.
-        //
-        // All three switches here keep a working `_ =>` arm rather than a throw. The enum switched
-        // on is a serialized field, which can legally hold a member this build has never heard of -
-        // an older build's profile, read after a newer build added a member - and refusing to
-        // produce a component at all is the worse failure. File, Json and None are each that
-        // default, which is also why each sits first in its own enum: index 0 is where a freshly
-        // serialized field lands before anyone touches it, so the fallback and the starting value
-        // are the same member.
+        // Throws SaveException when inputs is null, even for InMemory, which reads nothing from it.
         public static ISaveStore CreateStore(SaveStorage storage, SaveFactoryInputs inputs)
         {
             if (inputs == null) throw SaveException.NoFactoryInputs();
@@ -38,9 +25,6 @@ namespace Company.ChestGame.Saving
             };
         }
 
-        // The Json arm is explicit rather than folded into the discard, so a missing case for a
-        // future member is visible in review instead of silently falling back. No SaveFactoryInputs
-        // parameter: no codec this assembly ships needs anything beyond the bytes it is handed.
         public static ISaveCodec CreateCodec(SaveCodec codec) =>
             codec switch
             {
@@ -50,6 +34,7 @@ namespace Company.ChestGame.Saving
                 _ => new JsonCodec()
             };
 
+        // Throws SaveException when inputs is null, even for None and Base64, which need no key.
         public static IPayloadProtector CreateProtector(SaveProtection protection, SaveFactoryInputs inputs)
         {
             if (inputs == null) throw SaveException.NoFactoryInputs();

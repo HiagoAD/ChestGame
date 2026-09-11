@@ -7,11 +7,10 @@ namespace Company.ChestGame.Currency
     // Bridges ResourceBank's fully synchronous IResourceBankSaveHandler<T> onto the fully
     // asynchronous ISaveService. See docs/saving.md, "Currency: the first real caller".
     //
-    // Save() never blocks: MarkDirty returns immediately and coalesces. Load() blocks the calling
-    // thread once, inside ResourceBank's constructor, because a `ResourceBankState<T> Load()`
-    // signature has no UniTask to hand the wait back through. The constructor refuses any
-    // ISaveService whose CompletesOnCallingThread is false, so that block is always safe by the
-    // time Load() runs.
+    // Save() never blocks: the state goes to the scheduler, which writes it later. Load() blocks
+    // the calling thread until the load finishes; ResourceBank calls it once, from its own
+    // constructor. The constructor refuses any ISaveService whose CompletesOnCallingThread is
+    // false, which is what makes that block safe.
     public class CurrencyResourceBankSaveHandle : IResourceBankSaveHandler<CurrencyType>
     {
         // Distinct from the legacy PlayerPrefs key CurrencyLegacyImport reads from.

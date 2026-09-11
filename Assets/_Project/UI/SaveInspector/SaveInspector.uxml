@@ -1,8 +1,8 @@
 <ui:UXML xmlns:ui="UnityEngine.UIElements" editor-extension-mode="False">
     <Style src="SaveInspector.uss" />
 
-    <!-- Two independent children of the document root, never nested - see PoolingDemo.uxml's own
-         header for why. Exactly one is on screen at a time; SaveInspectorPanel swaps them. -->
+    <!-- The expanded panel. The button that opens it lives in SaveInspectorToggle.uxml, on a
+         separate document, so the two can sort independently. -->
     <ui:VisualElement name="chrome" class="chrome">
 
         <ui:VisualElement name="title-bar" class="row row--title">
@@ -74,5 +74,4 @@
 
     </ui:VisualElement>
 
-    <ui:Button name="toggle-button" text="Save Inspector" class="btn btn--primary toggle" />
 </ui:UXML>

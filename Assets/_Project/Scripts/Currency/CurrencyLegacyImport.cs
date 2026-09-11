@@ -62,9 +62,7 @@ namespace Company.ChestGame.Currency
             PlayerPrefs.SetString(_legacyKey + MigratedSuffix, raw);
             PlayerPrefs.DeleteKey(_legacyKey);
 
-            // Tidiness rather than correctness: the new save is already durable by the time this
-            // runs, so LoadAsync never asks IsPresent() again for this key whether or not either
-            // call above survives an unclean quit.
+            // Writes the rename through now rather than when the application quits.
             PlayerPrefs.Save();
         }
     }

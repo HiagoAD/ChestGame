@@ -33,8 +33,11 @@ namespace Company.ChestGame.Saving.Demo
         private static readonly SaveCodec[] Codecs = (SaveCodec[])Enum.GetValues(typeof(SaveCodec));
         private static readonly SaveProtection[] Protections = (SaveProtection[])Enum.GetValues(typeof(SaveProtection));
 
+        // Two documents on purpose. The toggle's sorts below any other full-screen overlay and the
+        // chrome's above it, so whichever is open covers every other overlay's toggle.
         [Header("Authored chrome")]
         [SerializeField] private UIDocument _document;
+        [SerializeField] private UIDocument _toggleDocument;
 
         private VisualElement _chrome;
         private Button _toggleButton;
@@ -68,6 +71,7 @@ namespace Company.ChestGame.Saving.Demo
         private void Start()
         {
             if (_document == null) throw SaveInspectorException.NoDocument();
+            if (_toggleDocument == null) throw SaveInspectorException.NoToggleDocument();
 
             _inputs = SaveFactoryInputs.Defaults();
             _sample = new SaveInspectorDocument();
@@ -85,8 +89,13 @@ namespace Company.ChestGame.Saving.Demo
             VisualElement root = _document.rootVisualElement;
             root.pickingMode = PickingMode.Ignore;
 
+            // Both roots fill the screen, so both opt out of picking or they swallow every tap meant
+            // for whatever is underneath.
+            VisualElement toggleRoot = _toggleDocument.rootVisualElement;
+            toggleRoot.pickingMode = PickingMode.Ignore;
+
             _chrome = Required<VisualElement>(root, "chrome");
-            _toggleButton = Required<Button>(root, "toggle-button");
+            _toggleButton = Required<Button>(toggleRoot, "toggle-button");
             _readoutLabel = Required<Label>(root, "readout-label");
             _timingsLabel = Required<Label>(root, "timings-label");
             _bytesLabel = Required<Label>(root, "bytes-label");

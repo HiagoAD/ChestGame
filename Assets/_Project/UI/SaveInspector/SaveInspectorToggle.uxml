@@ -1,0 +1,6 @@
+<ui:UXML xmlns:ui="UnityEngine.UIElements" editor-extension-mode="False">
+    <Style src="SaveInspector.uss" />
+
+    <!-- The collapsed state: the one control that opens the panel. -->
+    <ui:Button name="toggle-button" text="Saving Demo" class="btn btn--primary toggle" />
+</ui:UXML>

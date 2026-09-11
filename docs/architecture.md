@@ -133,7 +133,11 @@ fails boot like any other. See [saving.md](saving.md) for what meta holds.
 
 `GameSceneLifetimeScope` is the game scene's scope and it registers nothing: its `Configure` is
 empty. It exists to be the scene's injection root, so `GameManager` and `CurrencyWatcher` are
-auto-injected from a scope that can see both halves of the registration split. The root scope cannot
+auto-injected from a scope that can see both halves of the registration split. Its auto-inject list
+holds two scene objects, `Canvas` and `GameManager`, and injection reaches every child of a listed
+object: the two `CurrencyWatcher`s are injected because they sit under
+`Canvas/SafeArea/TopBar/ConsumablesArea`. A new object that needs injection either goes under one of
+those two or is added to the list. The root scope cannot
 resolve `IMinigameManager` at all, which is why the auto-inject list has to live here rather than in
 the boot scene. `GameBootstrapperTests` pins that.
 

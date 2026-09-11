@@ -16,7 +16,10 @@ namespace Company.ChestGame.Saving.Demo
         public static SaveInspectorException NoDocument() =>
             new("The save inspector panel has no UIDocument assigned, so there is no chrome to bind to");
 
+        public static SaveInspectorException NoToggleDocument() =>
+            new("The save inspector panel has no toggle UIDocument assigned, so there is no way to open it");
+
         public static SaveInspectorException MissingElement(string type, string name) =>
-            new($"SaveInspector.uxml has no {type} named '{name}', so the panel cannot bind to it");
+            new($"The save inspector's authored UXML has no {type} named '{name}', so the panel cannot bind to it");
     }
 }

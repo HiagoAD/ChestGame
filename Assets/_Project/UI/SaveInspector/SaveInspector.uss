@@ -199,7 +199,7 @@
 
 .toggle {
     position: absolute;
-    top: 160px;
+    top: 272px;
     right: var(--gutter);
     min-width: 240px;
     font-size: 26px;

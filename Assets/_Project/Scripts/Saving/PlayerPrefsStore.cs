@@ -26,10 +26,19 @@ namespace Company.ChestGame.Saving
         {
             ct.ThrowIfCancellationRequested();
 
-            PlayerPrefs.SetString(PrefsKeyFor(key), Convert.ToBase64String(bytes ?? Array.Empty<byte>()));
+            string prefsKey = PrefsKeyFor(key);
 
-            // Buffered until quit otherwise, which is not persistence.
-            PlayerPrefs.Save();
+            try
+            {
+                PlayerPrefs.SetString(prefsKey, Convert.ToBase64String(bytes ?? Array.Empty<byte>()));
+
+                // Buffered until quit otherwise, which is not persistence.
+                PlayerPrefs.Save();
+            }
+            catch (PlayerPrefsException exception)
+            {
+                throw SaveException.Io(key, exception);
+            }
 
             return UniTask.CompletedTask;
         }
@@ -62,8 +71,17 @@ namespace Company.ChestGame.Saving
         {
             ct.ThrowIfCancellationRequested();
 
-            PlayerPrefs.DeleteKey(PrefsKeyFor(key));
-            PlayerPrefs.Save();
+            string prefsKey = PrefsKeyFor(key);
+
+            try
+            {
+                PlayerPrefs.DeleteKey(prefsKey);
+                PlayerPrefs.Save();
+            }
+            catch (PlayerPrefsException exception)
+            {
+                throw SaveException.Io(key, exception);
+            }
 
             return UniTask.CompletedTask;
         }

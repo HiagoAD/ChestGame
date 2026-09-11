@@ -4,12 +4,12 @@ Two suites, split by what only a real engine can prove.
 
 | Suite | Ours | Wall time |
 |---|---|---|
-| EditMode | 657 | ~1 s |
-| PlayMode | 69 | ~26 s |
+| EditMode | 660 | ~1 s |
+| PlayMode | 70 | ~26 s |
 
 Reproduce them with `ci/run-tests.sh`; the wall times move a little run to run. The numbers are
 written here rather than linked because `ci-results/` is gitignored, so a fresh clone has none until
-it runs the suites itself. The EditMode runner reports 658: the
+it runs the suites itself. The EditMode runner reports 661: the
 Addressables package ships one editor test of its own
 (`AddressableAssets.DocExampleCode.TestStub.RequiredTest`) and Unity picks it up. It is not ours and
 is not counted above.
@@ -37,6 +37,8 @@ Play-mode tests assert settled states rather than mid-flight ones, so a slow fra
 cannot cause a spurious failure.
 
 Two fixtures test authored assets rather than code: the pooling demo's panel and the save inspector's.
+A third pair, `DemoOverlayTests` and `DemoOverlaysPlayModeTests`, covers the two demos sharing the Game
+scene, since placing a prefab in a scene and choosing its sort order are asset edits no compiler sees.
 Both UIs are a prefab, a `.uxml` and a `.uss`, and every way that breaks compiles perfectly: a renamed element, a
 class the stylesheet no longer defines, a serialized field left empty. So those tests instantiate the
 real prefab and ask the panel questions no compiler can - does a tap actually land on this button

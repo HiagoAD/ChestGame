@@ -54,9 +54,19 @@ namespace Company.ChestGame.Tests.PlayMode
             yield return null;
         }
 
-        private VisualElement Root() => _panel.GetComponent<UIDocument>().rootVisualElement;
+        // Two sibling documents rather than one: the chrome and the toggle sort independently, so
+        // each is read from its own child.
+        private VisualElement Root() => DocumentRoot("Chrome");
+        private VisualElement ToggleRoot() => DocumentRoot("Toggle");
         private VisualElement Chrome() => Root().Q<VisualElement>("chrome");
-        private Button Toggle() => Root().Q<Button>("toggle-button");
+        private Button Toggle() => ToggleRoot().Q<Button>("toggle-button");
+
+        private VisualElement DocumentRoot(string child)
+        {
+            Transform found = _instance.transform.Find(child);
+            Assert.IsNotNull(found, $"the prefab has no '{child}' child carrying a UIDocument");
+            return found.GetComponent<UIDocument>().rootVisualElement;
+        }
         private Button CloseButton() => Root().Q<Button>("close-button");
 
         private IEnumerator Expand()
@@ -137,7 +147,7 @@ namespace Company.ChestGame.Tests.PlayMode
             yield return BuildPanel();
 
             Button toggle = Toggle();
-            Assert.AreEqual(toggle, Root().panel.Pick(toggle.worldBound.center),
+            Assert.AreEqual(toggle, toggle.panel.Pick(toggle.worldBound.center),
                 "collapsed, a tap on the floating toggle does not land on it - it is the only way into the demo");
 
             yield return Expand();

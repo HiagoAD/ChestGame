@@ -610,6 +610,14 @@ namespace itself away from the real editor prefs instead of reading or clobberin
 `PlayerPrefs.Save()` runs after every write because `PlayerPrefs` otherwise buffers changes until the
 process quits normally, and a save that only survives a clean quit is not a save.
 
+`WriteAsync` and `DeleteAsync` turn a `PlayerPrefsException` into `SaveException.Io`, the same
+translation the file stores apply to their IO failures, so a caller catching `SaveException` around a
+save is not bypassed by this backend. Unity documents that exception only as thrown by `PlayerPrefs`
+in a Web build, where PlayerPrefs data is capped at 1 MB, and does not say which call throws it. So
+every call that writes (`SetString`, `DeleteKey` and `Save`) sits inside the catch, and the two reads
+do not. The catch names that one type rather than `Exception`, so a genuine bug is not relabelled as
+a storage failure. No test reproduces the failure, because it cannot happen outside a Web build.
+
 ## `InMemoryStore`
 
 The general form of `Tests/Common/InMemoryResourceBankSaveHandler`: a dictionary keyed by save key,
@@ -783,7 +791,7 @@ In the shape the pool strategy list in `docs/design-decisions.md` uses.
 
 Nothing in `ISaveStore`, `SaveService` or `SaveException` needs to change: `SaveService` composes
 whatever `ISaveStore` it is handed, and a new backend reports its own storage failures through
-`SaveException.Io`, the same as `FileStore` and `AtomicFileStore` do.
+`SaveException.Io`, the same as `FileStore`, `AtomicFileStore` and `PlayerPrefsStore` do.
 
 ## Exceptions
 
@@ -866,6 +874,13 @@ it again as the first thing the wrapped store does, unchanged from what `FileSto
 *third* time on the way back across `UniTask.Yield` — after the write has already reached disk — would
 report a save as canceled that, in fact, already happened. Passing `None` there is what keeps
 cancellation observed only before a write starts, never lied about after one already finished.
+
+`SaveScheduler<T>` depends on the return trip. It holds no lock, and the code after its
+`await _saveService.SaveAsync(...)` reads and writes the same fields `MarkDirty` does: `_pending`,
+`_hasPending` and `_activeFlush`. That is safe only because the hop resumes on the main thread before
+that code runs. Passing `configureAwait: false` here, or swapping in anything else that resumes on a
+worker thread, would turn those field accesses into a data race with no change to the scheduler at
+all.
 
 `IMainThreadOnlyStore` is deliberately an empty marker rather than a member every `ISaveStore` has to
 implement. A store declares its own thread affinity — the brief for this phase raised that as one
@@ -1316,7 +1331,9 @@ displaces a developer's real data instead of destroying it. The marker is writte
 key is deleted, the same write-before-clear ordering `SaveService` itself already enforces one level up
 (the new save durable before `Clear()` runs at all): the worst state a failure between those two
 `PlayerPrefs` calls can leave behind is both the marker and the original present together, never
-neither.
+neither. The `PlayerPrefs.Save()` that ends `Clear()` is tidiness rather than correctness: by the time
+it runs the new save is already durable, so `LoadAsync` never consults `IsPresent()` for this key
+again, and it makes no difference whether the rename survives an unclean quit.
 
 A failure inside `Clear()` itself is still caught by `SaveService.ImportLegacyOrFreshAsync` rather than
 allowed to fail an otherwise-successful load — that part of the design is unchanged and correct, since
@@ -1687,6 +1704,73 @@ the game — the arrangement `Company.ChestGame.Pooling.Demo` already settled on
 reason that a demonstration the game depends on makes "what does this feature actually need" stop
 having an honest answer. It follows that the demo owns its own `SaveInspectorDocument` rather than
 borrowing `CurrencySaveDocument`.
+
+It is also placed the way the pooling demo is: an instance of
+`Assets/_Project/UI/SaveInspector/SaveInspector.prefab` sits at the root of `Game.unity`, so it ships
+in the player and a floating **Saving Demo** button opens it from the running game. Nothing in code
+refers to it; the scene does.
+
+### Two overlays in one scene, and why the save inspector uses two documents
+
+Each demo is a full-screen overlay behind a floating toggle, and with both in the same scene each
+overlay has to cover the other one's toggle while it is open. Placing them side by side naively fails
+three ways. Both toggles sat at the same `top: 160px; right: 24px`, so one hid the other. Both panels
+sorted at 100, which leaves their draw and hit order undefined. And whichever panel sorts higher keeps
+its toggle floating over the other one's open chrome - exactly where that chrome keeps its control
+rows. The pooling demo already hides its own toggle while open for that reason, because its toggle's
+band runs through a control row.
+
+A single document cannot fix the last one in both directions, because its toggle and its chrome share
+a sort order: sort the save inspector above the pooling demo and its toggle floats over the pooling
+controls; sort it below and the pooling toggle floats over its own. So the save inspector splits into
+two documents with two `PanelSettings`, one each side of the pooling demo's 100:
+
+| Document | `PanelSettings` | Sort order | Effect |
+|---|---|---|---|
+| `SaveInspectorToggle.uxml` | `SaveInspectorTogglePanelSettings` | 99 | an open pooling demo covers it |
+| `SaveInspector.uxml` | `SaveInspectorPanelSettings` | 101 | when open, it covers the pooling toggle |
+
+The toggle itself moves to `top: 272px`, below the pooling toggle's 160-256 band, so the two sit apart
+while both are collapsed.
+
+The two toggles also have to read as one stack, and the label is what decides that. Each toggle is as
+wide as its label needs above a shared `min-width: 240px`. "Pooling Demo" fits inside that floor;
+"Save Inspector" did not, so its button grew to 246 px, left the stack with a ragged left edge, and
+squeezed its own padding to almost nothing beside the roomier button above it. The button now reads
+**Saving Demo**. That follows the convention the existing toggle already set - the button names a
+topic, the panel it opens carries the full title, the same way "Pooling Demo" opens "Object Pooling" -
+and it fits the shared floor, so both buttons resolve to exactly 240 x 96 with aligned edges without
+the pooling demo changing at all. A future label that outgrows 240 px widens only its own button;
+`DemoOverlaysPlayModeTests` fails on exactly that, rather than a reviewer having to notice it. Game UI canvases sort at 0, so 99 still draws above the game. The pooling
+demo is untouched: the save inspector carries the asymmetry on its own.
+
+This is a fixed arrangement for exactly two overlays. A third full-screen overlay would need its
+toggle below both existing chromes and its chrome above both existing toggles, and past that point
+fixed sort numbers stop being a solution. That is the moment to give the overlays a shared notion of
+"one is open", rather than a third sort order.
+
+Two Unity details shaped how the prefab is built:
+
+- **The two documents are siblings, and the prefab root carries neither.** A `UIDocument` placed under
+  another `UIDocument`'s GameObject becomes a child document: it joins its parent's panel and cannot
+  take `PanelSettings` of its own. Nesting them would silently put both back on a single sort order.
+  Unity enforces this with an assertion inside `UIDocument.panelSettings`, which is how it surfaced.
+- **The generator updates the prefab in place.** `Tools/Saving/Generate Save Inspector Prefab` loads
+  an existing prefab's contents, edits them and saves them back, rather than building a fresh
+  GameObject over it. A fresh one gets fresh object identities, and `Game.unity` holds references into
+  this prefab now, so regenerating the old way would leave that instance pointing at objects that no
+  longer exist. It is safe to re-run after editing either `.uxml` or either `PanelSettings`.
+
+Because it now ships, one consequence is worth stating. The panel builds its pipeline from
+`SaveFactoryInputs.Defaults()`, and its default selection is the File store, so pressing Save in the
+running game writes `save-inspector-demo.sav` and `save-inspector-demo-baseline.sav` into the same
+directory the game saves into. The keys never collide with `currency`, `chests` or `meta`, but
+nothing cleans them up. Choosing Memory has no side effects.
+
+`DemoOverlayTests` pins the arrangement against the authored assets: `Game.unity` places both demo
+prefabs, and the three sort orders keep the save inspector's toggle below the pooling demo and its
+chrome above it. `DemoOverlaysPlayModeTests` instantiates both prefabs and asserts the collapsed
+toggles do not overlap and form one aligned column: equal width, matching edges, equal height.
 
 ### Why the probe builds from `SaveComponentFactory` rather than `SaveServiceFactory`
 
