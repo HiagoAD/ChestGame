@@ -2,8 +2,12 @@ using System;
 
 namespace Company.ChestGame.Common
 {
-    // An asset the game expects to ship with could not be found. The path is whatever key the
-    // loader was given, so Common holds no opinion about which loader that is.
+    /// <summary>
+    /// An asset the game expects to ship with could not be found.
+    /// </summary>
+    /// <remarks>
+    /// See docs/architecture.md, "Exception hierarchy".
+    /// </remarks>
     public class MissingAssetException : ChestGameException
     {
         public string AssetPath { get; }
@@ -14,7 +18,6 @@ namespace Company.ChestGame.Common
             AssetPath = assetPath;
         }
 
-        // The loader knows why the lookup failed; losing it leaves only the key in the report.
         public MissingAssetException(string assetPath, string assetKind, Exception innerException)
             : base(MessageFor(assetPath, assetKind), innerException)
         {

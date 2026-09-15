@@ -5,15 +5,13 @@ using Company.ChestGame.Pooling.Demo;
 using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.TestTools;
-// System brings a second Object with it; the alias keeps Destroy meaning what it did.
 using Object = UnityEngine.Object;
 
 namespace Company.ChestGame.Tests.PlayMode
 {
-    // PoolRaceTests proves the frame-budget orchestration against a fake clock; only a real player
-    // loop, real Instantiate and a real Canvas can prove a race drives actual Unity object
-    // lifecycles correctly. The second test covers the disabled-Canvas ParkedPool holder, which
-    // nothing else exercises against a real engine.
+    /// <remarks>
+    /// See docs/pooling.md, "What only a real engine proves about pooling".
+    /// </remarks>
     public class PoolRacePlayModeTests
     {
         private const double BudgetMilliseconds = 2d;
@@ -28,6 +26,9 @@ namespace Company.ChestGame.Tests.PlayMode
             if (_root != null) Object.Destroy(_root);
         }
 
+        /// <remarks>
+        /// See docs/pooling.md, "What only a real engine proves about pooling".
+        /// </remarks>
         [UnityTest]
         public IEnumerator StartRace_AllFour_EachLaneEndsWithTheRequestedCount_CountedByARealProbe()
         {
@@ -44,8 +45,6 @@ namespace Company.ChestGame.Tests.PlayMode
             PoolRaceLane<SpawnProbe>[] lanes = PoolRaceLaneFactory.BuildAll(prefab, laneRoots, maxSize: 50);
             PoolRace<SpawnProbe> race = new(lanes, new UnityGameClock(), BudgetMilliseconds);
 
-            // After the rig is standing, so the one Awake the prefab itself ran on its own is not
-            // counted as something the race built.
             SpawnProbe.Instantiations = 0;
 
             race.StartRace(BoardSize, FillMode.Cold, solo: false, PoolStrategy.ActivationPool);
@@ -54,8 +53,6 @@ namespace Company.ChestGame.Tests.PlayMode
 
             Assert.IsTrue(race.LastResult.HasValue, "the race did not settle within the frames allotted");
 
-            // The headline claim: every one of the four times twelve objects the race says it placed
-            // is one the engine actually built, not four pool counters agreeing with each other.
             Assert.AreEqual(BoardSize * lanes.Length, SpawnProbe.Instantiations,
                 "a cold race across four lanes has to instantiate the full board on every lane - fewer real Awake calls than that means a lane silently reused something it should have built fresh");
 
@@ -67,6 +64,9 @@ namespace Company.ChestGame.Tests.PlayMode
             }
         }
 
+        /// <remarks>
+        /// See docs/pooling.md, "What only a real engine proves about pooling".
+        /// </remarks>
         [UnityTest]
         public IEnumerator ParkedPool_ThroughARealCanvasHolder_KeepsParkedInstancesActiveAndHidesThem()
         {
@@ -108,9 +108,13 @@ namespace Company.ChestGame.Tests.PlayMode
             return go.transform;
         }
 
-        // Counts how many probe objects the engine was actually asked to build, the way
-        // ChestBoardPoolingTests.SpawnProbe does: CreatedCount only proves a field moved, an Awake
-        // proves Instantiate ran.
+        /// <summary>
+        /// Counts how many instances the engine actually constructed, the same technique as
+        /// <see cref="ChestBoardPoolingTests.SpawnProbe"/>.
+        /// </summary>
+        /// <remarks>
+        /// See docs/pooling.md, "What only a real engine proves about pooling".
+        /// </remarks>
         public class SpawnProbe : MonoBehaviour
         {
             public static int Instantiations;

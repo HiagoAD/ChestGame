@@ -24,20 +24,17 @@ using VContainer.Unity;
 
 namespace Company.ChestGame.Tests.PlayMode
 {
-    // The boot flow, run for real, and where the shipped assets get checked: resolving IGameConfig
-    // or IMinigameCatalog means having booted, and booting means a scene. It is the Addressables
-    // integration proof for the same reason, since every key the game ships is resolved by the boot
-    // flow.
-    //
-    // Booting the real Boot scene runs the real Configure() -> RegisterCoreServices, the exact
-    // zero-argument call that would otherwise resolve ICurrencyManager against the developer's real
-    // persistentDataPath and real "ResourceBankSaveData_CurrencyType" entry as soon as the Game
-    // scene's CurrencyWatcher is injected. The static overrides are the seam this fixture has
-    // instead of arguments. Assigned on the line before the scene load rather than from an earlier
-    // hook, so the ordering rests on statement order in one coroutine rather than on how the
-    // framework sequences its setup attributes, and cleared unconditionally so a failing test
-    // cannot leak one into the next fixture. See docs/saving.md, "Sealing the boot path a test
-    // cannot pass arguments through".
+    /// <summary>
+    /// Boots the real Boot scene and checks what only a real boot can prove: that the shipped
+    /// <see cref="IGameConfig"/> document, the minigame and popup catalogs, the popup parent prefab,
+    /// and the shipped chests minigame's own content all resolve through the real composition root
+    /// and through Addressables.
+    /// </summary>
+    /// <remarks>
+    /// See docs/testing.md, "What lives where".
+    /// See docs/saving.md, "Sealing the boot path a test cannot pass arguments through".
+    /// See docs/testing.md, "The save suites never touch a real save".
+    /// </remarks>
     public class GameBootstrapperTests
     {
         private const string BOOT_SCENE = "Boot";
@@ -46,19 +43,15 @@ namespace Company.ChestGame.Tests.PlayMode
         private string _currencySaveRoot;
         private string _legacyPlayerPrefsKey;
 
+        /// <remarks>
+        /// See docs/testing.md, "The save suites never touch a real save".
+        /// </remarks>
         [TearDown]
         public void RestoreTheCurrencySaveOverrides()
         {
-            // Unconditional: this has to run even when a test above failed, or the next fixture to
-            // boot a scene inherits whatever this one last pointed at instead of the real location.
             GameLifetimeScope.CurrencySaveInputsOverride = null;
             GameLifetimeScope.LegacyCurrencyPlayerPrefsKeyOverride = null;
 
-            // The save root is deleted at the end of CleanUp instead, not here: destroying the root
-            // scope disposes the container, which disposes every SaveScheduler<T> in it, and their
-            // best-effort Dispose flush writes through AtomicFileStore - which recreates the root
-            // directory. Deleting from this method leaked one directory holding a meta.sav per test,
-            // because meta is written on every boot where currency only writes when a balance moves.
             if (_legacyPlayerPrefsKey != null)
             {
                 PlayerPrefs.DeleteKey(_legacyPlayerPrefsKey);
@@ -67,13 +60,13 @@ namespace Company.ChestGame.Tests.PlayMode
             }
         }
 
+        /// <remarks>
+        /// See docs/testing.md, "The save suites never touch a real save".
+        /// See docs/testing.md, "What lives where".
+        /// </remarks>
         [UnitySetUp]
         public IEnumerator BootTheGame()
         {
-            // Immediately before the LoadSceneAsync below, which drives Configure(); that reads
-            // both once and builds the save service from what it finds. Statement order in this one
-            // coroutine is the whole guarantee - a stale claim about attribute ordering is what
-            // defeated this seam once already.
             _currencySaveRoot = Path.Combine(Path.GetTempPath(), "ChestGameSaveTests_" + System.Guid.NewGuid().ToString("N"));
             _legacyPlayerPrefsKey = "ChestGameSaveTests.Legacy." + System.Guid.NewGuid().ToString("N");
 
@@ -82,8 +75,6 @@ namespace Company.ChestGame.Tests.PlayMode
 
             yield return SceneManager.LoadSceneAsync(BOOT_SCENE);
 
-            // A settled state, not a mid-flight one: everything asserted below is true once the
-            // game scene is active.
             float deadline = Time.realtimeSinceStartup + 30f;
             while (SceneManager.GetActiveScene().name != GAME_SCENE && Time.realtimeSinceStartup < deadline)
             {
@@ -96,10 +87,12 @@ namespace Company.ChestGame.Tests.PlayMode
             yield return null;
         }
 
+        /// <remarks>
+        /// See docs/testing.md, "The save suites never touch a real save".
+        /// </remarks>
         [UnityTearDown]
         public IEnumerator CleanUp()
         {
-            // The root scope is DontDestroyOnLoad by design, so nothing removes it but this.
             foreach (LifetimeScope scope in Object.FindObjectsByType<LifetimeScope>(FindObjectsSortMode.None))
             {
                 if (scope != null) Object.Destroy(scope.gameObject);
@@ -120,13 +113,12 @@ namespace Company.ChestGame.Tests.PlayMode
                 yield return SceneManager.UnloadSceneAsync(game);
             }
 
-            // Last, and in this method rather than in [TearDown], so it lands after every scheduler
-            // the destroyed container just disposed has finished its own flush - see
-            // RestoreTheCurrencySaveOverrides. Ordering by statement inside one coroutine rather
-            // than by which teardown attribute the framework runs first.
             if (_currencySaveRoot != null && Directory.Exists(_currencySaveRoot)) Directory.Delete(_currencySaveRoot, recursive: true);
         }
 
+        /// <remarks>
+        /// See docs/architecture.md, "Boot".
+        /// </remarks>
         [Test]
         public void TheGameScene_OpensWithAScopeParentedToTheOneHoldingTheLoadedContent()
         {
@@ -135,8 +127,6 @@ namespace Company.ChestGame.Tests.PlayMode
             Assert.IsNotNull(sceneScope.Parent, "the game scene's scope was not parented by EnqueueParent");
             Assert.IsNotNull(sceneScope.Container, "the game scene's scope never built its container");
 
-            // The scene scope registers nothing itself, so anything it resolves came down the
-            // chain.
             Assert.IsInstanceOf<MinigameManager>(sceneScope.Container.Resolve<IMinigameManager>());
             Assert.IsInstanceOf<CurrencyManager>(sceneScope.Container.Resolve<ICurrencyManager>());
         }
@@ -151,12 +141,12 @@ namespace Company.ChestGame.Tests.PlayMode
                 "the root scope should have moved to DontDestroyOnLoad, not be part of the game scene");
         }
 
+        /// <remarks>
+        /// See docs/testing.md, "What lives where".
+        /// </remarks>
         [Test]
         public void GameConfig_ResolvesAndParsesTheShippedConfigDocument()
         {
-            // Reaches the shipped GameConfig document through the registered source and through
-            // Addressables, so this is what catches it going missing, unaddressable or malformed.
-            // Booting at all is most of the assertion.
             IGameConfig config = Resolve<IGameConfig>();
 
             Assert.IsInstanceOf<LocalJsonGameConfig>(config);
@@ -180,26 +170,25 @@ namespace Company.ChestGame.Tests.PlayMode
             CollectionAssert.IsNotEmpty(catalog.Popups);
         }
 
+        /// <remarks>
+        /// See docs/architecture.md, "Popups".
+        /// </remarks>
         [Test]
         public void ThePopupParentPrefab_ReachedTheProviderThroughTheContentThatWasLoaded()
         {
-            // The fourth source, and the only one whose result nothing else here would notice going
-            // missing: the provider holds the prefab untouched until a popup is shown. Asking for
-            // the canvas is what forces the prefab to have been real.
             IPopupParentProvider provider = Resolve<IPopupParentProvider>();
 
             Assert.IsInstanceOf<PopupParentProvider>(provider);
             Assert.IsNotNull(provider.Default, "the shipped popup parent prefab never reached the provider");
         }
 
+        /// <remarks>
+        /// See docs/minigames.md, "Nothing loads while the container is built".
+        /// </remarks>
         [UnityTest]
         public IEnumerator TheShippedChestsMinigame_BeginsFromTheContentItsDefinitionNamesRatherThanHolds()
             => UniTask.ToCoroutine(async () =>
         {
-            // The chests view and config are behind AssetReferences, so a wrong GUID or an entry
-            // dropped from the group surfaces nowhere until a minigame is begun. Beginning one for
-            // real is the proof, and the same proof that configure-load-inject-instantiate works
-            // outside a fixture holding fakes.
             IMinigameManager manager = Resolve<IMinigameManager>();
             GameObject parent = new("ChestsMinigameParent");
 
@@ -223,11 +212,12 @@ namespace Company.ChestGame.Tests.PlayMode
             }
         });
 
+        /// <remarks>
+        /// See docs/minigames.md, "What adding a minigame actually takes".
+        /// </remarks>
         [Test]
         public void TheShippedChestsMinigame_NamesItsOwnContent()
         {
-            // The two fields the delivery paths read, pinned against the group they describe:
-            // nothing else would notice the label drifting from the one the entries carry.
             IMinigameCatalog catalog = Resolve<IMinigameCatalog>();
             MinigameBaseSO definition = catalog.Minigames[typeof(ChestsMinigame)];
 
@@ -236,11 +226,12 @@ namespace Company.ChestGame.Tests.PlayMode
             Assert.AreEqual(MinigameLoadPolicy.OnDemand, definition.LoadPolicy);
         }
 
+        /// <remarks>
+        /// See docs/architecture.md, "Boot".
+        /// </remarks>
         [Test]
         public void TheSceneObjects_AreInjectedFromBothHalvesOfTheSplit()
         {
-            // The trap in splitting the scope: the root scope cannot resolve IMinigameManager, so
-            // the auto-inject list has to live on the scene scope.
             GameManager gameManager = Object.FindAnyObjectByType<GameManager>();
             Assert.IsNotNull(gameManager, "the game scene no longer contains a GameManager");
             Assert.IsNotNull(InjectedField(gameManager, "_minigamesManager"),
@@ -262,8 +253,6 @@ namespace Company.ChestGame.Tests.PlayMode
             return scope;
         }
 
-        // The injected references are private, so reading them back is the only way to assert
-        // auto-injection reached these objects.
         private static object InjectedField(object target, string fieldName)
         {
             FieldInfo field = target.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic);

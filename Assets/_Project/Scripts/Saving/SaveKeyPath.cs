@@ -3,9 +3,13 @@ using System.IO;
 
 namespace Company.ChestGame.Saving
 {
-    // Every key rule a filename-based store needs, gathered in one place so a reordered check or a
-    // new rule cannot land in one caller and not another. See docs/saving.md for why the order of
-    // the checks is load-bearing.
+    /// <summary>
+    /// Every key rule a filename-based store needs, gathered in one place so a reordered check or a
+    /// new rule cannot land in one caller and not another.
+    /// </summary>
+    /// <remarks>
+    /// See docs/saving.md, "FileStore".
+    /// </remarks>
     internal static class SaveKeyPath
     {
         private const string Extension = ".sav";
@@ -17,14 +21,18 @@ namespace Company.ChestGame.Saving
             if (string.IsNullOrEmpty(key)) throw SaveException.NoKey();
         }
 
-        // A bad key is rejected, never rewritten: two keys rewritten into one file name would be
-        // one save silently overwriting another.
+        /// <summary>
+        /// A bad key is rejected, never rewritten: two keys rewritten into one file name would be
+        /// one save silently overwriting another.
+        /// </summary>
+        /// <remarks>
+        /// See docs/saving.md, "FileStore".
+        /// See docs/saving.md, "SaveKeyPath, and why the key logic is shared rather than mirrored".
+        /// </remarks>
         public static string ResolveFile(string rootDirectory, string key)
         {
             EnsurePresent(key);
 
-            // Before IsPathRooted, which on Mono throws an untyped ArgumentException for a character
-            // like NUL instead of answering the question it was asked.
             if (HasInvalidCharacter(key)) throw SaveException.InvalidKey(key);
 
             if (Path.IsPathRooted(key) || key.Contains("..")) throw SaveException.KeyEscapesRoot(key);
@@ -36,15 +44,17 @@ namespace Company.ChestGame.Saving
                 ? rootDirectory
                 : rootDirectory + Path.DirectorySeparatorChar;
 
-            // Unreachable given the three rejections above, and kept as the statement of the
-            // invariant rather than leaving it inferred from what they happen to catch.
             if (!candidate.StartsWith(rootWithSeparator, StringComparison.Ordinal)) throw SaveException.KeyEscapesRoot(key);
 
             return candidate;
         }
 
-        // Separators excluded here and checked separately, so a rooted key still reports
-        // KeyEscapesRoot rather than being caught by this first.
+        /// <summary>
+        /// Separators are excluded here and checked separately by <see cref="HasSeparator"/>.
+        /// </summary>
+        /// <remarks>
+        /// See docs/saving.md, "FileStore".
+        /// </remarks>
         private static bool HasInvalidCharacter(string key)
         {
             foreach (char c in key)

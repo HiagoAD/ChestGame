@@ -6,36 +6,67 @@ using Object = UnityEngine.Object;
 
 namespace Company.ChestGame.Assets
 {
-    // The seam over how assets are fetched, so that nothing outside Company.ChestGame.Assets calls
-    // Addressables.
-    //
-    // The two load routes are NOT symmetric about lifetime and nothing in the compiler or the test
-    // suite will tell you: anything loaded by key is resident for the session, and only an
-    // AssetReference can be released. Loading transient content by key leaks it silently.
-    // See docs/asset-loading.md before adding a call site.
+    /// <summary>
+    /// The seam over how assets are fetched. Nothing outside <c>Company.ChestGame.Assets</c> calls
+    /// Addressables directly.
+    /// </summary>
+    /// <remarks>
+    /// The two load routes are not symmetric about lifetime: anything loaded by key is resident for
+    /// the session, and only an asset loaded through an <see cref="AssetReference"/> can be
+    /// released. Loading transient content by key leaks it.
+    /// See docs/asset-loading.md, "Lifetimes: the asymmetry that will bite you".
+    /// </remarks>
     public interface IAssetProvider
     {
-        // Throws MissingAssetException when the key is not in the shipped catalog, and
-        // AssetLoadException when the key resolved but the load itself failed. Resident for the
-        // session once it arrives: there is no Release for a key.
+        /// <summary>
+        /// Loads the asset at <paramref name="key"/>.
+        /// </summary>
+        /// <exception cref="AssetLoadException">The key resolved but the load itself failed.</exception>
+        /// <remarks>
+        /// Throws <c>MissingAssetException</c> when the key is not in the shipped catalog.
+        /// Resident for the session once it arrives: there is no <c>Release</c> for a key.
+        /// </remarks>
         UniTask<TAsset> LoadAsync<TAsset>(string key, CancellationToken ct) where TAsset : Object;
 
-        // Same two failure modes through an authored reference; an unwired one is the missing
-        // case. Every load that hands an asset back leaves exactly one thing for Release to drop,
-        // and a cancelled or failed load leaves nothing.
+        /// <summary>
+        /// Loads the asset named by <paramref name="reference"/>.
+        /// </summary>
+        /// <exception cref="AssetLoadException">The reference resolved but the load itself failed.</exception>
+        /// <remarks>
+        /// Throws <c>MissingAssetException</c> when the reference is unwired or unresolvable.
+        /// Every load that hands an asset back leaves exactly one thing for <see cref="Release"/>
+        /// to drop, and a cancelled or failed load leaves nothing.
+        /// </remarks>
         UniTask<TAsset> LoadAsync<TAsset>(AssetReference reference, CancellationToken ct) where TAsset : Object;
 
-        // One release per load, matching what Addressables ref-counts. Safe on a reference that
-        // was never loaded and on a null one, so teardown paths can call it unconditionally.
+        /// <summary>
+        /// Releases one load of the asset named by <paramref name="reference"/>.
+        /// </summary>
+        /// <remarks>
+        /// One release per load, matching what Addressables ref-counts. Safe on a reference that
+        /// was never loaded and on a null one, so teardown paths can call it unconditionally.
+        /// </remarks>
         void Release(AssetReference reference);
 
-        // Bytes still to come down the wire for everything under that label. Zero is the ordinary
-        // answer rather than an error: cached or local content reports it. Same failure modes as a
-        // load.
+        /// <summary>
+        /// The bytes still to come down the wire for everything under <paramref name="label"/>.
+        /// </summary>
+        /// <returns>Zero rather than an error when nothing is left to fetch: cached or local
+        /// content reports it.</returns>
+        /// <exception cref="AssetLoadException">The label resolved but the query itself failed.</exception>
+        /// <remarks>
+        /// Throws <c>MissingAssetException</c> when the label is not in the shipped catalog.
+        /// </remarks>
         UniTask<long> GetDownloadSizeAsync(string label, CancellationToken ct);
 
-        // Fetches a label into the cache without loading any of it, reporting 0..1 as it goes.
-        // Nothing left to fetch completes immediately rather than failing.
+        /// <summary>
+        /// Fetches everything under <paramref name="label"/> into the cache without loading any of
+        /// it, reporting 0..1 as it goes. Whatever wants an asset out of the label still goes
+        /// through <c>LoadAsync</c> afterward.
+        /// </summary>
+        /// <remarks>
+        /// Nothing left to fetch completes immediately rather than failing.
+        /// </remarks>
         UniTask DownloadAsync(string label, IProgress<float> progress, CancellationToken ct);
     }
 }

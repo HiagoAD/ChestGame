@@ -4,13 +4,15 @@ using NUnit.Framework;
 
 namespace Company.ChestGame.Tests.EditMode
 {
-    // The parts of SaveScheduler<T> provable without a real thread hop or a real clock: its own
-    // constructor guards, CanFlushBlocking answering from the ISaveService it was given, and
-    // SchedulerDisposed once Dispose has run. FakeGameClock stands in for IGameClock - nothing here
-    // ever needs its window to actually elapse, since none of these cases call MarkDirty and wait on
-    // a write. Coalescing, one-write-in-flight, FlushBlocking's throw over a genuinely hopping
-    // composition, and Dispose's own best-effort flush and logged loss all need a player loop or a
-    // real hop - see SaveSchedulerPlayModeTests.
+    /// <summary>
+    /// Covers the parts of <see cref="SaveScheduler{T}"/> provable without a real thread hop or a
+    /// real clock: its own constructor guards, <c>CanFlushBlocking</c> answering from the
+    /// <see cref="ISaveService"/> it was given, and the exceptions thrown once <c>Dispose</c> has
+    /// run.
+    /// </summary>
+    /// <remarks>
+    /// See docs/testing.md, "The save fixtures".
+    /// </remarks>
     public class SaveSchedulerTests
     {
         private class DummyState

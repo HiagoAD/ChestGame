@@ -2,9 +2,14 @@ using System;
 
 namespace Company.ChestGame.Pooling.Demo
 {
-    // The non-generic face of PoolRace<T>, so the MonoBehaviour panel can hold one field and wire
-    // one set of buttons regardless of which prefab type it was handed. The generic type only has to
-    // exist where a real prefab is, never on anything that sits on a GameObject.
+    /// <summary>
+    /// The non-generic face of <see cref="PoolRace{T}"/>, so a <c>MonoBehaviour</c> panel can hold
+    /// one field and wire one set of buttons regardless of which prefab type the race was built
+    /// for.
+    /// </summary>
+    /// <remarks>
+    /// See docs/pooling.md, "IPoolRaceController, and why the panel is not generic".
+    /// </remarks>
     public interface IPoolRaceController : IDisposable
     {
         bool IsRunning { get; }

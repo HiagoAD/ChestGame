@@ -7,11 +7,15 @@ using NUnit.Framework;
 
 namespace Company.ChestGame.Tests.EditMode
 {
-    // One test per protector, each pinning the finding docs/saving.md states for phase 8a: None,
-    // Base64 and Xor are obfuscation the demo can decode, edit and re-encode, so a reload hands back
-    // the tampered value; Hmac and Aes catch the edit and refuse to load it at all. Storage is
-    // InMemory throughout - see SavePipelineProbeTests for why a unique key per test is what keeps
-    // that process-shared store from leaking between cases.
+    /// <summary>
+    /// One test per protector, pinning the tamper-then-reload outcome for each
+    /// <see cref="SaveProtection"/> value. Storage is InMemory throughout - see
+    /// <c>SavePipelineProbeTests</c> for why a unique key per test is what keeps that
+    /// process-shared store from leaking between cases.
+    /// </summary>
+    /// <remarks>
+    /// See docs/saving.md, "The tamper button, and why it edits two different ways".
+    /// </remarks>
     public class SaveTamperTests
     {
         private const long TamperedBalance = 999999;
@@ -45,12 +49,12 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.AreEqual(TamperedBalance, result.LoadedBalance);
         }
 
+        /// <remarks>
+        /// See docs/saving.md, "The protectors, and what a key shipping inside the binary buys".
+        /// </remarks>
         [Test]
         public void RunAsync_WithBase64_LoadsTheTamperedBalance()
         {
-            // Base64 is a second illegibility layered on the envelope's own - see docs/saving.md,
-            // "Base64Obfuscator" - not protection, so the demo decoding it and re-encoding is exactly
-            // what a curious player with a decoder can do too.
             SaveTamperResult result = TamperAfterWriting(SaveProtection.Base64);
 
             Assert.AreEqual(SaveTamperOutcome.Loaded, result.Outcome);

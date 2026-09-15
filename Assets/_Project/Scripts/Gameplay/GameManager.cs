@@ -10,30 +10,45 @@ using Company.ChestGame.Popups;
 
 namespace Company.ChestGame.Gameplay
 {
-    // The game shell. It knows no minigame by type: it holds an authored id, asks the manager for
-    // whatever is registered under it, and drives it through the framework's own surface, so this
-    // assembly references no minigame's assembly.
+    /// <summary>
+    /// The game shell. It knows no minigame by type: it holds an authored id, asks the manager for
+    /// whatever is registered under it, and drives it through the framework's own surface, so this
+    /// assembly references no minigame's assembly.
+    /// </summary>
+    /// <remarks>
+    /// See docs/architecture.md, "Entry point and game flow".
+    /// </remarks>
     public class GameManager : MonoBehaviour
     {
         [SerializeField] private Transform _minigamesParent;
         [SerializeField] private Button _startButton;
 
-        // Authored in the scene; the initializer is only a default for a freshly added component.
+        /// <summary>
+        /// Authored in the scene; the initializer is only a default for a freshly added component.
+        /// </summary>
         [SerializeField] private string _minigameId = "chests";
 
-        // Deliberately not the exception's own message, which names keys and labels.
+        /// <remarks>
+        /// See docs/architecture.md, "Entry point and game flow".
+        /// </remarks>
         private const string CONTENT_UNAVAILABLE_MESSAGE =
             "Could not download this minigame. Check your connection and try again.";
 
         private MinigameContainer _activeMinigame;
 
-        // Tracked separately: the shell only ever sees the base container type back.
+        /// <remarks>
+        /// Tracked separately: the shell only ever sees the base container type back.
+        /// See docs/architecture.md, "Entry point and game flow".
+        /// </remarks>
         private string _activeMinigameId;
 
         private IMinigameManager _minigamesManager;
         private IPopupManager _popups;
 
-        // A second press mid-start would build a second container and orphan the first.
+        /// <remarks>
+        /// A second press mid-start would build a second container and orphan the first.
+        /// See docs/architecture.md, "Entry point and game flow".
+        /// </remarks>
         private bool _starting;
 
 
@@ -49,8 +64,9 @@ namespace Company.ChestGame.Gameplay
             _startButton.onClick.AddListener(StartConfiguredMinigame);
         }
 
-        // Whatever is running is torn down with this scene, so the controller disposes and the view
-        // is destroyed rather than left to the GC with live subscriptions.
+        /// <remarks>
+        /// See docs/architecture.md, "Entry point and game flow".
+        /// </remarks>
         private void OnDestroy()
         {
             _startButton.onClick.RemoveListener(StartConfiguredMinigame);
@@ -59,15 +75,14 @@ namespace Company.ChestGame.Gameplay
 
         private void StartConfiguredMinigame() => StartMinigame(_minigameId).Forget();
 
-        // A different minigame, or one that has been torn down, builds a fresh container; asking
-        // again for the one already running just restarts it. The token is this object's, so a
-        // scene change mid-load unwinds the start instead of finishing into a destroyed shell.
+        /// <param name="id">The authored id of the minigame to start.</param>
+        /// <remarks>
+        /// See docs/architecture.md, "Entry point and game flow".
+        /// </remarks>
         private async UniTaskVoid StartMinigame(string id)
         {
             if (_starting) return;
 
-            // A start that goes to the network can take long enough for a player to conclude the
-            // button is broken, so the button says so rather than swallowing presses behind a flag.
             _starting = true;
             SetStartButtonInteractable(false);
             try
@@ -87,9 +102,6 @@ namespace Company.ChestGame.Gameplay
             }
             catch (ChestGameException failure)
             {
-                // Caught at the project's own base type on purpose: every delivery failure reads
-                // identically to whoever is holding the phone, and anything not under that base is
-                // a bug and is left to blow up where it can be seen.
                 Debug.LogException(failure);
                 _popups.Spawn<ContentUnavailablePopup, ContentUnavailablePopupData>(
                     new ContentUnavailablePopupData(CONTENT_UNAVAILABLE_MESSAGE));
@@ -101,8 +113,9 @@ namespace Company.ChestGame.Gameplay
             }
         }
 
-        // The button is gone by the time a start cancelled by this object's destruction unwinds,
-        // which is the ordinary shutdown path rather than an error.
+        /// <remarks>
+        /// See docs/architecture.md, "Entry point and game flow".
+        /// </remarks>
         private void SetStartButtonInteractable(bool interactable)
         {
             if (_startButton == null) return;

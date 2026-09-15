@@ -2,7 +2,9 @@ using Random = UnityEngine.Random;
 
 namespace Company.ChestGame.Common
 {
-    // The production implementation, a thin forward to UnityEngine.Random.
+    /// <summary>
+    /// The production implementation, a thin forward to <see cref="UnityEngine.Random"/>.
+    /// </summary>
     public class UnityRandomProvider : IRandomProvider
     {
         public float Value => Random.value;

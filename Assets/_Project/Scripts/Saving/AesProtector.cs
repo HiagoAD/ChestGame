@@ -4,18 +4,20 @@ using System.Text;
 
 namespace Company.ChestGame.Saving
 {
-    // AES-256-CBC with a random IV per save, encrypt-then-MAC with HMAC-SHA256 over the IV and
-    // ciphertext. Stored layout is IV (16 bytes) || ciphertext || tag (32 bytes). Unprotect checks
-    // the tag before it ever calls into AES, so a tampered or wrong-key body fails as
-    // PayloadTamperedException instead of as a padding or block-alignment error out of the AES
-    // transform itself.
-    //
-    // IsTextSafe is false: ciphertext is not JSON. See docs/saving.md for what the key shipping
-    // inside the binary does and does not buy.
+    /// <summary>
+    /// AES-256-CBC with a random IV per save, encrypt-then-MAC with HMAC-SHA256 over the IV and
+    /// ciphertext. Stored layout is IV (16 bytes) || ciphertext || tag (32 bytes).
+    /// </summary>
+    /// <remarks>
+    /// IsTextSafe is false: ciphertext is not JSON.
+    /// See docs/saving.md, "The protectors, and what a key shipping inside the binary buys".
+    /// </remarks>
     public class AesProtector : IPayloadProtector
     {
-        private const int IvLength = 16; // AES block size.
-        private const int TagLength = 32; // SHA-256 output size.
+        /// <summary>AES block size.</summary>
+        private const int IvLength = 16;
+        /// <summary>SHA-256 output size.</summary>
+        private const int TagLength = 32;
 
         private readonly byte[] _encryptionKey;
         private readonly byte[] _macKey;
@@ -23,8 +25,6 @@ namespace Company.ChestGame.Saving
         public string Id => "aes";
         public bool IsTextSafe => false;
 
-        // One key in, two keys out: encryption and authentication each derive their own subkey
-        // from it, rather than one secret doing both jobs.
         public AesProtector(byte[] key)
         {
             if (key == null || key.Length == 0) throw SaveException.NoProtectorKey(Id);
@@ -58,8 +58,11 @@ namespace Company.ChestGame.Saving
             return result;
         }
 
-        // Checks the tag before a single byte reaches AES, so a failed check never runs untrusted
-        // bytes through the cipher.
+        /// <summary>
+        /// Checks the tag before a single byte reaches AES, so a tampered or wrong-key payload fails
+        /// as <see cref="PayloadTamperedException"/> rather than an AES padding or block-alignment
+        /// error.
+        /// </summary>
         public byte[] Unprotect(byte[] stored)
         {
             if (stored.Length < IvLength + TagLength)

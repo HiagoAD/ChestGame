@@ -4,7 +4,9 @@ using UnityEngine;
 
 namespace Company.ChestGame.Minigame.Core
 {
-    // Pure authoring data, holes and all. Turning it into a lookup belongs to MinigameCatalog.
+    /// <summary>
+    /// Pure authoring data, holes and all. Turning it into a lookup belongs to <c>MinigameCatalog</c>.
+    /// </summary>
     [CreateAssetMenu(menuName = "Minigame/Minigame List")]
     public class MinigameListSO : ScriptableObject
     {
@@ -12,6 +14,9 @@ namespace Company.ChestGame.Minigame.Core
 
         public IReadOnlyList<MinigameBaseSO> Entries => minigames;
 
+        /// <remarks>
+        /// See docs/architecture.md, "Catalogs".
+        /// </remarks>
         private void OnValidate()
         {
             HashSet<Type> types = new();
@@ -22,8 +27,6 @@ namespace Company.ChestGame.Minigame.Core
                 if (types.Contains(minigame.ContainerType))
                 {
                     minigames[i] = null;
-                    // Reported rather than thrown: OnValidate runs during asset import and on every
-                    // inspector edit, where an exception aborts the surrounding operation.
                     Debug.LogError($"INVALID ENTRY: Element at {i}, type already present", this);
                 }
                 else

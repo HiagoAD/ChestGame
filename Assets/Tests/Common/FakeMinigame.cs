@@ -9,18 +9,30 @@ using VContainer;
 
 namespace Company.ChestGame.Tests.Common
 {
-    // Stands in for a real minigame definition asset. MinigameBaseSO is a ScriptableObject, so it
-    // has to be built with CreateInstance rather than new.
+    /// <summary>
+    /// Stands in for a real minigame definition asset.
+    /// </summary>
+    /// <remarks>
+    /// A <see cref="ScriptableObject"/>: build it with <c>CreateInstance</c>, not <c>new</c>.
+    /// </remarks>
     public class FakeMinigameSO : MinigameBaseSO
     {
         public int ContainersCreated { get; private set; }
 
-        // What the containers this hands out point their view at. Settable, because a definition
-        // names its content rather than holding it.
+        /// <summary>
+        /// What the containers this hands out point their view at.
+        /// </summary>
+        /// <remarks>
+        /// See docs/minigames.md, "A definition names its content, it does not hold it".
+        /// </remarks>
         public AssetReferenceGameObject ViewReference { get; set; }
 
-        // What its content hook loads and lets go of. Left unset, this is a minigame that owns no
-        // content, which is also a real case.
+        /// <summary>
+        /// What its content hook loads and lets go of.
+        /// </summary>
+        /// <remarks>
+        /// Left unset, this is a minigame that owns no content, which is also a real case.
+        /// </remarks>
         public AssetReference ContentReference { get; set; }
 
         public int ConfigureCalls { get; private set; }
@@ -55,7 +67,10 @@ namespace Company.ChestGame.Tests.Common
             if (ContentReference != null) assets.Release(ContentReference);
         }
 
-        // The id matches what MinigameBaseSO exposes, so a manager asked for "fake" finds this.
+        /// <summary>
+        /// Builds a fake definition whose <c>Id</c> is <paramref name="id"/>, which is what a
+        /// manager asked for that id resolves to.
+        /// </summary>
         public static FakeMinigameSO Create(string id = "fake") =>
             CreateInstance<FakeMinigameSO>().WithId(id);
     }
@@ -70,7 +85,9 @@ namespace Company.ChestGame.Tests.Common
 
         public bool Disposed => DisposeCalls > 0;
 
-        // Takes the resolver rather than a game service, so any container can satisfy it.
+        /// <remarks>
+        /// See docs/testing.md, "What the minigame fixtures choose not to fake".
+        /// </remarks>
         [Inject]
         public void Inject(IObjectResolver resolver) => InjectCalls++;
 

@@ -14,11 +14,15 @@ using UnityEngine.TestTools;
 
 namespace Company.ChestGame.Tests.EditMode
 {
-    // Decision #9 (docs/design-decisions.md) says the prize location is never stored - this fixture
-    // is what turns that decision into something that fails if a later change breaks it, rather than
-    // a comment nobody re-checks. Every ISaveService here is a real SaveService over a FakeSaveStore,
-    // so what these tests pin is the actual bytes ChestsMinigameController persists, the same shape
-    // GameLifetimeScopePauseQuitFlushTests already uses for the currency scheduler.
+    /// <summary>
+    /// Pins that a mid-run chests save never carries information about where the prize is
+    /// (decision #9), using a real <see cref="SaveService"/> over a <see cref="FakeSaveStore"/> so
+    /// what is asserted is the actual bytes <see cref="ChestsMinigameController"/> persists.
+    /// </summary>
+    /// <remarks>
+    /// See docs/saving.md, "ChestsRunSaveDocument, and decision #9 made structural", and
+    /// docs/testing.md, "The save fixtures".
+    /// </remarks>
     public class ChestsMinigameSaveTests
     {
         private const int OpenMilliseconds = 100;
@@ -65,23 +69,21 @@ namespace Company.ChestGame.Tests.EditMode
         private static void Seed(ISaveService service, ChestsRunSaveDocument document) =>
             SynchronousUniTask.Complete(service.SaveAsync(ChestsRunSaveDocument.SaveKey, document, CancellationToken.None));
 
-        // --- Decision #9, enforced -----------------------------------------------------------
-
+        /// <remarks>
+        /// See docs/saving.md, "ChestsRunSaveDocument, and decision #9 made structural".
+        /// </remarks>
         [Test]
         public void MidRunSave_IsInvariantUnderWhichChestWouldWinNext()
         {
-            // Both runs open chest 0 then chest 1, drawing empty both times (>1/4 and >1/3). The
-            // third, never-drawn value differs so a different chest would win next in each - the
-            // whole point being that the persisted document must not care.
             (ChestsMinigameController controllerA, ISaveService serviceA, ISaveFlushRegistry registryA, FakeRandomProvider randomA, FakeGameClock clockA) = NewController();
             randomA.ValueSequence.Enqueue(0.30f);
             randomA.ValueSequence.Enqueue(0.40f);
-            randomA.ValueSequence.Enqueue(0.10f); // would win chest 2 next
+            randomA.ValueSequence.Enqueue(0.10f);
 
             (ChestsMinigameController controllerB, ISaveService serviceB, ISaveFlushRegistry registryB, FakeRandomProvider randomB, FakeGameClock clockB) = NewController();
             randomB.ValueSequence.Enqueue(0.30f);
             randomB.ValueSequence.Enqueue(0.40f);
-            randomB.ValueSequence.Enqueue(0.90f); // would stay empty next
+            randomB.ValueSequence.Enqueue(0.90f);
 
             controllerA.NewGame();
             OpenChest(controllerA, clockA, 0);
@@ -149,8 +151,9 @@ namespace Company.ChestGame.Tests.EditMode
             CollectionAssert.IsEmpty(stored.OpenedChestIndices);
         }
 
-        // --- Restore -----------------------------------------------------------------------
-
+        /// <remarks>
+        /// See docs/saving.md, "Restore, discard, and why it lives in NewGame()".
+        /// </remarks>
         [Test]
         public void ASecondController_RestoresAttemptsAndChestStates_AndTheNextDrawSeesTheSameK()
         {
@@ -158,8 +161,8 @@ namespace Company.ChestGame.Tests.EditMode
 
             (ChestsMinigameController first, _, ISaveFlushRegistry firstRegistry, FakeRandomProvider firstRandom, FakeGameClock firstClock) = NewController(service);
             first.NewGame();
-            firstRandom.ValueSequence.Enqueue(0.30f); // >1/4 -> empty
-            firstRandom.ValueSequence.Enqueue(0.40f); // >1/3 -> empty
+            firstRandom.ValueSequence.Enqueue(0.30f);
+            firstRandom.ValueSequence.Enqueue(0.40f);
             OpenChest(first, firstClock, 0);
             OpenChest(first, firstClock, 1);
             firstRegistry.FlushAll();
@@ -173,10 +176,6 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.AreEqual(ChestsMinigameChestModel.State.Closed, second.Chests[2].CurrentState);
             Assert.AreEqual(ChestsMinigameChestModel.State.Closed, second.Chests[3].CurrentState);
 
-            // The regression guard for k itself: at k=2 already opened, the next draw's odds are
-            // 1/(4-3+1) = 1/2. 0.4 wins there but would still read as empty at the wrong,
-            // unrestored odds of 1/(4-1+1) = 1/4 - the two are only told apart by Attempts having
-            // actually been restored to 2 rather than left at 0.
             secondRandom.NextValue = 0.4f;
             OpenChest(second, secondClock, 2);
 
@@ -262,8 +261,6 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.IsTrue(third.Chests.All(chest => chest.CurrentState == ChestsMinigameChestModel.State.Closed));
         }
 
-        // --- Wiring --------------------------------------------------------------------------
-
         [Test]
         public void Inject_RegistersItsSchedulerWithTheFlushRegistry_AndDisposeUnregistersIt()
         {
@@ -292,6 +289,9 @@ namespace Company.ChestGame.Tests.EditMode
             StringAssert.Contains("completes on the calling thread", error.Message);
         }
 
+        /// <remarks>
+        /// See docs/saving.md, "A scheduler the composition root cannot name has to register itself".
+        /// </remarks>
         [Test]
         public void Inject_WhenItThrows_LeavesNothingRegisteredWithTheFlushRegistry()
         {
@@ -304,10 +304,6 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.Throws<SaveException>(() =>
                 controller.Inject(new FakeRewardsManager(), new FakeRandomProvider(), new FakeGameClock(), hoppingService, registry));
 
-            // MinigameContainer does not Dispose() a controller whose BeginAsync failed, so a
-            // registration taken before the throw would sit in the singleton registry for the life
-            // of the process, flushed at every pause, holding a dead controller's state - and one
-            // more would accumulate per failed start.
             CollectionAssert.IsEmpty(registry.Registered);
         }
 
@@ -323,6 +319,9 @@ namespace Company.ChestGame.Tests.EditMode
                 "Dispose was idempotent before this phase added a scheduler and a registry to it, and IDisposable requires it to stay that way");
         }
 
+        /// <remarks>
+        /// See docs/saving.md, "A scheduler the composition root cannot name has to register itself".
+        /// </remarks>
         [Test]
         public void Inject_WhenTheSavedRunCannotBeRead_DiscardsItAndLogs_RatherThanRefusingToStart()
         {
@@ -340,8 +339,6 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.IsTrue(controller.Chests.All(chest => chest.CurrentState == ChestsMinigameChestModel.State.Closed),
                 "an unreadable run has to start a clean one, not refuse to open the minigame at all");
 
-            // The discard branch overwrites the unreadable document, so the save repairs itself
-            // rather than failing every launch forever with nothing that ever clears it.
             registry.FlushAll();
             Assert.DoesNotThrow(() => LoadStored(service));
         }

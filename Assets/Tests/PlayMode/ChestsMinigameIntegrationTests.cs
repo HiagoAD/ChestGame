@@ -12,9 +12,14 @@ using UnityEngine.TestTools;
 
 namespace Company.ChestGame.Tests.PlayMode
 {
-    // The chest logic is covered exhaustively in edit mode against a fake clock. What only play
-    // mode can prove is that UnityGameClock on the player loop drives the same flow. Settled states
-    // rather than mid-flight ones, so a slow frame cannot turn into a spurious failure.
+    /// <summary>
+    /// Covers what only play mode can prove about the chest logic already covered exhaustively in
+    /// edit mode against a fake clock: that <see cref="UnityGameClock"/> on the real player loop
+    /// drives the same flow.
+    /// </summary>
+    /// <remarks>
+    /// See docs/testing.md, "What lives where".
+    /// </remarks>
     public class ChestsMinigameIntegrationTests
     {
         private const int OpenMilliseconds = 200;
@@ -23,6 +28,10 @@ namespace Company.ChestGame.Tests.PlayMode
         private FakeRandomProvider _random;
         private ChestsMinigameController _controller;
 
+        /// <remarks>
+        /// See docs/saving.md, "InMemoryStore".
+        /// See docs/testing.md, "What lives where".
+        /// </remarks>
         [SetUp]
         public void SetUp()
         {
@@ -33,8 +42,6 @@ namespace Company.ChestGame.Tests.PlayMode
             _controller = new ChestsMinigameController();
             _controller.Configure(config);
 
-            // A real ISaveService over InMemoryStore: a legitimate production choice
-            // (docs/saving.md), and this assembly cannot reach the EditMode-only FakeSaveStore.
             ISaveService saveService = new SaveService(new JsonCodec(), new NoProtection(), new InMemoryStore());
             _controller.Inject(_rewards, _random, new UnityGameClock(), saveService, new SaveFlushRegistry());
         }
@@ -42,8 +49,9 @@ namespace Company.ChestGame.Tests.PlayMode
         [TearDown]
         public void TearDown() => _controller.Dispose();
 
-        // Ten times the open duration: enough slack for a domain reload or a cold CI runner, still
-        // bounded.
+        /// <remarks>
+        /// See docs/testing.md, "What lives where".
+        /// </remarks>
         private static WaitForSeconds SettleTime() => new(OpenMilliseconds / 1000f * 10f);
 
         [UnityTest]
@@ -73,12 +81,13 @@ namespace Company.ChestGame.Tests.PlayMode
             Assert.AreEqual(1, _controller.Attempts);
         }
 
+        /// <remarks>
+        /// See docs/minigames.md, "The controller".
+        /// See docs/testing.md, "What lives where".
+        /// </remarks>
         [UnityTest]
         public IEnumerator OnTheRealPlayerLoop_NoProgressTickLandsAfterAChestOpens()
         {
-            // The progress loop and the open timer resume in the same frame and nothing promises
-            // which goes first, so a late progress tick would flip an opened chest back to Opening.
-            // The edit-mode suite cannot catch that, because its clock chooses the ordering.
             _controller.NewGame();
 
             List<ChestsMinigameChestModel.State> sequence = new();

@@ -8,10 +8,14 @@ using NUnit.Framework;
 
 namespace Company.ChestGame.Tests.EditMode
 {
-    // Everything here goes through the real entry point, OnChestClicked, including the two
-    // concurrent UniTasks it spawns. FakeGameClock is what makes that possible in edit mode.
-    // Timings are chosen so a chest takes exactly two frames to open: a 100ms open at 50ms per
-    // frame.
+    /// <summary>
+    /// Exercises the chest-opening flow through the real entry point,
+    /// <see cref="ChestsMinigameController.OnChestClicked"/>, against <see cref="FakeGameClock"/>
+    /// rather than real time.
+    /// </summary>
+    /// <remarks>
+    /// See docs/testing.md, "What lives where".
+    /// </remarks>
     public class ChestsMinigameControllerTests
     {
         private const int OpenMilliseconds = 100;
@@ -39,18 +43,20 @@ namespace Company.ChestGame.Tests.EditMode
         [TearDown]
         public void TearDown() => _controller.Dispose();
 
-        // Mirrors the framework's own order: ChestsMinigameSO configures the controller,
-        // MinigameManager.Get injects it afterwards. The real config type rather than a fake,
-        // because it is a plain validated value. A real ISaveService over a FakeSaveStore rather
-        // than a mock: ChestsMinigameSaveTests is where the save behaviour itself is pinned, so
-        // this fixture only needs Inject to succeed the same way it always has.
+        /// <summary>
+        /// Configures the controller with a fresh <see cref="ChestsMinigameConfig"/> and injects
+        /// its dependencies, in the same order <c>MinigameManager.Get</c> uses: configure, then
+        /// inject.
+        /// </summary>
+        /// <remarks>
+        /// See docs/testing.md, "What the minigame fixtures choose not to fake".
+        /// </remarks>
         private void ConfigureAndInject(int chestCount = 4, int attemptsCount = 4)
         {
             _controller.Configure(ChestsMinigameConfig.Create(chestCount, attemptsCount, OpenMilliseconds));
             _controller.Inject(_rewards, _random, _clock, _saveService, _flushRegistry);
         }
 
-        // Clicks a chest and lets it run all the way to open.
         private void OpenChest(int index)
         {
             _controller.OnChestClicked(_controller.Chests[index]);
@@ -58,8 +64,6 @@ namespace Company.ChestGame.Tests.EditMode
         }
 
         private ChestsMinigameChestModel.State StateOf(int index) => _controller.Chests[index].CurrentState;
-
-        // --- Configuration -----------------------------------------------------------------
 
         [Test]
         public void Configure_BuildsOneChestPerConfiguredChestCount()
@@ -79,8 +83,6 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.AreEqual(0, _controller.Attempts);
             Assert.AreEqual(ChestsMinigameController.State.NotStarted, _controller.CurrentState);
         }
-
-        // --- New game ----------------------------------------------------------------------
 
         [Test]
         public void NewGame_EntersPlayingAndAnnouncesIt()
@@ -125,8 +127,6 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.IsTrue(_controller.Chests.All(c => c.CurrentState == ChestsMinigameChestModel.State.Closed));
         }
 
-        // --- The opening flow --------------------------------------------------------------
-
         [Test]
         public void ClickingAChest_LeavesItOpeningUntilTheTimerElapses()
         {
@@ -159,7 +159,6 @@ namespace Company.ChestGame.Tests.EditMode
 
             _clock.AdvanceFrame();
 
-            // One 50ms frame into a 100ms open.
             Assert.AreEqual(0.5f, _controller.Chests[0].Completition, 0.0001f);
             Assert.AreEqual(ChestsMinigameChestModel.State.Opening, StateOf(0));
         }
@@ -184,10 +183,12 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.AreEqual(1, _controller.Attempts, "only the chest that finished costs an attempt");
         }
 
+        /// <remarks>
+        /// See docs/minigames.md, "The controller".
+        /// </remarks>
         [Test]
         public void CancellingAnOpeningChest_LeavesNoWorkRunning()
         {
-            // The abandoned chest's two tasks must unwind, not linger and fire later.
             ConfigureAndInject();
             _controller.NewGame();
             _random.NextValue = 1f;
@@ -203,6 +204,9 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.IsTrue(_controller.Chests.All(c => c.CurrentState == ChestsMinigameChestModel.State.Closed));
         }
 
+        /// <remarks>
+        /// See docs/minigames.md, "The controller".
+        /// </remarks>
         [Test]
         public void ReclickingTheChestAlreadyOpening_IsIgnoredAndItsTimerKeepsRunning()
         {
@@ -214,8 +218,6 @@ namespace Company.ChestGame.Tests.EditMode
             _clock.AdvanceFrame();
             float progressSoFar = _controller.Chests[0].Completition;
 
-            // The chest is Opening rather than Closed, so an impatient double-tap must not restart
-            // the timer or queue a second open.
             _controller.OnChestClicked(_controller.Chests[0]);
 
             Assert.AreEqual(ChestsMinigameChestModel.State.Opening, StateOf(0));
@@ -227,8 +229,9 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.AreEqual(1, _controller.Attempts, "the double-tap did not cost a second attempt");
         }
 
-        // The progress loop and the open timer come due in the same frame and nothing promises
-        // which resumes first, so the flow runs under both orderings.
+        /// <remarks>
+        /// See docs/minigames.md, "The controller".
+        /// </remarks>
         [TestCase(true, TestName = "OpeningIsUnaffectedByScheduling_WhenProgressResumesFirst")]
         [TestCase(false, TestName = "OpeningIsUnaffectedByScheduling_WhenTheTimerResumesFirst")]
         public void OpeningIsUnaffectedByScheduling(bool frameWaitersResumeFirst)
@@ -255,8 +258,6 @@ namespace Company.ChestGame.Tests.EditMode
                 "an opened chest must never report Opening again, whichever task resumes first");
         }
 
-        // --- Attempt accounting ------------------------------------------------------------
-
         [Test]
         public void EachCompletedChest_ConsumesAnAttemptAndAnnouncesTheNewCount()
         {
@@ -273,19 +274,18 @@ namespace Company.ChestGame.Tests.EditMode
             CollectionAssert.AreEqual(new[] { 1, 2 }, attempts);
         }
 
-        // --- Prize resolution --------------------------------------------------------------
-
+        /// <remarks>
+        /// See docs/minigames.md, "Prize odds".
+        /// </remarks>
         [Test]
         public void PrizeChance_IsOneOverTheChestsStillUnopened()
         {
-            // One prize among 4 chests: the odds run 1/4, 1/3, 1/2, then 1/1. Each draw sits just
-            // above its threshold until the final chest, which holds the prize by elimination.
             ConfigureAndInject();
             _controller.NewGame();
-            _random.ValueSequence.Enqueue(0.26f);  // > 1/4 -> empty
-            _random.ValueSequence.Enqueue(0.34f);  // > 1/3 -> empty
-            _random.ValueSequence.Enqueue(0.51f);  // > 1/2 -> empty
-            _random.ValueSequence.Enqueue(0.99f);  // <= 1/1 -> prize
+            _random.ValueSequence.Enqueue(0.26f);
+            _random.ValueSequence.Enqueue(0.34f);
+            _random.ValueSequence.Enqueue(0.51f);
+            _random.ValueSequence.Enqueue(0.99f);
 
             for (int i = 0; i < 4; i++)
             {
@@ -298,14 +298,15 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.AreEqual(ChestsMinigameChestModel.State.Open_Prize, StateOf(3));
         }
 
+        /// <remarks>
+        /// See docs/minigames.md, "Prize odds".
+        /// </remarks>
         [Test]
         public void WithTheUnluckiestDraws_ThePrizeWaitsInTheFinalChest()
         {
-            // The prize has to be somewhere. Regression guard for the divisor in TryGiveChestPrize:
-            // drop its +1 and the win lands on chest N-1 instead.
             ConfigureAndInject();
             _controller.NewGame();
-            _random.NextValue = 1f; // the unluckiest possible draw, every time
+            _random.NextValue = 1f;
 
             bool? outcome = null;
             _controller.OnGameFinished += won => outcome = won;
@@ -325,7 +326,6 @@ namespace Company.ChestGame.Tests.EditMode
         [Test]
         public void EveryChest_CanHoldThePrize()
         {
-            // The counterpart: no position is excluded from winning.
             for (int target = 0; target < 4; target++)
             {
                 SetUp();
@@ -348,8 +348,6 @@ namespace Company.ChestGame.Tests.EditMode
             }
         }
 
-        // --- End of game -------------------------------------------------------------------
-
         [Test]
         public void WinningAChest_EndsTheGameAndRequestsAReward()
         {
@@ -366,10 +364,12 @@ namespace Company.ChestGame.Tests.EditMode
             CollectionAssert.AreEqual(new[] { "ChestsMinigame" }, _rewards.GiveRewardCalls);
         }
 
+        /// <remarks>
+        /// See docs/minigames.md, "The controller".
+        /// </remarks>
         [Test]
         public void RunningOutOfAttempts_EndsTheGameWithoutAReward()
         {
-            // Attempts must be scarcer than chests for a loss to be reachable at all.
             ConfigureAndInject(chestCount: 10, attemptsCount: 2);
             _controller.NewGame();
             _random.NextValue = 1f;
@@ -383,8 +383,6 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.AreEqual(ChestsMinigameController.State.Ended, _controller.CurrentState);
             CollectionAssert.IsEmpty(_rewards.GiveRewardCalls);
         }
-
-        // --- Input guards ------------------------------------------------------------------
 
         [Test]
         public void OnChestClicked_BeforeTheGameStarts_IsIgnored()
@@ -428,8 +426,6 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.AreEqual(ChestsMinigameChestModel.State.Closed, StateOf(1));
             Assert.AreEqual(1, _controller.Attempts);
         }
-
-        // --- Disposal ----------------------------------------------------------------------
 
         [Test]
         public void Dispose_DropsEveryEventSubscriber()

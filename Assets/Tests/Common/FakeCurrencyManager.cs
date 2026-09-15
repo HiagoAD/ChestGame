@@ -4,8 +4,11 @@ using TapNation.Modules.ResourceBank.Internal;
 
 namespace Company.ChestGame.Tests.Common
 {
-    // In-memory ICurrencyManager that records calls and raises the same event shapes as the real
-    // one: OnCurrencySpent reports a positive amount while OnCurrencyChanged reports a negative one.
+    /// <summary>
+    /// In-memory <see cref="ICurrencyManager"/> that records calls and raises the same event shapes as
+    /// the real one: <see cref="OnCurrencySpent"/> reports a positive amount while
+    /// <see cref="OnCurrencyChanged"/> reports a negative one.
+    /// </summary>
     public class FakeCurrencyManager : ICurrencyManager
     {
         public event ResourceBankCallbacks<CurrencyType>.ResourceAmountChangedDelegate OnCurrencyChanged;

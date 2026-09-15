@@ -8,11 +8,15 @@ using NUnit.Framework;
 
 namespace Company.ChestGame.Tests.EditMode
 {
-    // What SaveStoreContractTests cannot: the generation behaviour that is the entire reason
-    // AtomicFileStore exists rather than being FileStore. A live file is identified as whatever is
-    // on disk that is neither .bak nor .tmp, so these tests never need to know the internal ".sav"
-    // extension - only the ".bak" suffix docs/saving.md names is load-bearing here. See
-    // docs/saving.md, "AtomicFileStore".
+    /// <summary>
+    /// Covers the generation behaviour that is the entire reason <see cref="AtomicFileStore"/>
+    /// exists rather than being <c>FileStore</c>, which <c>SaveStoreContractTests</c> cannot. A live
+    /// file is identified as whatever is on disk that is neither <c>.bak</c> nor <c>.tmp</c>, so
+    /// these tests never need to know the internal <c>.sav</c> extension.
+    /// </summary>
+    /// <remarks>
+    /// See docs/saving.md, "AtomicFileStore".
+    /// </remarks>
     public class AtomicFileStoreTests
     {
         private const string Key = "save";
@@ -61,8 +65,6 @@ namespace Company.ChestGame.Tests.EditMode
             return live[0];
         }
 
-        // --- Generations (property 2) ---------------------------------------------------------
-
         [Test]
         public void FirstWrite_LeavesNoBackupFile()
         {
@@ -104,8 +106,6 @@ namespace Company.ChestGame.Tests.EditMode
             CollectionAssert.AreEqual(third, File.ReadAllBytes(SingleLiveFile(_root)));
         }
 
-        // --- Read preferring live, falling back to .bak (property 2) --------------------------
-
         [Test]
         public void ReadAsync_ReturnsTheLiveFileWhenPresent()
         {
@@ -121,8 +121,6 @@ namespace Company.ChestGame.Tests.EditMode
         [Test]
         public void ReadAsync_WhenTheLiveFileIsDeletedButTheBackupRemains_ReturnsTheBackupsBytes()
         {
-            // The fallback this class exists for: docs/saving.md is explicit that a missing live
-            // file returning the .bak copy is the fallback doing its job, not a bug.
             byte[] first = { 1, 2, 3 };
             byte[] second = { 4, 5, 6 };
             Write(first);

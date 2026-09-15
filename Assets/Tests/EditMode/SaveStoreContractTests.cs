@@ -8,13 +8,14 @@ using NUnit.Framework;
 
 namespace Company.ChestGame.Tests.EditMode
 {
-    // FileStore and AtomicFileStore both delegate every key rule to SaveKeyPath (docs/saving.md,
-    // "SaveKeyPath, and why the key logic is shared rather than mirrored"). FileStoreTests pins
-    // those rules for FileStore and must stay unchanged; this fixture is the proof that
-    // AtomicFileStore, which shares the same internal type, answers identically rather than merely
-    // similarly - the same shape PrefabPoolTests uses to run one written contract across four pool
-    // implementations. The round-trip lifecycle shared by both file-backed stores is pinned here
-    // too, for the same reason: neither store owns that behaviour more than the other.
+    /// <summary>
+    /// Runs one written key-handling and round-trip contract against <see cref="FileStore"/> and
+    /// <see cref="AtomicFileStore"/>, proving <see cref="AtomicFileStore"/> answers identically to
+    /// <see cref="FileStore"/> rather than merely similarly.
+    /// </summary>
+    /// <remarks>
+    /// See docs/saving.md, "SaveKeyPath, and why the key logic is shared rather than mirrored".
+    /// </remarks>
     public class SaveStoreContractTests
     {
         private string _root;
@@ -30,8 +31,6 @@ namespace Company.ChestGame.Tests.EditMode
         {
             if (Directory.Exists(_root)) Directory.Delete(_root, recursive: true);
         }
-
-        // --- The implementations under test -------------------------------------------------
 
         public class StoreCase
         {
@@ -57,8 +56,6 @@ namespace Company.ChestGame.Tests.EditMode
             yield return FileStoreCase;
             yield return AtomicFileStoreCase;
         }
-
-        // --- Key handling: every rule FileStoreTests pins for FileStore, held identically ----
 
         [TestCaseSource(nameof(EveryFileBackedStore))]
         public void WriteAsync_WithNoKey_ThrowsNoKey(StoreCase implementation)
@@ -106,13 +103,12 @@ namespace Company.ChestGame.Tests.EditMode
             StringAssert.Contains("cannot appear in a file name", error.Message);
         }
 
+        /// <remarks>
+        /// See docs/saving.md, "FileStore".
+        /// </remarks>
         [TestCaseSource(nameof(EveryFileBackedStore))]
         public void WriteAsync_WithAKeyContainingAnInvalidFilenameCharacter_ThrowsInvalidKey(StoreCase implementation)
         {
-            // NUL is the character that makes the check ordering load-bearing: Mono's
-            // Path.IsPathRooted throws an untyped ArgumentException on it. If SaveKeyPath ever ran
-            // that check before the invalid-character check, for either store, this would fail with
-            // the wrong exception type rather than SaveException.
             char invalid = Array.Find(Path.GetInvalidFileNameChars(), c => c != Path.DirectorySeparatorChar && c != Path.AltDirectorySeparatorChar);
             string key = "a" + invalid + "b";
             ISaveStore store = implementation.Create(_root);
@@ -149,8 +145,6 @@ namespace Company.ChestGame.Tests.EditMode
             byte[] stillThere = SynchronousUniTask.Result(store.ReadAsync("a_b", CancellationToken.None));
             CollectionAssert.AreEqual(original, stillThere, "the rejected write must not have landed on the accepted key's file");
         }
-
-        // --- Round trip and lifecycle, identical for both file-backed stores -----------------
 
         [TestCaseSource(nameof(EveryFileBackedStore))]
         public void WriteAsync_ThenReadAsync_ReturnsIdenticalBytes(StoreCase implementation)
@@ -218,8 +212,6 @@ namespace Company.ChestGame.Tests.EditMode
 
             Assert.IsTrue(Directory.Exists(_root));
         }
-
-        // --- Cancellation: FileStore's own guard, held identically by AtomicFileStore ---------
 
         [TestCaseSource(nameof(EveryFileBackedStore))]
         public void EveryMethod_WithAnAlreadyCancelledToken_ThrowsOperationCanceledException(StoreCase implementation)

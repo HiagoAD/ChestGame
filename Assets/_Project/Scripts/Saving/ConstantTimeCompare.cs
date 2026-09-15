@@ -1,10 +1,14 @@
 namespace Company.ChestGame.Saving
 {
-    // Compares two byte arrays in constant time: every byte is checked and the result is decided
-    // only once the loop is over, so a mismatch cannot be timed to learn where it occurred. Do not
-    // shorten the loop with an early return or a library SequenceEqual. Do not replace it with
-    // CryptographicOperations.FixedTimeEquals either: that compiles here, but it belongs to a
-    // cryptography surface this project does not rely on at runtime on all its targets.
+    /// <summary>
+    /// Compares two byte arrays in constant time: every byte is checked and the result is decided
+    /// only once the loop is over, so a mismatch cannot be timed to learn where it occurred.
+    /// </summary>
+    /// <remarks>
+    /// Do not shorten the loop with an early return or a library <c>SequenceEqual</c>. Do not
+    /// replace it with <c>CryptographicOperations.FixedTimeEquals</c> either.
+    /// See docs/saving.md, "The protectors, and what a key shipping inside the binary buys".
+    /// </remarks>
     internal static class ConstantTimeCompare
     {
         public static bool AreEqual(byte[] a, byte[] b)

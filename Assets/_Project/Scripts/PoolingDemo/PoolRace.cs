@@ -7,14 +7,15 @@ using UnityEngine;
 
 namespace Company.ChestGame.Pooling.Demo
 {
-    // Runs one FrameBudgetedLoop per lane, every one reading the same IGameClock and the same
-    // budget, all started together under one CancellationTokenSource and awaited through
-    // UniTask.WhenAll. The equal budget and the shared clock are the entire mechanism: nothing here
-    // paces a lane against the others, so a strategy that places a unit more cheaply gets further.
-    //
-    // Four lanes contend for the same frames, so no lane's elapsed time here is what it would cost
-    // running alone. The simultaneous view proves the ordering between strategies, not any one
-    // standalone number; solo mode, which runs exactly one lane, answers that.
+    /// <summary>
+    /// Runs one <see cref="FrameBudgetedLoop"/> per lane, every one reading the same
+    /// <see cref="IGameClock"/> and the same frame budget, all started together under one
+    /// <see cref="CancellationTokenSource"/> and awaited through <c>UniTask.WhenAll</c>. Nothing
+    /// paces a lane against the others, so a strategy that places a unit more cheaply gets further.
+    /// </summary>
+    /// <remarks>
+    /// See docs/pooling.md, "PoolRace, and why simultaneous lanes are not solo timings".
+    /// </remarks>
     public sealed class PoolRace<T> : IPoolRaceController where T : Component
     {
         private readonly IReadOnlyList<PoolRaceLane<T>> _lanes;
@@ -30,8 +31,22 @@ namespace Company.ChestGame.Pooling.Demo
 
         public event Action<RaceResult> OnRaceCompleted;
 
-        // externalToken links every race's own token, so a race in flight when the owner is torn
-        // down unwinds instead of filling into lanes that are going away.
+        /// <summary>
+        /// Creates a race over the given lanes.
+        /// </summary>
+        /// <param name="lanes">The lanes to race. Must be non-empty, with a distinct <see cref="PoolStrategy"/> per lane.</param>
+        /// <param name="clock">Clock shared by every lane's fill loop.</param>
+        /// <param name="budgetMilliseconds">Per-frame time budget passed to each lane's <see cref="FrameBudgetedLoop"/>. Must be positive.</param>
+        /// <param name="externalToken">
+        /// Linked into every race this instance starts. Canceling it cancels any race in progress.
+        /// </param>
+        /// <exception cref="PoolRaceException">
+        /// When <paramref name="lanes"/> is null or empty, <paramref name="clock"/> is null,
+        /// <paramref name="budgetMilliseconds"/> is not positive, or two lanes share a strategy.
+        /// </exception>
+        /// <remarks>
+        /// See docs/pooling.md, "PoolRace's cancellation and identity traps".
+        /// </remarks>
         public PoolRace(IReadOnlyList<PoolRaceLane<T>> lanes, IGameClock clock, double budgetMilliseconds,
             CancellationToken externalToken = default)
         {
@@ -51,9 +66,21 @@ namespace Company.ChestGame.Pooling.Demo
             _externalToken = externalToken;
         }
 
-        // Cancels whatever is running and prepares every lane, not only the ones this run will
-        // use, so switching from all four to solo does not leave the other three still holding what
-        // they placed last time.
+        /// <summary>
+        /// Cancels whatever race is running, then prepares every lane for the new one - not only
+        /// the lanes this run will use - and starts the race.
+        /// </summary>
+        /// <param name="boardSize">Number of instances each running lane fills. Must be at least 1.</param>
+        /// <param name="fillMode">How each lane's pool is prepared before the timed fill begins.</param>
+        /// <param name="solo">When true, only <paramref name="soloStrategy"/>'s lane runs.</param>
+        /// <param name="soloStrategy">The lane to run alone when <paramref name="solo"/> is true; ignored otherwise.</param>
+        /// <exception cref="PoolRaceException">
+        /// When this instance is disposed, <paramref name="boardSize"/> is less than 1, or
+        /// <paramref name="solo"/> is true and no lane matches <paramref name="soloStrategy"/>.
+        /// </exception>
+        /// <remarks>
+        /// See docs/pooling.md, "PoolRace's cancellation and identity traps".
+        /// </remarks>
         public void StartRace(int boardSize, FillMode fillMode, bool solo, PoolStrategy soloStrategy)
         {
             if (_disposed) throw PoolRaceException.Disposed();
@@ -64,9 +91,6 @@ namespace Company.ChestGame.Pooling.Demo
             CancelRace();
             PrepareLanes(running, fillMode, boardSize);
 
-            // Captured in a local because the field can move on to a newer race while this one is
-            // still in flight. The completion path compares against this local before touching the
-            // field.
             CancellationTokenSource ownCancellation = CancellationTokenSource.CreateLinkedTokenSource(_externalToken);
             _raceCancellation = ownCancellation;
             RunRaceAsync(running, boardSize, fillMode, solo, ownCancellation).Forget();
@@ -99,14 +123,9 @@ namespace Company.ChestGame.Pooling.Demo
             throw PoolRaceException.UnknownSoloStrategy(strategy);
         }
 
-        // Every lane's handed-out set comes back first, regardless of mode: the previous race's
-        // placements have to be back in their pool before this one can say what it placed.
-        //
-        // What happens to what is now parked is the whole difference between the three modes. Cold
-        // and Prewarmed both trim it away, so a repeated cold run still pays for a real miss;
-        // Prewarmed pays that same cost ahead of the timed fill instead of inside it. Reuse trims
-        // nothing, so a pooled lane's Get calls are hits against real stock and it can report zero
-        // instantiations - what ChestsMinigameView's own NewGame does against the real board.
+        /// <remarks>
+        /// See docs/pooling.md, "The demo's fill modes and what they measure".
+        /// </remarks>
         private void PrepareLanes(IReadOnlyList<PoolRaceLane<T>> running, FillMode fillMode, int boardSize)
         {
             foreach (PoolRaceLane<T> lane in _lanes) lane.Pool.ReleaseAll();
@@ -123,13 +142,13 @@ namespace Company.ChestGame.Pooling.Demo
                     break;
 
                 case FillMode.Reuse:
-                    // Deliberately nothing further. DirectSpawner has nowhere to have parked
-                    // anything - ReleaseAll above destroyed what it was handed - so it still
-                    // instantiates the whole board, which is the contrast this mode exists to show.
                     break;
             }
         }
 
+        /// <remarks>
+        /// See docs/pooling.md, "PoolRace's cancellation and identity traps".
+        /// </remarks>
         private async UniTaskVoid RunRaceAsync(IReadOnlyList<PoolRaceLane<T>> running, int boardSize, FillMode fillMode, bool solo,
             CancellationTokenSource ownCancellation)
         {
@@ -148,20 +167,9 @@ namespace Company.ChestGame.Pooling.Demo
             }
             catch (OperationCanceledException)
             {
-                // Deliberately nothing, for the reason ChestsMinigameView.FillBoardAsync leaves its
-                // own catch empty: the only two things that cancel a race are the next one, which
-                // prepares every lane before it starts, and teardown, where this resumes after
-                // Dispose has destroyed these pools. A result built here would read counters
-                // mid-collapse.
                 return;
             }
 
-            // Only publish, and only clear the field, if this is still the race the panel is
-            // waiting on. WhenAll completing and this continuation resuming are not the same instant
-            // - the continuation is queued on the player loop - so a button press landing in that
-            // gap can already have installed a newer race's source in the field. Disposing that one
-            // would leave the new race uncancellable, and publishing would drop a superseded race's
-            // numbers over it.
             if (!ReferenceEquals(_raceCancellation, ownCancellation)) return;
 
             _raceCancellation.Dispose();
@@ -172,9 +180,9 @@ namespace Company.ChestGame.Pooling.Demo
             OnRaceCompleted?.Invoke(result);
         }
 
-        // One lane, start to finish. That lane's numbers are read from inside this task, at the
-        // moment its own fill completes: reading them after the sibling tasks have been awaited
-        // together would give every lane the slowest lane's finish time.
+        /// <remarks>
+        /// See docs/pooling.md, "PoolRace's cancellation and identity traps".
+        /// </remarks>
         private async UniTask<LaneMetrics> RunLaneAsync(PoolRaceLane<T> lane, int boardSize, CancellationToken cancellationToken)
         {
             FrameCountingClock clock = new(_clock);

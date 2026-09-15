@@ -3,9 +3,13 @@ using UnityEngine.UIElements;
 
 namespace Company.ChestGame.Tests.EditMode
 {
-    // The two demo overlays share the Game scene, and each opens full screen over everything
-    // including the other one's floating toggle. Run against the authored assets rather than copies
-    // of them, since every way this breaks is a scene or asset edit that compiles cleanly.
+    /// <summary>
+    /// The two demo overlays share the Game scene, and each opens full screen over everything
+    /// including the other one's floating toggle.
+    /// </summary>
+    /// <remarks>
+    /// See docs/testing.md, "What lives where".
+    /// </remarks>
     public class DemoOverlayTests
     {
         private const string GameScenePath = "Assets/_Project/Scenes/Game.unity";
@@ -38,9 +42,6 @@ namespace Company.ChestGame.Tests.EditMode
             float saveToggle = Load(SaveToggleSettingsPath).sortingOrder;
             float saveChrome = Load(SaveChromeSettingsPath).sortingOrder;
 
-            // Toggle below: an open pooling demo covers it. Chrome above: an open save inspector
-            // covers the pooling demo's toggle. Either inequality failing leaves one overlay's
-            // toggle floating on top of the other's open panel.
             Assert.Less(saveToggle, pooling, "the save inspector's toggle would float over an open pooling demo");
             Assert.Greater(saveChrome, pooling, "the pooling demo's toggle would float over an open save inspector");
 #else

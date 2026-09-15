@@ -7,8 +7,13 @@ using NUnit.Framework;
 
 namespace Company.ChestGame.Tests.EditMode
 {
-    // Reward selection is a random draw over the CurrencyType enum; FakeRandomProvider pins the
-    // draw so each branch can be asserted exactly rather than statistically.
+    /// <summary>
+    /// Covers <see cref="RewardsManager"/> against fakes for currency, config, popups and the
+    /// random draw.
+    /// </summary>
+    /// <remarks>
+    /// See docs/testing.md, "RewardsManagerTests, and pinning the random draw".
+    /// </remarks>
     public class RewardsManagerTests
     {
         private FakeCurrencyManager _currency;

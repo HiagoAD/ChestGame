@@ -6,9 +6,15 @@ using UnityEngine;
 
 namespace Company.ChestGame.Saving
 {
-    // One file per key under a root directory. The root is a constructor argument so a test can
-    // point it somewhere disposable. Every member here stays synchronous inside the UniTask it
-    // returns - do not add a real suspension point inside this class. See docs/saving.md for why.
+    /// <summary>
+    /// One file per key under a root directory. The root is a constructor argument so a test can
+    /// point it somewhere disposable.
+    /// </summary>
+    /// <remarks>
+    /// Every member here stays synchronous inside the UniTask it returns: do not add a real
+    /// suspension point inside this class.
+    /// See docs/saving.md, "The thread hop, and why it is not inside SaveService".
+    /// </remarks>
     public class FileStore : ISaveStore
     {
         private readonly string _rootDirectory;
@@ -22,6 +28,9 @@ namespace Company.ChestGame.Saving
 
         public static string DefaultRootDirectory() => Path.Combine(Application.persistentDataPath, "Saves");
 
+        /// <remarks>
+        /// See docs/saving.md, "FileStore".
+        /// </remarks>
         public UniTask WriteAsync(string key, byte[] bytes, CancellationToken ct)
         {
             ct.ThrowIfCancellationRequested();
@@ -30,7 +39,6 @@ namespace Company.ChestGame.Saving
 
             try
             {
-                // Inside the guard: creating a directory fails the same ways writing to one does.
                 Directory.CreateDirectory(_rootDirectory);
                 File.WriteAllBytes(path, bytes ?? Array.Empty<byte>());
             }
@@ -84,12 +92,15 @@ namespace Company.ChestGame.Saving
             return UniTask.CompletedTask;
         }
 
-        // Every member above is plain, synchronous File/Directory IO wrapped in an already-completed
-        // UniTask - nothing here ever suspends, so this is always true.
         public bool CompletesOnCallingThread => true;
 
-        // UnauthorizedAccessException derives from SystemException, not IOException, so catching
-        // only IOException lets a permissions failure escape untyped.
+        /// <summary>
+        /// <see cref="UnauthorizedAccessException"/> derives from <see cref="SystemException"/>, not
+        /// <see cref="IOException"/>, so both are checked explicitly.
+        /// </summary>
+        /// <remarks>
+        /// See docs/saving.md, "FileStore".
+        /// </remarks>
         private static bool IsStorageFailure(Exception exception) =>
             exception is IOException || exception is UnauthorizedAccessException;
 

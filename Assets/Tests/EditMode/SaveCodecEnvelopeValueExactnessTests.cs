@@ -6,15 +6,14 @@ using NUnit.Framework;
 
 namespace Company.ChestGame.Tests.EditMode
 {
-    // The corrected claim (docs/saving.md, "Value-exactness, and where the formatting stops"):
-    // every VALUE in a text-safe body survives GetBody(Wrap(x)) exactly - the date-shaped string,
-    // the fractional seconds and the trailing-zero decimal all unchanged - but the BYTES do not,
-    // because JRaw.Create(reader) re-serialises the captured body through a fresh, default-formatted
-    // writer on read. That normalisation is invisible for JsonCodec, whose own output is already
-    // compact, and is pinned explicitly for PrettyJsonCodec below rather than left untested.
-    // Enumerated with Enum.GetValues so a fourth codec is picked up here automatically; CodecFor's
-    // default arm throws rather than silently skipping it, the same reasoning SaveServiceFactory's
-    // own switches use for why a missing arm has to be visible rather than quietly wrong.
+    /// <summary>
+    /// Tests the corrected claim: every value in a text-safe body survives
+    /// <c>GetBody(Wrap(x))</c> exactly, even though the bytes do not.
+    /// </summary>
+    /// <remarks>
+    /// See docs/saving.md, "Value-exactness, and where the formatting stops".
+    /// See docs/testing.md, "The save fixtures".
+    /// </remarks>
     public class SaveCodecEnvelopeValueExactnessTests
     {
         private class DatedState { public string LastPlayed; }
@@ -32,16 +31,9 @@ namespace Company.ChestGame.Tests.EditMode
                 _ => throw new ArgumentOutOfRangeException(nameof(codec), codec, "a new SaveCodec member needs a mapping here too")
             };
 
-        // Every codec: the value itself survives, regardless of what happens to formatting.
-        // Then, per codec, the one further thing that is actually true and worth pinning:
-        //  - Json: already compact, so Parse has nothing to normalise - the bytes come back
-        //    unchanged, the same guarantee SaveEnvelopeTests pins with a fake codec.
-        //  - JsonPretty: Parse normalises its indentation to compact on read. Asserting the
-        //    resulting bytes equal what JsonCodec would have written for the same value pins that
-        //    normalisation explicitly, so it cannot quietly regress into "no normalisation" or into
-        //    "reformats the value too" without a test noticing either way.
-        //  - JsonGzip: not text-safe, so its body only ever travels as base64, already proven exact
-        //    on its own in SaveEnvelopeTests. Nothing further to pin about formatting here.
+        /// <remarks>
+        /// See docs/saving.md, "Value-exactness, and where the formatting stops".
+        /// </remarks>
         private static void AssertSurvives<T>(SaveCodec codecKind, T state, Func<T, object> select, object expected)
         {
             ISaveCodec codec = CodecFor(codecKind);

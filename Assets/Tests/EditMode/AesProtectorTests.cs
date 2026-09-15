@@ -5,21 +5,16 @@ using NUnit.Framework;
 
 namespace Company.ChestGame.Tests.EditMode
 {
-    // AesProtector directly: AES-256-CBC with a random IV per save, encrypt-then-MAC, the tag
-    // checked through ConstantTimeCompare before a single byte reaches AES. See docs/saving.md,
-    // "The protectors, and what a key shipping inside the binary buys".
-    //
-    // PayloadTamperedException is internal and this test assembly has no InternalsVisibleTo into
-    // Company.ChestGame.Saving (confirmed absent project-wide), so a failure's exact type is
-    // checked by name through reflection here rather than by catching the type directly -
-    // Exception.GetType() is accessible regardless of the type's own visibility.
-    // SaveServiceTamperDetectionTests proves the same class of failure through the public
-    // SaveException.PayloadTampered instead, which is what an actual caller ever sees.
+    /// <summary>
+    /// Tests <see cref="AesProtector"/> directly.
+    /// </summary>
+    /// <remarks>
+    /// See docs/saving.md, "The protectors, and what a key shipping inside the binary buys".
+    /// See docs/testing.md, "The save fixtures".
+    /// </remarks>
     public class AesProtectorTests
     {
         private static byte[] Key(string seed = "AesProtectorTests.key") => Encoding.UTF8.GetBytes(seed);
-
-        // --- Property 5: AesProtector specifics --------------------------------------------------
 
         [Test]
         public void Protect_TheSamePlaintextTwice_ProducesDifferentBytes_ButBothStillDecryptToIt()
@@ -40,15 +35,13 @@ namespace Company.ChestGame.Tests.EditMode
         public void Unprotect_WithAPayloadShorterThanAnIvPlusATag_IsRejectedAsTamperingRatherThanSomethingUntyped()
         {
             AesProtector protector = new(Key());
-            byte[] tooShort = new byte[10]; // less than 16 (IV) + 32 (tag) = 48
+            byte[] tooShort = new byte[10];
 
             Exception error = Assert.Catch(() => protector.Unprotect(tooShort));
 
             Assert.AreEqual("PayloadTamperedException", error.GetType().Name,
                 "a payload too short to carry an IV and a tag has to be rejected as tampering, not as an IndexOutOfRangeException or similar");
         }
-
-        // --- Property 4: a different key reads as tampering, not as a CryptographicException -----
 
         [Test]
         public void Unprotect_WithADifferentKeyThanProtect_IsRejectedAsTamperingRatherThanACryptographicException()
@@ -63,8 +56,6 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.AreEqual("PayloadTamperedException", error.GetType().Name,
                 "encrypt-then-MAC checks the tag before a single byte reaches AES, so a wrong key must fail the tag check rather than surface as a CryptographicException out of the AES transform, or as garbage returned as if valid");
         }
-
-        // --- Constructor guards (SaveException.NoProtectorKey) -----------------------------------
 
         [Test]
         public void Constructor_WithANullKey_ThrowsNoProtectorKey()

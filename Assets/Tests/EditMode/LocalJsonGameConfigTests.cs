@@ -6,10 +6,14 @@ using NUnit.Framework;
 
 namespace Company.ChestGame.Tests.EditMode
 {
-    // The failure surface is the point: a real remote config can hand back nothing, a truncated
-    // payload, or a document whose fields have moved. The config takes the document rather than a
-    // source, so parsing stays a synchronous constructor. This document carries only what the whole
-    // game shares; the chests values live in ChestsMinigameConfigTests.
+    /// <summary>
+    /// Covers <see cref="LocalJsonGameConfig"/>, which parses and validates the document that carries
+    /// what the whole game shares. The chests minigame's own config is covered separately, in
+    /// <c>ChestsMinigameConfigTests</c>.
+    /// </summary>
+    /// <remarks>
+    /// See docs/architecture.md, "Config pipeline".
+    /// </remarks>
     public class LocalJsonGameConfigTests
     {
         [Test]
@@ -40,7 +44,6 @@ namespace Company.ChestGame.Tests.EditMode
         [Test]
         public void AMalformedDocument_FailsWithATargetedMessage()
         {
-            // A truncated payload, the shape a half-finished download takes.
             Exception error = Assert.Throws<GameConfigException>(
                 () => new LocalJsonGameConfig(@"{ ""GemsReward"": 10, ""CoinsReward"":"));
 
@@ -54,11 +57,12 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.Throws<GameConfigException>(() => new LocalJsonGameConfig("null"));
         }
 
+        /// <remarks>
+        /// See docs/architecture.md, "Config pipeline".
+        /// </remarks>
         [Test]
         public void UnknownFields_AreIgnoredSoTheConfigCanGrowServerSide()
         {
-            // A server rolling out a new field must not break clients that predate it. The chests
-            // minigame's own fields are one such case: this document no longer knows them.
             LocalJsonGameConfig config = new(@"{
                 ""GemsReward"": 10,
                 ""CoinsReward"": 50,
@@ -70,10 +74,12 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.AreEqual(50, config.CoinsReward);
         }
 
+        /// <remarks>
+        /// See docs/architecture.md, "Config pipeline".
+        /// </remarks>
         [Test]
         public void ANegativeReward_IsRejected()
         {
-            // A negative reward reaches AddCurrency, which rejects and logs an error on every win.
             GameConfigException error = Assert.Throws<GameConfigException>(
                 () => new LocalJsonGameConfig(DocumentWith(coinsReward: -50)));
 
@@ -89,10 +95,12 @@ namespace Company.ChestGame.Tests.EditMode
             StringAssert.Contains(nameof(GameConfigData.GemsReward), error.Message);
         }
 
+        /// <remarks>
+        /// See docs/architecture.md, "Config pipeline".
+        /// </remarks>
         [Test]
         public void AZeroReward_IsAccepted()
         {
-            // Zero is a legitimate tuning value: a currency the game currently gives none of.
             LocalJsonGameConfig config = new(DocumentWith(gemsReward: 0, coinsReward: 0));
 
             Assert.AreEqual(0, config.GemsReward);

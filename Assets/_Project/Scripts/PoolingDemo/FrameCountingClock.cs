@@ -4,15 +4,21 @@ using Cysharp.Threading.Tasks;
 
 namespace Company.ChestGame.Pooling.Demo
 {
-    // Wraps a clock to count the frames one lane's own fill yielded on, without touching
-    // FrameBudgetedLoop or IGameClock. Every lane gets its own instance over the same underlying
-    // clock, so four lanes sharing one player loop each answer that independently.
-    //
-    // Starts at one rather than zero: a fill that never yields still ran inside the first frame.
+    /// <summary>
+    /// Wraps an <see cref="IGameClock"/> to count the frames one lane's own fill yielded on,
+    /// without touching <c>FrameBudgetedLoop</c> or the wrapped clock itself.
+    /// </summary>
+    /// <remarks>
+    /// See docs/pooling.md, "The demo's fill modes and what they measure".
+    /// </remarks>
     internal sealed class FrameCountingClock : IGameClock
     {
         private readonly IGameClock _inner;
 
+        /// <summary>
+        /// Number of frames this clock has counted, starting at one: a fill that never yields
+        /// still ran inside the first frame.
+        /// </summary>
         public int FramesUsed { get; private set; } = 1;
 
         public FrameCountingClock(IGameClock inner)

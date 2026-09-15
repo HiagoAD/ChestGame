@@ -5,20 +5,24 @@ using Cysharp.Threading.Tasks;
 
 namespace Company.ChestGame.Saving
 {
-    // Bytes in a dictionary rather than on disk. Not only a test double: pointing a save
-    // composition at this is a legitimate production choice for an editor mode that must never
-    // touch the real save.
+    /// <summary>
+    /// Bytes in a dictionary rather than on disk. Not only a test double: pointing a save
+    /// composition at this is a legitimate production choice for an editor mode that must never
+    /// touch the real save.
+    /// </summary>
     public class InMemoryStore : ISaveStore
     {
         private readonly Dictionary<string, byte[]> _bytesByKey = new();
 
+        /// <summary>
+        /// Copies <paramref name="bytes"/> rather than aliasing it: a caller mutating its own array
+        /// afterwards must not reach into what this store believes it has saved.
+        /// </summary>
         public UniTask WriteAsync(string key, byte[] bytes, CancellationToken ct)
         {
             ct.ThrowIfCancellationRequested();
             SaveKeyPath.EnsurePresent(key);
 
-            // Copied rather than aliased: a caller mutating its own array afterwards must not reach
-            // into what this store believes it has saved.
             _bytesByKey[key] = (byte[])(bytes ?? Array.Empty<byte>()).Clone();
 
             return UniTask.CompletedTask;
@@ -51,8 +55,6 @@ namespace Company.ChestGame.Saving
             return UniTask.CompletedTask;
         }
 
-        // Every member above is a plain dictionary operation wrapped in an already-completed
-        // UniTask - nothing here ever suspends, so this is always true.
         public bool CompletesOnCallingThread => true;
     }
 }

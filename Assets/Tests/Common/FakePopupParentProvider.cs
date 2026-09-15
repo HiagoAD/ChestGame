@@ -3,9 +3,10 @@ using UnityEngine;
 
 namespace Company.ChestGame.Tests.Common
 {
-    // Hands out a parent the test owns and can assert against, with none of the real provider's
-    // side effects. There is no fake catalog to go with it: the real PopupCatalog takes a plain
-    // list, so tests use that one directly.
+    /// <summary>
+    /// Hands out a parent the test owns and can assert against, with none of the real provider's
+    /// side effects.
+    /// </summary>
     public class FakePopupParentProvider : IPopupParentProvider
     {
         public Transform Parent { get; set; }

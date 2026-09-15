@@ -7,14 +7,16 @@ using UnityEngine.TestTools;
 
 namespace Company.ChestGame.Tests.PlayMode
 {
-    // ThreadHoppingStore's actual hop cannot be proven in edit mode at all - Tests.Common's
-    // SynchronousUniTask fails loudly the instant anything really suspends, by design. Only a real
-    // player loop and real thread identity can prove the hop genuinely leaves the calling thread,
-    // and that a main-thread-only store is left alone rather than hopped. See docs/saving.md, "The
-    // thread hop", and ThreadHoppingStoreTests for what edit mode already covers without either.
-    //
-    // Both checks below are deterministic identity comparisons - which thread a write ran on -
-    // never timing. Nothing here asserts on how long anything took.
+    /// <summary>
+    /// Proves, using a real player loop and real thread identity, that
+    /// <see cref="ThreadHoppingStore"/>'s write leaves the calling thread over an ordinary store, and
+    /// that a main-thread-only store is left alone rather than hopped. <c>ThreadHoppingStoreTests</c>
+    /// (edit mode) covers what does not need either.
+    /// </summary>
+    /// <remarks>
+    /// See docs/saving.md, "The thread hop, and why it is not inside SaveService".
+    /// See docs/testing.md, "The save fixtures".
+    /// </remarks>
     public class ThreadHoppingStorePlayModeTests
     {
         [UnityTest]

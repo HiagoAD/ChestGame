@@ -5,26 +5,29 @@ using Cysharp.Threading.Tasks;
 
 namespace Company.ChestGame.Tests.PlayMode
 {
-    // An ISaveStore that records which managed thread each WriteAsync call ran on, and can park a
-    // write until the test releases it. The park is cooperative (an awaited UniTaskCompletionSource,
-    // not a real thread block), which is what lets the same fake drive both a non-hopping
-    // composition - where WriteAsync runs on the same main thread the test itself keeps running on -
-    // and a ThreadHoppingStore-wrapped one, without deadlocking either. This is what makes "a write
-    // genuinely mid-flight" a deterministic state to assert against rather than a race against how
-    // fast a worker thread happens to run. See docs/saving.md, "The thread hop" and "One write in
-    // flight".
+    /// <summary>
+    /// An <see cref="ISaveStore"/> that records which managed thread each <see cref="WriteAsync"/>
+    /// call ran on, and can park a write until the test releases it. The park is cooperative (an
+    /// awaited <c>UniTaskCompletionSource</c>, not a real thread block), which is what lets the same
+    /// fake drive both a non-hopping composition - where <see cref="WriteAsync"/> runs on the same
+    /// main thread the test itself keeps running on - and a <c>ThreadHoppingStore</c>-wrapped one,
+    /// without deadlocking either.
+    /// </summary>
+    /// <remarks>
+    /// See docs/saving.md, "The thread hop, and why it is not inside SaveService".
+    /// See docs/saving.md, "One write in flight".
+    /// See docs/testing.md, "RecordingSaveStore, and why the gate is two fields, not one".
+    /// </remarks>
     public class RecordingSaveStore : ISaveStore
     {
-        // Set by ArmBlockingWrite, consumed by the next WriteAsync call that starts waiting - one
-        // shot, so a follow-up write in the same test completes immediately without a fresh Arm
-        // call. Kept separate from _activeGate below: nulling this the moment a write claims it is
-        // what makes a follow-up write not block again, but ReleaseWrite() has to keep working after
-        // that point too, which is exactly what _activeGate is for.
+        /// <remarks>
+        /// See docs/testing.md, "RecordingSaveStore, and why the gate is two fields, not one".
+        /// </remarks>
         private UniTaskCompletionSource _armedGate;
 
-        // The gate whatever write is currently parked is actually awaiting - what ReleaseWrite()
-        // signals. Without this as its own field, ReleaseWrite() would read _armedGate after
-        // WriteAsync has already cleared it to claim it, and release nothing.
+        /// <remarks>
+        /// See docs/testing.md, "RecordingSaveStore, and why the gate is two fields, not one".
+        /// </remarks>
         private UniTaskCompletionSource _activeGate;
 
         public int WriteCount { get; private set; }

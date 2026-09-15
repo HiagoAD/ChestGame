@@ -5,7 +5,9 @@ using Company.ChestGame.Minigame.Core;
 
 namespace Company.ChestGame.Minigame.Internal
 {
-    // The minigames the game can build, indexed by container type and by authored id.
+    /// <summary>
+    /// The minigames the game can build, indexed by container type and by authored id.
+    /// </summary>
     public class MinigameCatalog : IMinigameCatalog
     {
         public IReadOnlyDictionary<Type, MinigameBaseSO> Minigames { get; }

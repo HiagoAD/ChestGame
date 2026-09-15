@@ -1,8 +1,11 @@
 namespace Company.ChestGame.Saving.Demo
 {
-    // What a reload did after SaveTamper edited a stored save in place. RejectedAsTampered and
-    // RejectedAsUnreadable are kept apart because SaveException reports them as different findings -
-    // see docs/saving.md, "Tamper detection is a different failure from a corrupt payload".
+    /// <summary>
+    /// What a reload did after <see cref="SaveTamper"/> edited a stored save in place.
+    /// </summary>
+    /// <remarks>
+    /// See docs/saving.md, "Tamper detection is a different failure from a corrupt payload".
+    /// </remarks>
     public enum SaveTamperOutcome
     {
         Loaded,

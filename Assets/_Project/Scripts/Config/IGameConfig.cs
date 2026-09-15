@@ -3,8 +3,13 @@ using System;
 
 namespace Company.ChestGame.Config
 {
-    // The game-wide config: values every part of the game may need. Anything only one minigame
-    // cares about belongs to that minigame's own document, not here.
+    /// <summary>
+    /// The game-wide config: values every part of the game may need.
+    /// </summary>
+    /// <remarks>
+    /// See docs/architecture.md, "Config pipeline".
+    /// See docs/design-decisions.md, "4. Fetching split from parsing in the config".
+    /// </remarks>
     public interface IGameConfig
     {
         public long GemsReward { get; }

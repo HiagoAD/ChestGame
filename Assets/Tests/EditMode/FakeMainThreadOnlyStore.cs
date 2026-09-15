@@ -5,9 +5,13 @@ using Cysharp.Threading.Tasks;
 
 namespace Company.ChestGame.Tests.EditMode
 {
-    // The one ISaveStore fake in this suite marked IMainThreadOnlyStore, so a test can prove
-    // ThreadHoppingStore leaves a store like PlayerPrefsStore alone rather than hopping it. See
-    // docs/saving.md, "The thread hop". Everything else mirrors FakeSaveStore.
+    /// <summary>
+    /// The one <see cref="ISaveStore"/> test double in this suite marked
+    /// <see cref="IMainThreadOnlyStore"/>. Otherwise identical to <see cref="FakeSaveStore"/>.
+    /// </summary>
+    /// <remarks>
+    /// See docs/saving.md, "The thread hop, and why it is not inside SaveService".
+    /// </remarks>
     public class FakeMainThreadOnlyStore : ISaveStore, IMainThreadOnlyStore
     {
         private readonly Dictionary<string, byte[]> _files = new();
@@ -38,8 +42,10 @@ namespace Company.ChestGame.Tests.EditMode
             return UniTask.CompletedTask;
         }
 
-        // Every member above is a plain dictionary operation wrapped in an already-completed
-        // UniTask - nothing here ever suspends, so this is always true.
+        /// <summary>
+        /// Always <c>true</c>: every operation above is a dictionary access wrapped in an
+        /// already-completed <see cref="UniTask"/>, so none of them ever suspends.
+        /// </summary>
         public bool CompletesOnCallingThread => true;
     }
 }

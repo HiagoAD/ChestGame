@@ -7,9 +7,11 @@ using UnityEngine.TestTools;
 
 namespace Company.ChestGame.Tests.EditMode
 {
-    // Every CurrencyManager here is built on an in-memory save handler, so the real PlayerPrefs
-    // save is never touched. It logs an error on each rejected operation, which fails a test by
-    // default, hence the LogAssert.Expect calls on the negative paths.
+    /// <summary>
+    /// Every <see cref="CurrencyManager"/> here is built on an in-memory save handler, so the real
+    /// PlayerPrefs save is never touched. It logs an error on each rejected operation, which fails a
+    /// test by default, hence the <c>LogAssert.Expect</c> calls on the negative paths.
+    /// </summary>
     public class CurrencyManagerTests
     {
         private InMemoryResourceBankSaveHandler _saveHandler;
@@ -34,16 +36,12 @@ namespace Company.ChestGame.Tests.EditMode
             _currency.OnCurrencySpent += (c, a, b, s) => _spent.Add((c, a, b, s));
         }
 
-        // --- Baseline ----------------------------------------------------------------------
-
         [Test]
         public void FreshBank_StartsEveryCurrencyAtZero()
         {
             Assert.AreEqual(0, _currency.GetCurrencyAmount(CurrencyType.Coins));
             Assert.AreEqual(0, _currency.GetCurrencyAmount(CurrencyType.Gems));
         }
-
-        // --- Adding ------------------------------------------------------------------------
 
         [Test]
         public void AddCurrency_IncreasesTheBalance()
@@ -86,8 +84,6 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.AreEqual(0, _currency.GetCurrencyAmount(CurrencyType.Coins));
             CollectionAssert.IsEmpty(_changed);
         }
-
-        // --- Spending ----------------------------------------------------------------------
 
         [Test]
         public void TrySpendCurrency_WithEnoughBalance_SucceedsAndDeducts()
@@ -179,13 +175,12 @@ namespace Company.ChestGame.Tests.EditMode
             CollectionAssert.IsEmpty(_spent);
         }
 
-        // --- Event shape -------------------------------------------------------------------
-
+        /// <remarks>
+        /// See docs/architecture.md, "Currency and rewards".
+        /// </remarks>
         [Test]
         public void Spending_ReportsAPositiveAmountOnSpent_AndANegativeOneOnChanged()
         {
-            // The asymmetry is documented on ResourceBankCallbacks: Changed always describes the
-            // delta applied to the balance, Spent describes the size of the withdrawal.
             _currency.AddCurrency(CurrencyType.Coins, 100, "test");
             _changed.Clear();
             _collected.Clear();
@@ -196,8 +191,6 @@ namespace Company.ChestGame.Tests.EditMode
             CollectionAssert.AreEqual(new[] { (CurrencyType.Coins, -30L, 70L, "shop") }, _changed);
             CollectionAssert.IsEmpty(_collected);
         }
-
-        // --- Persistence -------------------------------------------------------------------
 
         [Test]
         public void Balances_SurviveThroughTheSaveHandler()
@@ -219,8 +212,6 @@ namespace Company.ChestGame.Tests.EditMode
 
             Assert.AreEqual(2, _saveHandler.SaveCallCount);
         }
-
-        // --- Debug helper ------------------------------------------------------------------
 
         [Test]
         public void CheatResetCurrencyAmount_ZeroesTheBalance()

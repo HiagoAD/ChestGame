@@ -1,6 +1,6 @@
 namespace Company.ChestGame.Saving
 {
-    // The baseline every other protector is measured against: no protection at all.
+    /// <summary>The baseline every other protector is measured against: no protection at all.</summary>
     public class NoProtection : IPayloadProtector
     {
         public string Id => "none";

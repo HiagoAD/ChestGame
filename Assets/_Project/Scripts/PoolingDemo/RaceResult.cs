@@ -2,10 +2,13 @@ using System.Collections.Generic;
 
 namespace Company.ChestGame.Pooling.Demo
 {
-    // What one lane did during a race, snapshotted once its fill has settled. Instantiated and
-    // Destroyed are display numbers - IPrefabPool's running totals, read as a delta across the timed
-    // fill - and are never what a test asserts against, because a counter only proves a field moved.
-    // ChestBoardPoolingTests.SpawnProbe counts real Awake calls instead.
+    /// <summary>
+    /// What one lane did during a race, snapshotted once its fill has settled.
+    /// </summary>
+    /// <remarks>
+    /// See docs/design-decisions.md, "What the tests do and do not prove".
+    /// See docs/pooling.md, "LaneMetrics, and why Instantiated/Destroyed are not what tests assert".
+    /// </remarks>
     public readonly struct LaneMetrics
     {
         public PoolStrategy Strategy { get; }
@@ -29,10 +32,12 @@ namespace Company.ChestGame.Pooling.Demo
         }
     }
 
-    // A finished race: one entry per lane that ran, in strategy order. Solo carries exactly one.
-    // Solo and FillMode travel on the result rather than only on the request that started it, so the
-    // readout labels a finished race with what it actually ran - a panel reading its own mutable
-    // field would label it with whatever is selected when the result lands.
+    /// <summary>
+    /// A finished race: one entry per lane that ran, in strategy order. Solo carries exactly one.
+    /// </summary>
+    /// <remarks>
+    /// See docs/pooling.md, "RaceResult, and why Solo and FillMode travel with it".
+    /// </remarks>
     public readonly struct RaceResult
     {
         public IReadOnlyList<LaneMetrics> Lanes { get; }

@@ -17,8 +17,10 @@ using Object = UnityEngine.Object;
 
 namespace Company.ChestGame.Tests.EditMode
 {
-    // What arrives before the player can ask for it, and what deliberately does not. Edit mode
-    // against FakeAssetProvider, with no scene and no scope in it.
+    /// <summary>
+    /// Covers what arrives before the player can ask for it, and what does not, in edit mode
+    /// against FakeAssetProvider, with no scene and no scope in it.
+    /// </summary>
     public class MinigameContentPreloaderTests
     {
         private const string PRELOAD_LABEL = "minigame.preloaded";
@@ -47,11 +49,12 @@ namespace Company.ChestGame.Tests.EditMode
             _created.Clear();
         }
 
+        /// <remarks>
+        /// See docs/content-delivery.md, "When content arrives".
+        /// </remarks>
         [Test]
         public void OnlyMinigamesThatAskedToBePreloaded_AreFetched()
         {
-            // An on-demand minigame is one the player may never open, so fetching it up front is
-            // the wait this design exists to avoid.
             _assets.WithDownloadSize(PRELOAD_LABEL, 100).WithDownloadSize(ON_DEMAND_LABEL, 900);
 
             Preload(
@@ -63,11 +66,12 @@ namespace Company.ChestGame.Tests.EditMode
             CollectionAssert.AreEqual(new[] { PRELOAD_LABEL }, _assets.DownloadedLabels);
         }
 
+        /// <remarks>
+        /// See docs/content-delivery.md, "Progress reporting".
+        /// </remarks>
         [Test]
         public void EveryPreloadedLabel_IsMeasuredBeforeAnythingIsFetched()
         {
-            // The order is the design: the share of the bar a label is worth cannot be known until
-            // every size is in.
             _assets.WithDownloadSize(PRELOAD_LABEL, 30).WithDownloadSize(OTHER_PRELOAD_LABEL, 70);
 
             Preload(
@@ -81,10 +85,12 @@ namespace Company.ChestGame.Tests.EditMode
                 "both sizes have to be in before the first byte is fetched, or the shares are guesses");
         }
 
+        /// <remarks>
+        /// See docs/content-delivery.md, "Progress reporting".
+        /// </remarks>
         [Test]
         public void ProgressIsAggregateAcrossEveryLabel_NotPerLabel()
         {
-            // Thirty bytes of a hundred is 0.3 of the whole wait, whichever label they belong to.
             _assets.WithDownloadSize(PRELOAD_LABEL, 30).WithDownloadSize(OTHER_PRELOAD_LABEL, 70);
 
             Preload(
@@ -99,7 +105,6 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.IsFalse(_progress.Reported.Exists(value => value > 1.001f),
                 "aggregate progress cannot exceed 1");
 
-            // The tell for per-label progress is a bar that reaches full and then goes back.
             for (int i = 1; i < _progress.Reported.Count; i++)
             {
                 Assert.GreaterOrEqual(_progress.Reported[i], _progress.Reported[i - 1],
@@ -107,11 +112,12 @@ namespace Company.ChestGame.Tests.EditMode
             }
         }
 
+        /// <remarks>
+        /// See docs/content-delivery.md, "When content arrives".
+        /// </remarks>
         [Test]
         public void AMinigameWithNoContentLabel_IsSkippedWithAWarning()
         {
-            // Same policy as a blank id in CatalogBuilder: the minigame still starts, its content
-            // just arrives late.
             LogAssert.Expect(LogType.Warning, new Regex("names no content label"));
 
             _assets.WithDownloadSize(PRELOAD_LABEL, 100);
@@ -124,11 +130,12 @@ namespace Company.ChestGame.Tests.EditMode
                 "the blank label must not be asked for, and the good one still has to arrive");
         }
 
+        /// <remarks>
+        /// See docs/content-delivery.md, "When content arrives".
+        /// </remarks>
         [Test]
         public void NothingLeftToFetch_DownloadsNothing()
         {
-            // Zero is what every run after the first gives. Treating it as work would make boot
-            // wait on a download with nothing to do.
             Preload(Definition<FirstMinigame>(MinigameLoadPolicy.Preload, PRELOAD_LABEL));
 
             CollectionAssert.AreEqual(new[] { PRELOAD_LABEL }, _assets.SizedLabels, "it still has to ask");
@@ -145,12 +152,12 @@ namespace Company.ChestGame.Tests.EditMode
             CollectionAssert.IsEmpty(_assets.DownloadedLabels);
         }
 
+        /// <remarks>
+        /// See docs/content-delivery.md, "When content arrives".
+        /// </remarks>
         [Test]
         public void AFailedDownload_SurfacesTheTypedFailure()
         {
-            // Typed all the way out, so the shell can tell a delivery problem from a bug. The size
-            // query succeeds on purpose: the failure has to survive the code between measuring and
-            // fetching.
             _assets.WithDownloadSize(PRELOAD_LABEL, 100);
             _assets.FailDownloadWith = new AssetLoadException(PRELOAD_LABEL, new Exception("no route to host"));
 
@@ -160,14 +167,12 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.AreEqual(PRELOAD_LABEL, failure.Key);
         }
 
+        /// <remarks>
+        /// See docs/content-delivery.md, "Which token fired".
+        /// </remarks>
         [Test]
         public void TheCancellationToken_ReachesTheProvider()
         {
-            // A boot that was abandoned has to stop the download with it. Asserted by behaviour
-            // rather than identity, because the provider is handed a token linked to the caller's
-            // rather than the caller's own. Cancelled while the fetch is in flight, the only moment
-            // the linkage is observable: the linked source is disposed as soon as the fetch
-            // returns.
             _assets.WithDownloadSize(PRELOAD_LABEL, 100);
             _assets.StallDownloads = true;
 
@@ -193,12 +198,12 @@ namespace Company.ChestGame.Tests.EditMode
                 "and the fetch has to end rather than sit there");
         }
 
+        /// <remarks>
+        /// See docs/content-delivery.md, "Timeouts".
+        /// </remarks>
         [Test]
         public void PreloadAsync_WhenALabelStalls_GivesUpAndSurfacesATypedFailure()
         {
-            // The boot-time twin of the container's stall. A preload that fails returns and the
-            // bootstrapper reports it; one that stalls returns nothing at all. Typed under
-            // ChestGameException so that catch can report it the same way.
             _assets.WithDownloadSize(PRELOAD_LABEL, 4096);
             _assets.StallDownloads = true;
 
@@ -219,11 +224,12 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.AreEqual(PRELOAD_LABEL, error.Label, "the fetch that gave up has to name itself");
         }
 
+        /// <remarks>
+        /// See docs/content-delivery.md, "Which token fired".
+        /// </remarks>
         [Test]
         public void PreloadAsync_WhenBootIsCancelled_StaysACancellationRatherThanATimeout()
         {
-            // The app quitting mid-preload is not a content failure. The deadline is set far out so
-            // only the caller's token can end the stall.
             _assets.WithDownloadSize(PRELOAD_LABEL, 4096);
             _assets.StallDownloads = true;
 
@@ -249,8 +255,9 @@ namespace Company.ChestGame.Tests.EditMode
                 "or boot would report a failure to a player who is already gone");
         }
 
-        // A protected seam rather than a settable property, the shape MinigameContainer uses, so
-        // production keeps no tuning knob a test can reach into.
+        /// <remarks>
+        /// See docs/content-delivery.md, "Timeouts".
+        /// </remarks>
         private sealed class DeadlinedPreloader : MinigameContentPreloader
         {
             public DeadlinedPreloader(IMinigameCatalog catalog, IAssetProvider assets)
@@ -275,9 +282,11 @@ namespace Company.ChestGame.Tests.EditMode
 
         private void Preload(params MinigameBaseSO[] definitions) => Preload(CancellationToken.None, definitions);
 
+        /// <remarks>
+        /// See docs/testing.md, "The save suites never touch a real save".
+        /// </remarks>
         private void Preload(CancellationToken ct, params MinigameBaseSO[] definitions)
         {
-            // The real catalog rather than a fake one, because it takes a plain list.
             MinigameContentPreloader preloader =
                 new(new MinigameCatalog(new List<MinigameBaseSO>(definitions)), _assets);
 
@@ -293,10 +302,14 @@ namespace Company.ChestGame.Tests.EditMode
             return definition.WithId(typeof(TDefinition).Name).WithContent(label, policy);
         }
 
-        // Two concrete types, because MinigameCatalog indexes by container type.
+        /// <remarks>
+        /// See docs/architecture.md, "Catalogs".
+        /// </remarks>
         private abstract class PreloadableMinigameSO : MinigameBaseSO
         {
-            // Never called: the preloader reads the descriptor and nothing else.
+            /// <summary>
+            /// Never called: the preloader reads the descriptor and nothing else.
+            /// </summary>
             public override MinigameContainer GetMinigameContainer() => null;
         }
 

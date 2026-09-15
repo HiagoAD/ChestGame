@@ -4,7 +4,12 @@ using UnityEngine;
 
 namespace Company.ChestGame.Popups.Internal
 {
-    // Pure authoring data, holes and all. Turning it into a lookup belongs to PopupCatalog.
+    /// <summary>
+    /// Pure authoring data: the popup list as the inspector holds it, holes and all.
+    /// </summary>
+    /// <remarks>
+    /// See docs/architecture.md, "Catalogs".
+    /// </remarks>
     [CreateAssetMenu(menuName = "Popups/PopupList")]
     public class PopupListSO : ScriptableObject
     {
@@ -12,6 +17,9 @@ namespace Company.ChestGame.Popups.Internal
 
         public IReadOnlyList<PopupBase> Entries => popups;
 
+        /// <remarks>
+        /// See docs/architecture.md, "Catalogs".
+        /// </remarks>
         private void OnValidate()
         {
             HashSet<Type> types = new();
@@ -22,8 +30,6 @@ namespace Company.ChestGame.Popups.Internal
                 if (types.Contains(popup.GetType()))
                 {
                     popups[i] = null;
-                    // Reported rather than thrown: OnValidate runs during asset import and on every
-                    // inspector edit, where an exception aborts the surrounding operation.
                     Debug.LogError($"INVALID ENTRY: Element at {i}, type already present", this);
                 }
                 else

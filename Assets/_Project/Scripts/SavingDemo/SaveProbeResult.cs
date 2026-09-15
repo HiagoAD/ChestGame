@@ -1,8 +1,13 @@
 namespace Company.ChestGame.Saving.Demo
 {
-    // What one storage/codec/protection combination did, end to end: the raw bytes that actually
-    // landed in the store (read back through the store, not re-encoded), how they render, and how
-    // long each direction took. See SavePipelineProbe.
+    /// <summary>
+    /// What one storage/codec/protection combination did, end to end: the raw bytes that actually
+    /// landed in the store (read back through the store, not re-encoded), how they render, and how
+    /// long each direction took.
+    /// </summary>
+    /// <remarks>
+    /// Produced by <see cref="SavePipelineProbe"/>.
+    /// </remarks>
     public readonly struct SaveProbeResult
     {
         public SaveStorage Storage { get; }

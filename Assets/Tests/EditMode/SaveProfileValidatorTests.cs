@@ -9,14 +9,17 @@ using Object = UnityEngine.Object;
 
 namespace Company.ChestGame.Tests.EditMode
 {
-    // SaveProfileValidator: human-readable warnings only, never errors, over a profile's
-    // codec/protector combination. See docs/saving.md, "SaveProfileValidator".
+    /// <summary>
+    /// Covers <see cref="SaveProfileValidator"/>'s warnings, which are human-readable only and never
+    /// errors, over a profile's codec/protector combination.
+    /// </summary>
+    /// <remarks>
+    /// See docs/saving.md, "SaveProfileValidator".
+    /// </remarks>
     public class SaveProfileValidatorTests
     {
         private static IEnumerable<SaveProtection> EveryProtectionExceptNone() =>
             Enum.GetValues(typeof(SaveProtection)).Cast<SaveProtection>().Where(p => p != SaveProtection.None);
-
-        // --- JsonPretty warns for any non-None protection -----------------------------------------
 
         [TestCaseSource(nameof(EveryProtectionExceptNone))]
         public void Validate_JsonPrettyWithAnyNonNoneProtection_Warns(SaveProtection protection)
@@ -35,22 +38,16 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.IsEmpty(warnings);
         }
 
-        // --- Deliberately not flagged: JsonGzip with an encrypting protector (property 10) -------
-
+        /// <remarks>
+        /// See docs/saving.md, "SaveProfileValidator".
+        /// </remarks>
         [Test]
         public void Validate_JsonGzipWithAes_ReturnsNoWarningAtAll()
         {
-            // SaveService.SaveAsync encodes before it protects, so GzipJsonCodec always compresses
-            // plain JSON before AesProtector ever sees the bytes - the effective order, not the
-            // wasteful "encrypt then compress" one. A warning here would tell a profile author the
-            // opposite of what actually happens; this pins the absence so a future "fix" cannot
-            // reintroduce it silently. See docs/saving.md, "Deliberately not flagged".
             IReadOnlyList<string> warnings = SaveProfileValidator.Validate(SaveCodec.JsonGzip, SaveProtection.Aes);
 
             Assert.IsEmpty(warnings);
         }
-
-        // --- Base64, Hmac and Xor are each flagged regardless of codec ----------------------------
 
         [Test]
         public void Validate_Base64Protection_Warns()
@@ -65,10 +62,6 @@ namespace Company.ChestGame.Tests.EditMode
         {
             IReadOnlyList<string> warnings = SaveProfileValidator.Validate(SaveCodec.Json, SaveProtection.Hmac);
 
-            // The implementation's own wording ("proves a save was not modified" / "does not hide
-            // it"), not the abstract vocabulary ("integrity" / "confidentiality") the property uses
-            // to describe it - asserting the literal words would be testing a paraphrase this
-            // message never promised to use.
             Assert.IsTrue(warnings.Any(w =>
                     w.Contains("not modified", StringComparison.OrdinalIgnoreCase) &&
                     w.Contains("does not hide", StringComparison.OrdinalIgnoreCase)),
@@ -84,8 +77,6 @@ namespace Company.ChestGame.Tests.EditMode
                 "Xor has to be flagged as obfuscation, never as encryption");
         }
 
-        // --- The baseline: no warnings at all ------------------------------------------------------
-
         [Test]
         public void Validate_JsonWithNone_ReturnsNoWarnings()
         {
@@ -93,8 +84,6 @@ namespace Company.ChestGame.Tests.EditMode
 
             Assert.IsEmpty(warnings);
         }
-
-        // --- The SaveProfileSO overload reads the same fields the inspector writes ---------------
 
         [Test]
         public void Validate_WithANullProfile_ReturnsNoWarnings()
@@ -104,11 +93,12 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.IsEmpty(warnings);
         }
 
+        /// <remarks>
+        /// See docs/saving.md, "SaveComponentFactory, SaveFactoryInputs and SaveServiceFactory".
+        /// </remarks>
         [Test]
         public void Validate_WithADestroyedProfile_ReturnsNoWarnings()
         {
-            // Unity-null, not C#-null: a destroyed ScriptableObject still compiles as a non-null
-            // reference, the same distinction SaveServiceFactory.Create's own null check exists for.
             SaveProfileSO profile = ScriptableObject.CreateInstance<SaveProfileSO>();
             Object.DestroyImmediate(profile);
 

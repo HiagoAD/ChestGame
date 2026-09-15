@@ -6,16 +6,17 @@ using NUnit.Framework;
 
 namespace Company.ChestGame.Tests.EditMode
 {
-    // ThreadHoppingStore's actual hop cannot run here at all - Tests.Common.SynchronousUniTask
-    // throws the instant a task is still Pending immediately after the call returns, which is
-    // exactly what a real UniTask.RunOnThreadPool hop looks like from this call stack, by design.
-    // See docs/saving.md, "The thread hop". What edit mode can still prove without a player loop:
-    // the constructor guard, both answers CompletesOnCallingThread can give, and that wrapping an
-    // IMainThreadOnlyStore delegates straight through every member without ever reaching the hop at
-    // all - every call below resolves on this same call stack, exactly like every other ISaveStore
-    // this assembly ships. The genuine hop, and a main-thread-only store's write actually landing on
-    // the main thread, are proven against a real player loop instead - see
-    // ThreadHoppingStorePlayModeTests.
+    /// <summary>
+    /// Proves what edit mode can prove about <see cref="ThreadHoppingStore"/> without a player loop:
+    /// the constructor guard, both answers <c>CompletesOnCallingThread</c> can give, and that
+    /// wrapping an <see cref="IMainThreadOnlyStore"/> delegates straight through every member
+    /// without ever reaching the hop.
+    /// </summary>
+    /// <remarks>
+    /// The genuine hop, and a main-thread-only store's write actually landing on the main thread,
+    /// are proven against a real player loop instead by <c>ThreadHoppingStorePlayModeTests</c>.
+    /// See docs/saving.md, "The thread hop, and why it is not inside SaveService".
+    /// </remarks>
     public class ThreadHoppingStoreTests
     {
         [Test]
@@ -49,9 +50,6 @@ namespace Company.ChestGame.Tests.EditMode
             FakeMainThreadOnlyStore inner = new();
             ThreadHoppingStore store = new(inner);
 
-            // SynchronousUniTask.Complete/Result throw the moment a task is still Pending
-            // immediately after the call returns - the exact signal a real hop would trip. None of
-            // these four calls hops, so all four resolve on this same call stack.
             SynchronousUniTask.Complete(store.WriteAsync("key", new byte[] { 1, 2, 3 }, CancellationToken.None));
             byte[] readBack = SynchronousUniTask.Result(store.ReadAsync("key", CancellationToken.None));
             bool exists = SynchronousUniTask.Result(store.ExistsAsync("key", CancellationToken.None));

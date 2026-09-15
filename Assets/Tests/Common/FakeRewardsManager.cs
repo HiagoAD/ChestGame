@@ -5,8 +5,11 @@ using Company.ChestGame.Rewards;
 
 namespace Company.ChestGame.Tests.Common
 {
-    // Records reward requests instead of granting anything. RewardToGive controls what the
-    // OnCurrencyRewardGiven event reports, for tests that observe downstream listeners.
+    /// <summary>
+    /// Records reward requests instead of granting anything. <see cref="RewardToGive"/> controls what
+    /// the <see cref="OnCurrencyRewardGiven"/> event reports, for tests that observe downstream
+    /// listeners.
+    /// </summary>
     public class FakeRewardsManager : IRewardsManager
     {
         public event Action<CurrencyType, long, string> OnCurrencyRewardGiven;

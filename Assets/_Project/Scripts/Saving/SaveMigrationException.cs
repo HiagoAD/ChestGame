@@ -2,11 +2,15 @@ using System;
 
 namespace Company.ChestGame.Saving
 {
-    // A migration chain was wired or walked in a way only a developer could cause: two migrations
-    // claiming the same FromVersion, a target below the version already stored, or a step handing
-    // back no document at all. A stored save this build genuinely has no path forward for is
-    // SaveException.NoMigrationPath instead, because that one can happen to a player who did
-    // nothing wrong. See docs/saving.md for why this sits beside SaveException instead of under it.
+    /// <summary>
+    /// A migration chain was wired or walked in a way only a developer could cause: two migrations
+    /// claiming the same FromVersion, a target below the version already stored, or a step handing
+    /// back no document at all. A stored save this build genuinely has no path forward for is
+    /// <see cref="SaveException.NoMigrationPath"/> instead.
+    /// </summary>
+    /// <remarks>
+    /// See docs/saving.md, "Exceptions".
+    /// </remarks>
     public class SaveMigrationException : InvalidOperationException
     {
         public SaveMigrationException(string message) : base(message) { }

@@ -3,12 +3,14 @@ using NUnit.Framework;
 
 namespace Company.ChestGame.Tests.EditMode
 {
-    // SaveService.CompletesOnCallingThread is a pure pass-through to whatever store it was composed
-    // with (docs/saving.md, "FlushBlocking, and why it cannot deadlock") rather than a type check
-    // against ThreadHoppingStore by name. Proven here against both answers without needing a real
-    // hop: ThreadHoppingStore's own CompletesOnCallingThread (proven in ThreadHoppingStoreTests)
-    // already answers both ways depending on what it wraps, which is enough to drive this through
-    // both branches from the outside.
+    /// <summary>
+    /// Covers <see cref="ISaveService.CompletesOnCallingThread"/> as a pure pass-through to whichever
+    /// <see cref="ISaveStore"/> the service was composed with.
+    /// </summary>
+    /// <remarks>
+    /// See docs/saving.md, "The thread hop, and why it is not inside SaveService", and
+    /// docs/testing.md, "The save fixtures".
+    /// </remarks>
     public class SaveServiceCompletesOnCallingThreadTests
     {
         [Test]

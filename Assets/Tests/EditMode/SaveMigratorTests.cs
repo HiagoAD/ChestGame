@@ -4,14 +4,16 @@ using NUnit.Framework;
 
 namespace Company.ChestGame.Tests.EditMode
 {
-    // SaveMigrator in isolation, against FakeSaveMigration steps rather than a real save model -
-    // exactly the split docs/saving.md draws for why this class carries no UnityEngine dependency
-    // at all. See docs/saving.md, "The migration chain".
+    /// <summary>
+    /// Covers <see cref="SaveMigrator"/> in isolation, against <see cref="FakeSaveMigration"/> steps
+    /// rather than a real save model.
+    /// </summary>
+    /// <remarks>
+    /// See docs/saving.md, "`ISaveMigration` and `SaveMigrator`".
+    /// </remarks>
     public class SaveMigratorTests
     {
         private const string Key = "profile";
-
-        // --- The chain walks forward, one step at a time, in order (property 2) -------------------
 
         [Test]
         public void Migrate_WalksTwoStepsInOrder_TheSecondStepSeesTheFirstStepsOutput()
@@ -32,8 +34,6 @@ namespace Company.ChestGame.Tests.EditMode
         [Test]
         public void Migrate_WhenTheFirstStepIsMissing_ThrowsNoMigrationPath_NamingTheStoredVersion()
         {
-            // Only a step starting at 2 exists; a document stored at version 1 has no first step
-            // at all, so the walk gets stuck exactly where it started.
             FakeSaveMigration v2ToV3 = new(2);
             SaveMigrator migrator = new(new ISaveMigration[] { v2ToV3 });
 
@@ -47,9 +47,6 @@ namespace Company.ChestGame.Tests.EditMode
         [Test]
         public void Migrate_WhenAMidChainStepIsMissing_ThrowsNoMigrationPath_NamingWhereTheWalkGotStuck_NotTheStoredVersion()
         {
-            // v1->v2 exists, v2->v3 does not: the walk gets from 1 to 2 successfully, then has
-            // nowhere to go. The version named in the failure has to be 2, not the originally
-            // stored version 1 - that is the entire distinction this test exists to pin.
             FakeSaveMigration v1ToV2 = new(1, doc => doc);
             SaveMigrator migrator = new(new ISaveMigration[] { v1ToV2 });
 
@@ -71,8 +68,6 @@ namespace Company.ChestGame.Tests.EditMode
                 () => migrator.Migrate(Key, new JObject(), fromVersion: 3, toVersion: 1));
         }
 
-        // --- Construction-time failures (property 3) -----------------------------------------------
-
         [Test]
         public void Constructor_WithTwoMigrationsSharingAFromVersion_ThrowsSaveMigrationException_AtConstruction()
         {
@@ -83,13 +78,12 @@ namespace Company.ChestGame.Tests.EditMode
                 () => new SaveMigrator(new ISaveMigration[] { first, second }));
         }
 
+        /// <summary>
+        /// See docs/saving.md, "`ISaveMigration` and `SaveMigrator`".
+        /// </summary>
         [Test]
         public void Constructor_WithANullMigrationsCollection_DoesNotThrow_AndBehavesAsAnEmptyChain()
         {
-            // The code accepts null and treats it as an empty chain (Array.Empty<ISaveMigration>()
-            // in the constructor's null-coalesce) rather than throwing - confirmed here by proving
-            // an empty-chain walk of zero steps still succeeds, and a walk of one step still fails
-            // as NoMigrationPath exactly as it would for an explicitly-empty collection.
             SaveMigrator migrator = null;
             Assert.DoesNotThrow(() => migrator = new SaveMigrator(null));
 
@@ -99,8 +93,6 @@ namespace Company.ChestGame.Tests.EditMode
 
             Assert.Throws<SaveException>(() => migrator.Migrate(Key, document, fromVersion: 1, toVersion: 2));
         }
-
-        // --- Null guards (property 4) ---------------------------------------------------------------
 
         [Test]
         public void Migrate_WithANullDocument_ThrowsSaveMigrationException()

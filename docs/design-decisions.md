@@ -119,6 +119,11 @@ hands the whole board back and takes it again on every `NewGame`. That is the ch
 for: a rebuild that was skipped because it was expensive is a saving nobody can measure, and the
 board never reflecting a changed chest count was a latent bug hiding inside the optimisation.
 
+`AfterARebuild_EachChestModelStillDrivesExactlyOneView` catches the bug pooling itself makes
+possible: the pool hands reused instances back in reverse order, so an instance that kept its old
+model subscription past release ends up showing one chest while still listening to another, with the
+model it never let go of driving two views instead of one.
+
 `Company.ChestGame.Pooling` is a leaf assembly with no project references at all. It knows nothing
 about chests, minigames or UI: it is a seam over where an instance comes from, with four
 implementations behind it. The baseline that pools nothing is one of them, deliberately, because a
@@ -286,6 +291,14 @@ Every assertion about pooling in the suite is a **count**, never a duration: wha
 instantiates, whether a released instance was reused, whether a released chest stopped listening to
 its model. Counts are exact. A stopwatch on a shared machine is not, and a timing assertion is the
 flaky test that `docs/testing.md`'s play-mode rule exists to prevent.
+
+`SpawnProbe` counts from `Awake` rather than reading a pool's own `CreatedCount`, because
+`CreatedCount` would only prove a field moved: an `Awake` firing is the one signal that `Instantiate`
+actually ran. `BuildChestPrefab` leaves its source prefab active, mirroring the real prefab's root,
+because an inactive source would end up measuring the cost of the rig itself rather than the pools
+under test. `BuildView` resets `SpawnProbe.Instantiations` only once the rig is fully standing, so
+the one `Awake` the source object runs on its own during setup is not miscounted as something the
+board itself built.
 
 The table above therefore comes from `PoolBenchmark`, which measures and **logs** without asserting on
 any duration. Its only assertion is the deterministic one the timings are a consequence of: a pooled

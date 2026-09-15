@@ -2,9 +2,11 @@ using System.Text;
 
 namespace Company.ChestGame.Saving
 {
-    // Everything a store or protector needs beyond the three selection enums: where a file-backed
-    // store keeps its files, what namespaces a PlayerPrefs key, and the key material Xor, Hmac and
-    // Aes each need. Plain data, nothing more.
+    /// <summary>
+    /// Everything a store or protector needs beyond the three selection enums: where a file-backed
+    /// store keeps its files, what namespaces a PlayerPrefs key, and the key material Xor, Hmac and
+    /// Aes each need. Plain data, nothing more.
+    /// </summary>
     public sealed class SaveFactoryInputs
     {
         private const string DefaultPlayerPrefsKeyPrefix = "save.";
@@ -24,13 +26,10 @@ namespace Company.ChestGame.Saving
             AesKey = aesKey;
         }
 
-        // rootDirectory and playerPrefsKeyPrefix stay overridable because a test has reason to
-        // redirect both away from the developer's real save directory and real editor prefs.
-        //
-        // Each default key below is its own name, UTF8-encoded. That is not considered key
-        // material and must not be read as any: nothing about these bytes resists anyone who opens
-        // this repository or decompiles the build. See docs/saving.md for what a key shipping
-        // inside the binary buys and does not.
+        /// <remarks>
+        /// See docs/saving.md, "SaveComponentFactory, SaveFactoryInputs and SaveServiceFactory".
+        /// See docs/saving.md, "The protectors, and what a key shipping inside the binary buys".
+        /// </remarks>
         public static SaveFactoryInputs Defaults(string rootDirectory = null, string playerPrefsKeyPrefix = null) =>
             new(
                 rootDirectory ?? FileStore.DefaultRootDirectory(),

@@ -8,7 +8,12 @@ using NUnit.Framework;
 
 namespace Company.ChestGame.Tests.EditMode
 {
-    // GzipJsonCodec composes JsonCodec and gzips its output. See docs/saving.md, "The codecs".
+    /// <summary>
+    /// Tests <see cref="GzipJsonCodec"/> directly.
+    /// </summary>
+    /// <remarks>
+    /// See docs/saving.md, "The codecs".
+    /// </remarks>
     public class GzipJsonCodecTests
     {
         private class EmptyState { }
@@ -55,8 +60,6 @@ namespace Company.ChestGame.Tests.EditMode
                 "5000 repeats of the same short string is exactly the shape gzip exists to shrink");
         }
 
-        // --- Property 8: truncated or non-gzip bytes surface typed, through SaveService ----------
-
         [Test]
         public void LoadAsync_WithTruncatedGzipBytes_ThrowsPayloadUnreadable_NotARawInvalidDataException()
         {
@@ -80,9 +83,6 @@ namespace Company.ChestGame.Tests.EditMode
             StringAssert.Contains("could not be read back", error.Message);
         }
 
-        // Assert.Throws<SaveException> already fails the test if anything else - a raw
-        // InvalidDataException included - escapes LoadAsync instead, so no separate negative
-        // assertion is needed for "not a raw InvalidDataException".
         private static SaveException LoadThroughSeededEnvelope(GzipJsonCodec codec, byte[] corruptBody)
         {
             FakeSaveStore store = new();

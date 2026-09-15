@@ -6,8 +6,12 @@ using NUnit.Framework;
 
 namespace Company.ChestGame.Tests.EditMode
 {
-    // XorObfuscator: repeating-key XOR, its own inverse, so Protect and Unprotect share one
-    // method. See docs/saving.md, "The protectors, and what a key shipping inside the binary buys".
+    /// <summary>
+    /// Tests <see cref="XorObfuscator"/> directly.
+    /// </summary>
+    /// <remarks>
+    /// See docs/saving.md, "The protectors, and what a key shipping inside the binary buys".
+    /// </remarks>
     public class XorObfuscatorTests
     {
         private static byte[] Key(string seed = "XorObfuscatorTests.key") => Encoding.UTF8.GetBytes(seed);
@@ -26,8 +30,6 @@ namespace Company.ChestGame.Tests.EditMode
         [Test]
         public void Protect_IsItsOwnInverse_ApplyingItTwiceReturnsTheOriginal()
         {
-            // Protect and Unprotect share one method: applying "Protect" a second time to its own
-            // output has to undo the first application exactly the way calling Unprotect would.
             XorObfuscator protector = new(Key());
             byte[] plain = Encoding.UTF8.GetBytes("chest contents");
 

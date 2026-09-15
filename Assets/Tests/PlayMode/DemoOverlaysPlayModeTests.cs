@@ -8,8 +8,13 @@ using Object = UnityEngine.Object;
 
 namespace Company.ChestGame.Tests.PlayMode
 {
-    // Both demo overlays live in the Game scene at once, each with a floating toggle. Collapsed,
-    // those two toggles have to sit apart, or one hides the other and that demo cannot be opened.
+    /// <summary>
+    /// Instantiates both demo overlay prefabs and asserts their collapsed floating toggles against
+    /// each other.
+    /// </summary>
+    /// <remarks>
+    /// See docs/saving.md, "Two overlays in one scene, and why the save inspector uses two documents".
+    /// </remarks>
     public class DemoOverlaysPlayModeTests
     {
         private const string PoolingDemoPrefabPath = "Assets/_Project/UI/PoolingDemo/PoolingDemo.prefab";
@@ -36,13 +41,15 @@ namespace Company.ChestGame.Tests.PlayMode
 #endif
         }
 
+        /// <remarks>
+        /// See docs/saving.md, "Two overlays in one scene, and why the save inspector uses two documents".
+        /// </remarks>
         [UnityTest]
         public IEnumerator Collapsed_TheTwoDemoToggles_DoNotOverlap()
         {
             _pooling = Object.Instantiate(Load(PoolingDemoPrefabPath));
             _save = Object.Instantiate(Load(SaveInspectorPrefabPath));
 
-            // Both bind in Start and resolve layout on their panel's own update.
             yield return null;
             yield return null;
 
@@ -51,8 +58,6 @@ namespace Company.ChestGame.Tests.PlayMode
             Assert.IsNotNull(poolingToggle, "the pooling demo has no toggle-button");
             Assert.IsNotNull(saveToggle, "the save inspector has no toggle-button");
 
-            // Comparable because both PanelSettings scale to the same reference resolution the
-            // same way, so a panel pixel means the same screen area in each.
             Rect pooling = poolingToggle.worldBound;
             Rect save = saveToggle.worldBound;
             Assert.Greater(pooling.height, 0f, "guard: the pooling toggle has not been laid out");
@@ -62,6 +67,9 @@ namespace Company.ChestGame.Tests.PlayMode
                 $"the two floating toggles overlap (pooling {pooling}, save inspector {save}), so one hides the other");
         }
 
+        /// <remarks>
+        /// See docs/saving.md, "Two overlays in one scene, and why the save inspector uses two documents".
+        /// </remarks>
         [UnityTest]
         public IEnumerator Collapsed_TheTwoDemoToggles_FormOneAlignedColumn()
         {
@@ -74,9 +82,6 @@ namespace Company.ChestGame.Tests.PlayMode
             Rect pooling = _pooling.GetComponent<UIDocument>().rootVisualElement.Q<Button>("toggle-button").worldBound;
             Rect save = _save.transform.Find("Toggle").GetComponent<UIDocument>().rootVisualElement.Q<Button>("toggle-button").worldBound;
 
-            // Each toggle is as wide as its label needs, above a shared floor. A label that outgrows
-            // the floor widens only its own button and leaves a ragged edge on the stack, which is
-            // what this catches.
             Assert.AreEqual(pooling.width, save.width, 0.5f,
                 $"the toggles differ in width (pooling {pooling.width}, save inspector {save.width}) - a label has outgrown the shared minimum");
             Assert.AreEqual(pooling.xMin, save.xMin, 0.5f, "the toggles' left edges do not line up");

@@ -6,20 +6,24 @@ using UnityEngine;
 
 namespace Company.ChestGame.Saving
 {
-    // Collapses many saves of the same state into at most one write per window. Hand it state
-    // whenever that state changes, and it writes once the window elapses instead of once per call.
-    //
-    // One key and one state per instance, both fixed at construction; use one instance per thing
-    // being saved. Dispose it when that thing goes away - disposal makes a last attempt to write
-    // anything still pending.
-    //
-    // Not thread safe, and holds no lock. Every member must be called from the same thread, which
-    // for a Unity game means the main thread. See docs/saving.md for why the coalescing lives here
-    // rather than behind the save call itself.
+    /// <summary>
+    /// Collapses many saves of the same state into at most one write per window. Hand it state
+    /// whenever that state changes, and it writes once the window elapses instead of once per call.
+    /// </summary>
+    /// <remarks>
+    /// One key and one state per instance, both fixed at construction; use one instance per thing
+    /// being saved. Dispose it when that thing goes away: disposal makes a last attempt to write
+    /// anything still pending.
+    /// Not thread safe, and holds no lock. Every member must be called from the same thread, which
+    /// for a Unity game means the main thread.
+    /// See docs/saving.md, "Write coalescing, and why it cannot live inside SaveAsync".
+    /// </remarks>
     public class SaveScheduler<T> : IDisposable, ISaveFlushable where T : class
     {
-        // How long changes are collected before a write. Longer coalesces more and risks losing
-        // more to a crash; pass your own to the constructor to choose differently.
+        /// <summary>
+        /// How long changes are collected before a write. Longer coalesces more and risks losing
+        /// more to a crash; pass your own to the constructor to choose differently.
+        /// </summary>
         public const int DefaultCoalesceWindowMilliseconds = 1000;
 
         private readonly ISaveService _saveService;
@@ -35,15 +39,23 @@ namespace Company.ChestGame.Saving
         private UniTaskCompletionSource _activeFlush;
         private bool _disposed;
 
-        // State neither durably saved nor currently being saved.
+        /// <summary>
+        /// State neither durably saved nor currently being saved.
+        /// </summary>
         public bool HasPendingWrite => _hasPending;
 
-        // A write is actually running, as opposed to a window merely counting down towards one.
+        /// <summary>
+        /// A write is actually running, as opposed to a window merely counting down towards one.
+        /// </summary>
         public bool IsFlushing => _activeFlush != null;
 
-        // Whether FlushBlocking can ever succeed here. Readable before anything is pending, so a
-        // caller can reject a composition it cannot flush at construction rather than discovering
-        // it at the one moment durability matters.
+        /// <summary>
+        /// Whether <see cref="FlushBlocking"/> can ever succeed here. Readable before anything is
+        /// pending.
+        /// </summary>
+        /// <remarks>
+        /// See docs/saving.md, "FlushBlocking, and why it cannot deadlock".
+        /// </remarks>
         public bool CanFlushBlocking => _saveService.CompletesOnCallingThread;
 
         public string SaveKey => _key;
@@ -62,9 +74,11 @@ namespace Company.ChestGame.Saving
             _coalesceWindowMilliseconds = coalesceWindowMilliseconds;
         }
 
-        // Records state to be written when the window elapses, replacing anything recorded earlier.
-        // Nothing reads state until then, so the caller may keep mutating the same instance.
-        // Returns immediately; it is not a promise that anything has been written yet.
+        /// <summary>
+        /// Records state to be written when the window elapses, replacing anything recorded earlier.
+        /// Nothing reads state until then, so the caller may keep mutating the same instance.
+        /// Returns immediately; it is not a promise that anything has been written yet.
+        /// </summary>
         public void MarkDirty(T state)
         {
             ThrowIfDisposed();
@@ -75,12 +89,16 @@ namespace Company.ChestGame.Saving
             ScheduleWindowIfNeeded();
         }
 
-        // Writes now instead of waiting for the window, and returns once everything pending is
-        // durable - including anything that becomes pending while this is waiting. Does nothing if
-        // nothing is pending.
-        //
-        // Cancelling ct abandons this call's wait, never the write itself. A write already running
-        // when this is called runs to completion either way.
+        /// <summary>
+        /// Writes now instead of waiting for the window, and returns once everything pending is
+        /// durable - including anything that becomes pending while this is waiting. Does nothing if
+        /// nothing is pending.
+        /// </summary>
+        /// <param name="ct">
+        /// Cancelling abandons this call's wait, never the write itself. A write already running
+        /// when this is called runs to completion either way.
+        /// </param>
+        /// <exception cref="SaveException">When this scheduler has been disposed, or the save itself fails.</exception>
         public async UniTask FlushAsync(CancellationToken ct = default)
         {
             ThrowIfDisposed();
@@ -94,17 +112,25 @@ namespace Company.ChestGame.Saving
             await EnsureFlushingAsync(linked.Token);
         }
 
-        // FlushAsync for a caller with no time left to await anything, such as an application
-        // pause or quit callback. Writes on the spot, or throws; it never waits. Check
-        // CanFlushBlocking once at construction to know which of those a given composition gets.
+        /// <summary>
+        /// <see cref="FlushAsync"/> for a caller with no time left to await anything, such as an
+        /// application pause or quit callback. Writes on the spot, or throws; it never waits. Check
+        /// <see cref="CanFlushBlocking"/> once at construction to know which of those a given
+        /// composition gets.
+        /// </summary>
+        /// <exception cref="SaveException">
+        /// When this scheduler has been disposed, when a write is already running, when the pending
+        /// write turns out to need more than the calling thread, or when the save itself fails.
+        /// </exception>
+        /// <remarks>
+        /// See docs/saving.md, "FlushBlocking, and why it cannot deadlock".
+        /// </remarks>
         public void FlushBlocking()
         {
             ThrowIfDisposed();
 
             InterruptWindow();
 
-            // Refused rather than awaited: a write already running may need this thread to finish,
-            // so waiting for it here is the deadlock this method exists to avoid.
             if (_activeFlush != null) throw SaveException.FlushWouldBlock(_key);
 
             if (!_hasPending) return;
@@ -112,10 +138,15 @@ namespace Company.ChestGame.Saving
             FlushSynchronousCore();
         }
 
-        // Stops the window, cancels any write in flight, and makes one synchronous attempt to save
-        // what is pending. That attempt is best effort: if it cannot happen synchronously the write
-        // is lost and logged, because disposal never throws. Call FlushAsync first when the pending
-        // write matters. Every other member throws once disposed.
+        /// <summary>
+        /// Stops the window, cancels any write in flight, and makes one synchronous attempt to save
+        /// what is pending. That attempt is best effort: if it cannot happen synchronously the write
+        /// is lost and logged, and this method does not throw. Call <see cref="FlushAsync"/> first
+        /// when the pending write matters. Every other member throws once disposed.
+        /// </summary>
+        /// <remarks>
+        /// See docs/saving.md, "Disposal and a pending write".
+        /// </remarks>
         public void Dispose()
         {
             if (_disposed) return;
@@ -126,8 +157,6 @@ namespace Company.ChestGame.Saving
 
             if (_activeFlush != null)
             {
-                // Not awaited: waiting on a write already running risks the same deadlock
-                // FlushBlocking refuses. Anything queued behind it is lost.
                 if (_hasPending)
                 {
                     Debug.LogError($"SaveScheduler for '{_key}' was disposed with a write already in flight and a newer one queued behind it; the newer write was never saved.");
@@ -141,8 +170,6 @@ namespace Company.ChestGame.Saving
                 }
                 catch (Exception exception)
                 {
-                    // Swallowed because disposal must not throw, logged so the loss is visible in
-                    // a device log rather than only here.
                     Debug.LogError($"SaveScheduler for '{_key}' could not flush its pending write during Dispose and it was lost: {exception.Message}");
                 }
             }
@@ -150,8 +177,13 @@ namespace Company.ChestGame.Saving
             _disposedCts.Dispose();
         }
 
-        // Restores the pending state rather than reporting a save that never happened, if the
-        // write turns out to need more than this thread.
+        /// <summary>
+        /// Restores the pending state rather than reporting a save that never happened, if the
+        /// write turns out to need more than this thread.
+        /// </summary>
+        /// <remarks>
+        /// See docs/saving.md, "FlushBlocking, and why it cannot deadlock".
+        /// </remarks>
         private void FlushSynchronousCore()
         {
             T toWrite = _pending;
@@ -160,8 +192,6 @@ namespace Company.ChestGame.Saving
 
             UniTask task = _saveService.SaveAsync(_key, toWrite, CancellationToken.None);
 
-            // A status check, not a wait: nothing could complete this task without the thread this
-            // call is already occupying. Do not turn it into an await.
             if (task.Status == UniTaskStatus.Pending)
             {
                 _pending = toWrite;
@@ -169,8 +199,6 @@ namespace Company.ChestGame.Saving
                 throw SaveException.FlushWouldBlock(_key);
             }
 
-            // Already finished, so this reads a recorded outcome and rethrows a captured
-            // exception rather than blocking.
             task.GetAwaiter().GetResult();
         }
 
@@ -183,6 +211,9 @@ namespace Company.ChestGame.Saving
             WaitThenFlushAsync(_windowCts.Token).Forget();
         }
 
+        /// <remarks>
+        /// See docs/saving.md, "Write coalescing, and why it cannot live inside SaveAsync".
+        /// </remarks>
         private async UniTaskVoid WaitThenFlushAsync(CancellationToken windowToken)
         {
             try
@@ -191,8 +222,6 @@ namespace Company.ChestGame.Saving
             }
             catch (OperationCanceledException)
             {
-                // Disposed, or a flush pre-empted the window; either way _waiting is already
-                // cleared by whatever did it.
                 return;
             }
 
@@ -213,8 +242,10 @@ namespace Company.ChestGame.Saving
             _windowCts = null;
         }
 
-        // The only place a write is started. Callers arriving while one runs join it rather than
-        // starting a second write against the same key.
+        /// <summary>
+        /// The only place a write is started. Callers arriving while one runs join it rather than
+        /// starting a second write against the same key.
+        /// </summary>
         private UniTask EnsureFlushingAsync(CancellationToken ct)
         {
             if (_activeFlush != null) return _activeFlush.Task;
@@ -227,6 +258,10 @@ namespace Company.ChestGame.Saving
             return completion.Task;
         }
 
+        /// <remarks>
+        /// See docs/saving.md, "One write in flight".
+        /// See docs/saving.md, "A failed write now says so".
+        /// </remarks>
         private async UniTaskVoid RunFlushLoopAsync(UniTaskCompletionSource completion, CancellationToken ct)
         {
             try
@@ -243,8 +278,6 @@ namespace Company.ChestGame.Saving
                     }
                     catch
                     {
-                        // A failed write is neither reported as success nor dropped. Restored only
-                        // if nothing newer arrived meanwhile, so fresher state always wins.
                         if (!_hasPending)
                         {
                             _pending = toWrite;
@@ -263,9 +296,6 @@ namespace Company.ChestGame.Saving
             }
             catch (Exception exception)
             {
-                // Nobody is awaiting this path, so an exception here would otherwise vanish with
-                // nothing saying a save failed. Logged unconditionally, then retried at the same
-                // window rather than backing off.
                 Debug.LogError($"SaveScheduler for '{_key}' failed to save and will retry in {_coalesceWindowMilliseconds}ms: {exception.Message}");
                 completion.TrySetException(exception);
             }
@@ -273,8 +303,6 @@ namespace Company.ChestGame.Saving
             {
                 _activeFlush = null;
 
-                // A failed or cancelled attempt leaves state pending with nothing counting down to
-                // retry it. This is what turns that into a retry rather than a stranded write.
                 if (_hasPending) ScheduleWindowIfNeeded();
             }
         }

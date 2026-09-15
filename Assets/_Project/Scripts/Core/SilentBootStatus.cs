@@ -1,7 +1,11 @@
 namespace Company.ChestGame.Core
 {
-    // What boot reports through when there is no label: a container built by a test, or an unwired
-    // slot. Registered rather than nothing, so the bootstrapper needs no null check per call.
+    /// <summary>
+    /// No-op <see cref="IBootStatus"/> registered when there is no boot label.
+    /// </summary>
+    /// <remarks>
+    /// See docs/architecture.md, "Telling the player what boot is doing".
+    /// </remarks>
     public class SilentBootStatus : IBootStatus
     {
         public void Report(string message) { }

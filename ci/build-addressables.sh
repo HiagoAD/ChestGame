@@ -2,13 +2,6 @@
 #
 # Builds the addressable content headlessly and exits nonzero if it failed.
 #
-# Minigame.Chests loads from a remote path, so a player build no longer carries that content: it
-# has to be built here and served from wherever RemoteLoadPath points. Core is local and comes out
-# of the same build.
-#
-# Deliberately free of any CI provider, the same shape as run-tests.sh: a pipeline only has to
-# check out the repo, supply a licensed Unity, and call this.
-#
 # Usage:
 #   ci/build-addressables.sh
 #
@@ -64,8 +57,6 @@ mkdir -p "$RESULTS_DIR"
 
 echo "==> Addressables content"
 
-# No -quit alongside -executeMethod: the method exits the editor itself, with the code that says
-# whether the build actually succeeded rather than whether the editor managed to start.
 "$UNITY_BIN" -batchmode -nographics -projectPath "$PROJECT_PATH" \
     -executeMethod Company.ChestGame.Editor.AddressablesContentBuild.BuildFromCommandLine \
     -logFile "$LOG"

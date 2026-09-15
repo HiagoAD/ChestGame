@@ -6,37 +6,59 @@ using UnityEngine.UIElements;
 
 namespace Company.ChestGame.Saving.Demo
 {
-    // The UI half of the probe/tamper pair: the chrome is authored in SaveInspector.uxml and this
-    // class only binds to it - query by name, set text, toggle a class. See docs/saving.md, "The
-    // save inspector".
+    /// <summary>
+    /// UI half of the probe/tamper pair for the save inspector demo. Binds to the tree authored in
+    /// SaveInspector.uxml by name, and only sets text and toggles classes on it.
+    /// </summary>
+    /// <remarks>
+    /// See docs/saving.md, "The save inspector".
+    /// </remarks>
     public sealed class SaveInspectorPanel : MonoBehaviour
     {
         private const string SelectedClass = "is-selected";
         private const string TamperAcceptedClass = "tamper-readout--accepted";
         private const string TamperRejectedClass = "tamper-readout--rejected";
 
-        // One fixed key per role, reused across every combination - only the currently selected
-        // storage/codec/protector changes what lands under it. A distinct baseline key keeps
-        // RunBaselineAsync's own write off the key Save/Tamper operate on.
+        /// <summary>
+        /// Storage key every Save and Tamper operation on this panel uses.
+        /// </summary>
         private const string Key = "save-inspector-demo";
+
+        /// <summary>
+        /// Storage key the plaintext-baseline computation writes under, kept separate from
+        /// <see cref="Key"/> so it cannot overwrite what Save or Tamper wrote.
+        /// </summary>
         private const string BaselineKey = "save-inspector-demo-baseline";
 
         private const long TamperedBalance = 999999;
 
-        // Nothing the shipped demo document produces comes close to this. It is here so a much
-        // larger payload still leaves the layout intact.
+        /// <summary>
+        /// Upper bound, in characters, on how much of a rendered save this panel displays before
+        /// truncating.
+        /// </summary>
+        /// <remarks>
+        /// See docs/saving.md, "SaveInspectorPanel, binding, keys and truncation".
+        /// </remarks>
         private const int MaxRenderedCharacters = 4000;
 
-        // Declaration order, not display order picked here - a reordering of the enum (against its
-        // own append-only rule) still labels every button from the value it actually selects.
         private static readonly SaveStorage[] Storages = (SaveStorage[])Enum.GetValues(typeof(SaveStorage));
         private static readonly SaveCodec[] Codecs = (SaveCodec[])Enum.GetValues(typeof(SaveCodec));
         private static readonly SaveProtection[] Protections = (SaveProtection[])Enum.GetValues(typeof(SaveProtection));
 
-        // Two documents on purpose. The toggle's sorts below any other full-screen overlay and the
-        // chrome's above it, so whichever is open covers every other overlay's toggle.
+        /// <summary>
+        /// The save inspector's full chrome panel. Must be assigned in the inspector: <see cref="Start"/>
+        /// throws if this or <see cref="_toggleDocument"/> is null.
+        /// </summary>
+        /// <remarks>
+        /// See docs/saving.md, "Two overlays in one scene, and why the save inspector uses two documents".
+        /// </remarks>
         [Header("Authored chrome")]
         [SerializeField] private UIDocument _document;
+
+        /// <summary>
+        /// The collapsed toggle button's own document. Must be assigned in the inspector:
+        /// <see cref="Start"/> throws if this or <see cref="_document"/> is null.
+        /// </summary>
         [SerializeField] private UIDocument _toggleDocument;
 
         private VisualElement _chrome;
@@ -67,7 +89,15 @@ namespace Company.ChestGame.Saving.Demo
         private SaveCodec _savedCodec;
         private SaveProtection _savedProtection;
 
-        // Start, not Awake: UIDocument builds rootVisualElement in OnEnable.
+        /// <summary>
+        /// Builds the sample document, binds the authored UI tree, and opens the panel collapsed.
+        /// </summary>
+        /// <exception cref="SaveInspectorException">
+        /// When <see cref="_document"/> or <see cref="_toggleDocument"/> is not assigned.
+        /// </exception>
+        /// <remarks>
+        /// See docs/saving.md, "SaveInspectorPanel, binding, keys and truncation".
+        /// </remarks>
         private void Start()
         {
             if (_document == null) throw SaveInspectorException.NoDocument();
@@ -82,15 +112,18 @@ namespace Company.ChestGame.Saving.Demo
             ToggleExpanded();
         }
 
-        // --- Binding to the authored tree --------------------------------------------------------
-
+        /// <summary>
+        /// Wires every control in the authored tree to its handler and puts the panel in its idle
+        /// state.
+        /// </summary>
+        /// <remarks>
+        /// See docs/saving.md, "SaveInspectorPanel, binding, keys and truncation".
+        /// </remarks>
         private void BindChrome()
         {
             VisualElement root = _document.rootVisualElement;
             root.pickingMode = PickingMode.Ignore;
 
-            // Both roots fill the screen, so both opt out of picking or they swallow every tap meant
-            // for whatever is underneath.
             VisualElement toggleRoot = _toggleDocument.rootVisualElement;
             toggleRoot.pickingMode = PickingMode.Ignore;
 
@@ -121,8 +154,13 @@ namespace Company.ChestGame.Saving.Demo
             ShowIdleTamperReadout();
         }
 
-        // One segmented group, built the same way for all three axes: label each button from the
-        // enum rather than trusting whatever SaveInspector.uxml happens to say at that index.
+        /// <summary>
+        /// Builds one segmented control's buttons, labeling and wiring each from the enum rather
+        /// than whatever SaveInspector.uxml happens to have authored at that index.
+        /// </summary>
+        /// <remarks>
+        /// See docs/saving.md, "The three selection enums are append-only".
+        /// </remarks>
         private static Button[] BindSegment(VisualElement root, string prefix, int count, Func<int, string> labelFor, Action<int> onSelect)
         {
             Button[] buttons = new Button[count];
@@ -137,7 +175,12 @@ namespace Company.ChestGame.Saving.Demo
             return buttons;
         }
 
-        // A missing name is a broken .uxml, not a state to limp along in.
+        /// <summary>
+        /// Looks up a named element of type <typeparamref name="T"/> under <paramref name="root"/>.
+        /// </summary>
+        /// <exception cref="SaveInspectorException">
+        /// When no element named <paramref name="name"/> exists under <paramref name="root"/>.
+        /// </exception>
         private static T Required<T>(VisualElement root, string name) where T : VisualElement
         {
             T element = root.Q<T>(name);
@@ -146,8 +189,6 @@ namespace Company.ChestGame.Saving.Demo
             return element;
         }
 
-        // --- Collapsing and expanding -------------------------------------------------------------
-
         private void ToggleExpanded()
         {
             _expanded = !_expanded;
@@ -155,10 +196,12 @@ namespace Company.ChestGame.Saving.Demo
             _toggleButton.style.display = _expanded ? DisplayStyle.None : DisplayStyle.Flex;
         }
 
-        // --- The segmented controls' labels --------------------------------------------------------
-
-        // Written out because the four enum names run wider than a segment on a narrow phone; the
-        // full name still leads the combo readout once a result comes back.
+        /// <summary>
+        /// Abbreviated label for a storage backend, shown on its segmented button.
+        /// </summary>
+        /// <remarks>
+        /// See docs/saving.md, "SaveInspectorPanel, binding, keys and truncation".
+        /// </remarks>
         private static string ShortNameOf(SaveStorage storage) => storage switch
         {
             SaveStorage.AtomicFile => "Atomic",
@@ -167,14 +210,15 @@ namespace Company.ChestGame.Saving.Demo
             _ => "File"
         };
 
+        /// <summary>
+        /// Abbreviated label for a codec, shown on its segmented button.
+        /// </summary>
         private static string ShortNameOf(SaveCodec codec) => codec switch
         {
             SaveCodec.JsonPretty => "Pretty",
             SaveCodec.JsonGzip => "Gzip",
             _ => "Json"
         };
-
-        // --- Control callbacks ----------------------------------------------------------------------
 
         private void SetStorage(int index)
         {
@@ -194,7 +238,6 @@ namespace Company.ChestGame.Saving.Demo
             RefreshControlLabels();
         }
 
-        // Selection is a class the stylesheet reacts to, not a colour set from here.
         private void RefreshControlLabels()
         {
             for (int i = 0; i < _storageButtons.Length; i++) _storageButtons[i].EnableInClassList(SelectedClass, i == _storageIndex);
@@ -208,8 +251,6 @@ namespace Company.ChestGame.Saving.Demo
             _saveButton.SetEnabled(!busy);
             _tamperButton.SetEnabled(!busy && _hasSaved);
         }
-
-        // --- Save -------------------------------------------------------------------------------
 
         private async UniTaskVoid SaveAsync()
         {
@@ -235,7 +276,6 @@ namespace Company.ChestGame.Saving.Demo
             }
             catch (OperationCanceledException)
             {
-                // Torn down mid-save; nothing left to show it to.
             }
             catch (SaveException failure)
             {
@@ -261,9 +301,12 @@ namespace Company.ChestGame.Saving.Demo
             SetBytesText(result);
         }
 
-        // Every combination this factory can build stores valid UTF-8 - see SavePipelineProbe.Render
-        // - so RenderedText is what shows here and IsHexDump fires only against bytes nothing ships
-        // today. Truncated past a stated size so one long payload cannot break the layout.
+        /// <summary>
+        /// Shows the rendered save bytes, truncated past <see cref="MaxRenderedCharacters"/>.
+        /// </summary>
+        /// <remarks>
+        /// See docs/saving.md, "The bytes are always renderable, and that is structural".
+        /// </remarks>
         private void SetBytesText(SaveProbeResult result)
         {
             string text = result.RenderedText;
@@ -285,16 +328,17 @@ namespace Company.ChestGame.Saving.Demo
             _bytesLabel.text = "(nothing saved yet)";
         }
 
-        // --- Tamper -----------------------------------------------------------------------------
-
+        /// <summary>
+        /// Edits the save Save last wrote and reloads it through the same combination.
+        /// </summary>
+        /// <remarks>
+        /// See docs/saving.md, "The tamper button, and why it edits two different ways".
+        /// </remarks>
         private async UniTaskVoid TamperAsync()
         {
             if (_busy || !_hasSaved) return;
             SetBusy(true);
 
-            // The combination Save last wrote under, not whatever the selector shows now: tampering
-            // with a combination nothing was saved under would just fail to parse, which is not the
-            // demonstration this button exists for.
             SaveStorage storage = _savedStorage;
             SaveCodec codec = _savedCodec;
             SaveProtection protection = _savedProtection;
@@ -307,11 +351,9 @@ namespace Company.ChestGame.Saving.Demo
             }
             catch (OperationCanceledException)
             {
-                // Torn down mid-tamper.
             }
             catch (SaveInspectorException failure)
             {
-                // Guarded by _hasSaved above; only reachable if something else already cleared Key.
                 Debug.LogException(failure);
                 _tamperLabel.text = failure.Message;
             }
@@ -321,7 +363,12 @@ namespace Company.ChestGame.Saving.Demo
             }
         }
 
-        // The point of the whole panel: an accepted edit and a refused one must not look alike.
+        /// <summary>
+        /// Renders the tamper outcome, styling accepted and refused edits so they do not look alike.
+        /// </summary>
+        /// <remarks>
+        /// See docs/saving.md, "The tamper button, and why it edits two different ways".
+        /// </remarks>
         private void ShowTamperResult(SaveStorage storage, SaveCodec codec, SaveProtection protection, SaveTamperResult result)
         {
             bool accepted = result.Outcome == SaveTamperOutcome.Loaded;

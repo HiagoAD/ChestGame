@@ -6,9 +6,12 @@ using UnityEngine;
 
 namespace Company.ChestGame.Popups.Internal
 {
-    // Fetches the shared popup canvas prefab through the asset provider, and the only place that
-    // knows the key. Asked for as a GameObject with the component read off it, because whether a
-    // loader can hand back a component off a prefab depends on the play mode script.
+    /// <summary>
+    /// Fetches the shared popup canvas prefab through the asset provider.
+    /// </summary>
+    /// <remarks>
+    /// See docs/architecture.md, "Popups".
+    /// </remarks>
     public class AddressablesPopupParentSource : IPopupParentSource
     {
         private const string PARENT_KEY = "Popups/PopupParent";
@@ -17,6 +20,11 @@ namespace Company.ChestGame.Popups.Internal
 
         public AddressablesPopupParentSource(IAssetProvider assets) => _assets = assets;
 
+        /// <exception cref="AssetLoadException">The key resolved but the load itself failed.</exception>
+        /// <exception cref="MissingAssetException">
+        /// The key is not in the shipped catalog, or the loaded prefab carries no
+        /// <see cref="PopupParent"/>.
+        /// </exception>
         public async UniTask<PopupParent> ReadAsync(CancellationToken ct)
         {
             GameObject prefab = await _assets.LoadAsync<GameObject>(PARENT_KEY, ct);

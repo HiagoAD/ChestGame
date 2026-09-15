@@ -3,9 +3,9 @@ using Company.ChestGame.Common;
 
 namespace Company.ChestGame.Saving
 {
-    // Every failure here can happen to a player who wired the game correctly - a full disk, a save
-    // a newer build wrote, a truncated file - never only a wiring mistake a developer could have
-    // avoided.
+    /// <remarks>
+    /// See docs/saving.md, "Exceptions".
+    /// </remarks>
     public class SaveException : ChestGameException
     {
         public SaveException(string message) : base(message) { }
@@ -48,15 +48,16 @@ namespace Company.ChestGame.Saving
         public static SaveException NoScheduler() =>
             new("A synchronous save handler needs a SaveScheduler<T> to write through without blocking, and was given none");
 
-        // For a caller that blocks on LoadAsync's result rather than awaiting it, which is only
-        // safe over a service that always finishes on the calling thread. Asserted at construction
-        // rather than left to deadlock once.
+        /// <remarks>
+        /// See docs/saving.md, "IResourceBankSaveHandler&lt;T&gt; is fully synchronous; ISaveService is not".
+        /// </remarks>
         public static SaveException SynchronousLoadNeedsNonHoppingStore() =>
             new("A caller that blocks on LoadAsync's result needs an ISaveService whose store always completes on the calling thread; this one does not, and blocking on it would risk the same deadlock FlushBlocking already refuses to risk - compose this over a non-hopping store, or load asynchronously instead of blocking for the result");
 
-        // Distinct from FlushWouldBlock: that is a call-time race against a flush already in
-        // progress, this is a wiring mistake caught once, before the scheduler is ever asked to
-        // save anything.
+        /// <remarks>
+        /// See docs/saving.md, "FlushBlocking, and why it cannot deadlock".
+        /// See docs/saving.md, "Why the flush stopped being one field".
+        /// </remarks>
         public static SaveException SchedulerCannotFlushBlocking(string key) =>
             new($"The save scheduler for '{key}' was wired to a pause/quit flush, but its ISaveService cannot guarantee FlushBlocking ever succeeds - compose it over a store that always completes on the calling thread");
 
@@ -75,9 +76,9 @@ namespace Company.ChestGame.Saving
         public static SaveException PayloadUnreadable(string key, Exception innerException) =>
             new($"The save under '{key}' could not be read back; it is missing, malformed, or was written by something this build cannot decode", innerException);
 
-        // Distinct from PayloadUnreadable in the type system, not only in the message: a failed
-        // MAC means the bytes were provably changed after this key's protector produced them, not
-        // merely that something downstream cannot parse them.
+        /// <remarks>
+        /// See docs/saving.md, "Tamper detection is a different failure from a corrupt payload".
+        /// </remarks>
         public static SaveTamperedException PayloadTampered(string key) =>
             new($"The save under '{key}' failed an integrity check; its bytes do not match what its protector signed or encrypted");
 
@@ -90,7 +91,7 @@ namespace Company.ChestGame.Saving
         public static SaveException Io(string key, Exception innerException) =>
             new($"An IO failure prevented the save under '{key}' from being written or read", innerException);
 
-        // component is "codec" or "protector".
+        /// <param name="component">Either "codec" or "protector".</param>
         public static SaveException UnexpectedComponent(string key, string component, string expectedId, string foundId) =>
             new($"The save under '{key}' names {component} '{foundId ?? "none"}', but this service is configured with '{expectedId}'");
     }

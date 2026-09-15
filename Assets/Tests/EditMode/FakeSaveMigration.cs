@@ -4,10 +4,15 @@ using Newtonsoft.Json.Linq;
 
 namespace Company.ChestGame.Tests.EditMode
 {
-    // A single migration step whose transformation and FromVersion are both supplied by the test,
-    // so SaveMigratorTests can build a chain (or a deliberately broken one) without a real save
-    // model to migrate. LastInput lets a test prove ordering - that a later step actually saw an
-    // earlier step's output, not a fresh copy of the original document.
+    /// <summary>
+    /// An <see cref="ISaveMigration"/> test double whose transformation and
+    /// <see cref="FromVersion"/> are both supplied by the test, so a chain - or a deliberately
+    /// broken one - can be built without a real save model to migrate.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="LastInput"/> lets a test prove ordering: that a later step actually saw an
+    /// earlier step's output, not a fresh copy of the original document.
+    /// </remarks>
     public class FakeSaveMigration : ISaveMigration
     {
         public int FromVersion { get; }

@@ -4,10 +4,15 @@ using Cysharp.Threading.Tasks;
 
 namespace Company.ChestGame.Tests.PlayMode
 {
-    // The one ISaveStore fake in this suite marked IMainThreadOnlyStore - proves, against a real
-    // player loop and real thread identity, that ThreadHoppingStore leaves a store like
-    // PlayerPrefsStore alone rather than moving its calls to a worker thread. See docs/saving.md,
-    // "The thread hop".
+    /// <summary>
+    /// The one <see cref="ISaveStore"/> fake in this suite marked <see cref="IMainThreadOnlyStore"/> -
+    /// proves, against a real player loop and real thread identity, that <c>ThreadHoppingStore</c>
+    /// leaves a store like <c>PlayerPrefsStore</c> alone rather than moving its calls to a worker
+    /// thread.
+    /// </summary>
+    /// <remarks>
+    /// See docs/saving.md, "The thread hop, and why it is not inside SaveService".
+    /// </remarks>
     public class RecordingMainThreadOnlyStore : ISaveStore, IMainThreadOnlyStore
     {
         public int WriteThreadId { get; private set; } = -1;

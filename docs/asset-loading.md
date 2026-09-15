@@ -129,6 +129,12 @@ gives the lookup the value semantics the type does not have. The runtime key is 
 sub-object name when there is one, so two references naming the same thing are one entry, and a
 reference naming a sub-asset is not confused with its parent.
 
+`AssetHandleRegistry`'s keying scheme rests on `AssetReference` having no value semantics of its own.
+`AssetHandleRegistryTests` asserts that premise directly, with
+`AssetReference_StillHasNoValueSemanticsOfItsOwn`, rather than assuming it holds. If a future
+Addressables version gives `AssetReference` an `Equals` override, keying on the runtime key stops
+being necessary.
+
 Every handle is kept rather than one per reference, because Addressables ref-counts per load. Two
 loads of one asset are two ref-counts and need two releases. Overwriting an entry would leak whatever
 it replaced, and handing the whole list back on the first release would drop a ref-count a second

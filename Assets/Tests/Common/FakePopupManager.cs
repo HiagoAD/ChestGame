@@ -5,9 +5,10 @@ using UnityEngine;
 
 namespace Company.ChestGame.Tests.Common
 {
-    // Records what would have been spawned. Returns default(TPopup) because TPopup derives from
-    // MonoBehaviour and cannot be constructed outside a GameObject; every current caller ignores
-    // the return value.
+    /// <summary>
+    /// Records what would have been spawned. Returns <c>default(TPopup)</c>; every current caller
+    /// ignores the return value.
+    /// </summary>
     public class FakePopupManager : IPopupManager
     {
         public readonly List<(Type popupType, PopupDataBase data, Transform parent)> SpawnCalls = new();

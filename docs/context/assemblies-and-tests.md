@@ -119,7 +119,7 @@ own asmdef sets `autoReferenced: true`.
 **`ICurrencyManager` leaks a third-party type.** Its events are typed
 `ResourceBankCallbacks<CurrencyType>.ResourceAmountChangedDelegate`, so every consumer needs a
 reference to `TapNation.Modules`. `Company.ChestGame.UI` references a vendored currency library
-purely to subscribe to an event. The monolith hid this. It is a real design smell and still open.
+purely to subscribe to an event. The monolith hid this. It is a real design smell; the fix is tracked in [WIP.md](../WIP.md).
 
 **A container-resolved `CurrencyManager` reads the real PlayerPrefs save.** This surfaced as a test
 failing with "Expected: 0, But was: 470", where 470 was the developer's actual coin balance. Tests
@@ -220,7 +220,7 @@ Each of these was reachable in the shipped game unless noted.
 5. **Catalog `ToDictionary` crashed on nulls and duplicates.** Made easier to reach by converting
    `OnValidate` from throw to log, which left the null behind instead of aborting the edit.
 6. **`SetOpening` had no guard against firing after a chest opened**, unlike `SetOpen`. Belt and
-   braces; see the honest caveat in section 7.
+   braces; see the `FakeGameClock` caveat in [WIP.md](../WIP.md), "Known gaps in the tests".
 7. **Two stray editor-only usings in runtime files** (`UnityEditor.U2D.Aseprite` in `PopupManager`,
     `Unity.Android.Gradle.Manifest` in `PopupBase`). They compiled only because `Assembly-CSharp`
     gets editor references in the editor. They would have broken any player build.
@@ -229,31 +229,10 @@ Each of these was reachable in the shipped game unless noted.
 
 ## 7. Known gaps, and one honest caveat
 
-**`GameManager` is untested.** It is MonoBehaviour glue needing a wired Button and a scene. `End()`
-is reachable and `MinigameContainerLifecycleTests` covers the container lifecycle directly, but
-nothing asserts that `GameManager` calls it. Two more of its behaviours are asserted nowhere: the
-start button going non-interactable while a start is in flight, and a `ChestGameException` becoming
-a `ContentUnavailablePopup`. The pattern in `ChestElementViewLifetimeTests` (deactivate, add
-component, reflect fields in, reactivate) would close all of this, and `FakePopupManager` already
-records what would have been spawned.
-
-**`CurrencyWatcher` is untested.** Cosmetic UI binding, judged low value.
-
-**The play-mode ordering test is dormant.** `OnTheRealPlayerLoop_NoProgressTickLandsAfterAChestOpens`
-passes with or without the `SetOpening` guard, because the real player loop currently orders the two
-tasks favourably. It is a canary for a future ordering change, not an active check.
-
-**`FakeGameClock` cannot reproduce the ordering bug it was meant to guard.** In the fake, `passedTime`
-and the delay share one clock, so `passedTime < totalTime` flips false on exactly the frame the delay
-comes due, and the progress loop always exits before it could tick again. That holds under both
-orderings. The real risk is drift between `UniTask.Yield` accumulation and `UniTask.Delay`, which are
-separate accumulators in the engine but one in the fake. What actually protects the invariant is the
-`SetOpening` guard, covered by `SetOpening_AfterTheChestIsOpen_IsIgnored` (verified by mutation).
-`OpeningIsUnaffectedByScheduling` is kept because scheduling independence is worth asserting, but it
-does not guard this.
-
-**`ICurrencyManager` leaking `ResourceBankCallbacks`** is unresolved. Wrapping the delegate in a
-project-owned type would let `UI` drop its `TapNation.Modules` reference.
+The gaps this pass left, and the one honest caveat about `FakeGameClock`, are tracked in
+[WIP.md](../WIP.md), "Known gaps in the tests" and "Open decisions, awaiting the project owner": `GameManager`'s
+behaviour untested, `CurrencyWatcher` untested, the dormant play-mode ordering test, the fake
+clock that cannot reproduce the ordering bug, and `ICurrencyManager` leaking `ResourceBankCallbacks`.
 
 ---
 

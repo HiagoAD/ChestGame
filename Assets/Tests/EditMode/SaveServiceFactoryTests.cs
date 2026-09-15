@@ -11,11 +11,14 @@ using Object = UnityEngine.Object;
 
 namespace Company.ChestGame.Tests.EditMode
 {
-    // SaveServiceFactory turns a profile, or a bare triple, into a working ISaveService. Every
-    // file-backed case gets its own temp root and every PlayerPrefs case its own GUID prefix, both
-    // torn down unconditionally, so a factory test never risks the developer's real save directory
-    // or real editor prefs. See docs/saving.md, "SaveServiceFactory, and why every switch has a
-    // working default arm".
+    /// <summary>
+    /// Covers <see cref="SaveServiceFactory.Create"/> and <see cref="SaveServiceFactory.CreateFrom"/>,
+    /// turning a profile, or a bare triple, into a working <see cref="ISaveService"/>.
+    /// </summary>
+    /// <remarks>
+    /// See docs/saving.md, "SaveComponentFactory, SaveFactoryInputs and SaveServiceFactory", and
+    /// docs/testing.md, "The save fixtures".
+    /// </remarks>
     public class SaveServiceFactoryTests
     {
         private const string Key = "profile";
@@ -39,18 +42,11 @@ namespace Company.ChestGame.Tests.EditMode
         public void TearDown()
         {
             if (Directory.Exists(_root)) Directory.Delete(_root, recursive: true);
-            // DeleteKey alone only edits PlayerPrefs' in-memory table; PlayerPrefsStore.
-            // WriteAsync/DeleteAsync always follow a mutation with Save() for exactly this
-            // reason. Without it here, a batch-mode process that exits before its own implicit
-            // flush leaves this test's key sitting in the developer's real editor prefs even
-            // though this TearDown ran and asked for it to be gone.
             PlayerPrefs.DeleteKey(_prefsPrefix + Key);
             PlayerPrefs.Save();
         }
 
         private static IEnumerable<SaveStorage> EveryStorage() => Enum.GetValues(typeof(SaveStorage)).Cast<SaveStorage>();
-
-        // --- Every SaveStorage member actually round-trips (property 6) -----------------------
 
         [TestCaseSource(nameof(EveryStorage))]
         public void CreateFrom_EveryStorageMember_RoundTripsThroughItsBackend(SaveStorage storage)
@@ -64,10 +60,9 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.AreEqual(42, loaded.Value);
         }
 
-        // File and AtomicFile both leave the round trip above passing even if the factory wired the
-        // wrong one of the two in, since both are files under _root. These two prove which backend
-        // actually landed by checking for the .bak generation only AtomicFileStore ever writes.
-
+        /// <remarks>
+        /// See docs/testing.md, "The save fixtures".
+        /// </remarks>
         [Test]
         public void CreateFrom_File_IsBackedByFileStore_WhichNeverKeepsABackup()
         {
@@ -103,8 +98,6 @@ namespace Company.ChestGame.Tests.EditMode
                 "the prefix passed to CreateFrom has to be the one the store actually wrote its key under");
         }
 
-        // --- rootDirectory is honoured, not just accepted (property 6) ------------------------
-
         [Test]
         public void CreateFrom_File_WritesUnderTheGivenRootDirectory_NotTheDefault()
         {
@@ -115,8 +108,6 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.IsTrue(Directory.Exists(_root) && Directory.GetFiles(_root).Length > 0,
                 "the given rootDirectory must be where the file actually landed");
         }
-
-        // --- Out-of-range enum values fall back to a working default (property 6) -------------
 
         [Test]
         public void CreateFrom_WithAnOutOfRangeStorage_FallsBackToAWorkingFileBackedService()
@@ -156,8 +147,6 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.AreEqual(13, loaded.Value);
         }
 
-        // --- A missing profile (property 6) ----------------------------------------------------
-
         [Test]
         public void Create_WithANullProfile_ThrowsNoProfile()
         {
@@ -165,11 +154,12 @@ namespace Company.ChestGame.Tests.EditMode
             StringAssert.Contains("SaveProfileSO", error.Message);
         }
 
+        /// <remarks>
+        /// See docs/saving.md, "SaveComponentFactory, SaveFactoryInputs and SaveServiceFactory".
+        /// </remarks>
         [Test]
         public void Create_WithADestroyedProfile_ThrowsNoProfile()
         {
-            // Unity-null rather than C#-null: a destroyed ScriptableObject still compiles as a
-            // non-null reference. Only the overloaded `== null` operator, not `is null`, catches it.
             SaveProfileSO profile = ScriptableObject.CreateInstance<SaveProfileSO>();
             Object.DestroyImmediate(profile);
 

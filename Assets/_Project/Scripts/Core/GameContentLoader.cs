@@ -9,9 +9,12 @@ using Cysharp.Threading.Tasks;
 
 namespace Company.ChestGame.Core
 {
-    // Pulls every piece of content the game needs before its services exist. A plain class with no
-    // scene, scope or MonoBehaviour in it, which is what keeps the untestable part of booting down
-    // to the three lines in the bootstrapper.
+    /// <summary>
+    /// Pulls every piece of content the game needs before its services exist.
+    /// </summary>
+    /// <remarks>
+    /// See docs/architecture.md, "Boot".
+    /// </remarks>
     public class GameContentLoader
     {
         private readonly IGameConfigSource _configSource;
@@ -31,8 +34,21 @@ namespace Company.ChestGame.Core
             _popupParentSource = popupParentSource;
         }
 
-        // Sequential rather than parallel: nothing here is slow enough for the difference to
-        // matter, and a failure names the source that caused it.
+        /// <summary>
+        /// Reads every content source and returns the combined result.
+        /// </summary>
+        /// <param name="ct">Cancellation token observed by each source read.</param>
+        /// <returns>The loaded content once every source has resolved.</returns>
+        /// <exception cref="Company.ChestGame.Common.AssetLoadException">
+        /// One of the four sources' key resolved but the load itself failed.
+        /// </exception>
+        /// <exception cref="Company.ChestGame.Common.MissingAssetException">
+        /// One of the four sources' key is not in the shipped catalog.
+        /// </exception>
+        /// <remarks>
+        /// Reads sequentially, not in parallel.
+        /// See docs/architecture.md, "Boot".
+        /// </remarks>
         public async UniTask<LoadedContent> LoadAsync(CancellationToken ct)
         {
             string gameConfigDocument = await _configSource.ReadAsync(ct);

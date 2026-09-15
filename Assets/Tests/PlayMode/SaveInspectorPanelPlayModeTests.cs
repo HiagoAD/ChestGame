@@ -9,16 +9,25 @@ using Object = UnityEngine.Object;
 
 namespace Company.ChestGame.Tests.PlayMode
 {
-    // Mirrors PoolingDemoPanelPlayModeTests: SaveInspectorPanel's own tests already cover the logic
-    // against fakes, this proves the authored chrome around it is wired to the panel that drives it.
-    // A renamed element in SaveInspector.uxml, a missing class in SaveInspector.uss, or an empty
-    // serialized field on the prefab all compile perfectly and produce a panel that does nothing.
+    /// <summary>
+    /// Proves the authored SaveInspector prefab, its .uxml and its .uss are wired to
+    /// <see cref="SaveInspectorPanel"/>, not just the panel's own logic against fakes.
+    /// </summary>
+    /// <remarks>
+    /// See docs/testing.md, "What lives where".
+    /// </remarks>
     public class SaveInspectorPanelPlayModeTests
     {
         private const string PrefabPath = "Assets/_Project/UI/SaveInspector/SaveInspector.prefab";
 
-        // InMemory, never the default File selection: this suite must not touch
-        // Application.persistentDataPath - see SaveBenchmark's own header for why.
+        /// <summary>
+        /// Index of the in-memory option in the storage segmented control. This suite must never
+        /// select the default File storage, which would touch a real save on disk.
+        /// </summary>
+        /// <remarks>
+        /// See docs/testing.md, "The save suites never touch a real save", and docs/saving.md,
+        /// "SaveBenchmark, and the number the plan got wrong".
+        /// </remarks>
         private const int InMemoryStorageIndex = 3;
 
         private GameObject _instance;
@@ -39,6 +48,9 @@ namespace Company.ChestGame.Tests.PlayMode
 #endif
         }
 
+        /// <remarks>
+        /// See docs/testing.md, "The save fixtures".
+        /// </remarks>
         private IEnumerator BuildPanel()
         {
             GameObject prefab = LoadPrefab();
@@ -48,14 +60,10 @@ namespace Company.ChestGame.Tests.PlayMode
             _panel = _instance.GetComponent<SaveInspectorPanel>();
             Assert.IsNotNull(_panel, "the prefab has no SaveInspectorPanel on its root");
 
-            // The panel binds in Start; nothing below can be read on the frame the instance was
-            // created.
             yield return null;
             yield return null;
         }
 
-        // Two sibling documents rather than one: the chrome and the toggle sort independently, so
-        // each is read from its own child.
         private VisualElement Root() => DocumentRoot("Chrome");
         private VisualElement ToggleRoot() => DocumentRoot("Toggle");
         private VisualElement Chrome() => Root().Q<VisualElement>("chrome");
@@ -116,6 +124,9 @@ namespace Company.ChestGame.Tests.PlayMode
                 "the chrome does not fill the panel - .chrome is absolute against all four edges precisely so it does not size to its contents");
         }
 
+        /// <remarks>
+        /// See docs/testing.md, "The save fixtures".
+        /// </remarks>
         [UnityTest]
         public IEnumerator ExpandedControls_AreInsideTheChrome_AndResolveToATouchFriendlyHeight()
         {
@@ -130,8 +141,6 @@ namespace Company.ChestGame.Tests.PlayMode
             Assert.IsNotNull(readout, "no readout-label in the chrome");
             Assert.IsNotNull(bytes, "no bytes-label in the chrome");
 
-            // A control carrying a min-height resolves to it whether or not the box around it can
-            // show a single pixel, so height alone proves nothing - hence the containment checks.
             Assert.Greater(save.resolvedStyle.height, 80f,
                 "the Save button resolved under a usable touch target, so SaveInspector.uss is not being applied");
 
@@ -160,6 +169,9 @@ namespace Company.ChestGame.Tests.PlayMode
                 "expanded, a tap on Close does not land on it - the demo would open and never close again");
         }
 
+        /// <remarks>
+        /// See docs/testing.md, "The save fixtures".
+        /// </remarks>
         [UnityTest]
         public IEnumerator ControlRows_KeepEveryControlOnScreen_AtTheNarrowestWidthAPhoneGives()
         {
@@ -179,7 +191,6 @@ namespace Company.ChestGame.Tests.PlayMode
 
             float rightmostAllowed = narrowestPanelWidth - chromePadding;
 
-            // [0] is the title bar; the three axis rows and the run row follow it.
             foreach (VisualElement row in new[] { chrome[1], chrome[2], chrome[3], chrome[4] })
             {
                 foreach (VisualElement control in row.Children())
@@ -190,6 +201,9 @@ namespace Company.ChestGame.Tests.PlayMode
             }
         }
 
+        /// <remarks>
+        /// See docs/saving.md, "The tamper button, and why it edits two different ways".
+        /// </remarks>
         [UnityTest]
         public IEnumerator ClickingSave_ThenTamper_OverInMemory_SettlesWithARealAcceptedOutcome()
         {
@@ -205,9 +219,6 @@ namespace Company.ChestGame.Tests.PlayMode
             string idleReadout = readout.text;
             string idleTamper = tamperLabel.text;
 
-            // InMemory, and left on Json/None (the default first index of each): a curious-player
-            // edit is decoded and re-encoded rather than caught, which is what "accepted" below
-            // pins - see SaveTamperTests.RunAsync_WithNone_LoadsTheTamperedBalance.
             Click(root.Q<Button>($"storage-{InMemoryStorageIndex}"));
             Click(root.Q<Button>("save-button"));
 
@@ -238,8 +249,9 @@ namespace Company.ChestGame.Tests.PlayMode
             Assert.LessOrEqual(inner.yMax, outer.yMax + tolerance, $"{what} runs past the chrome's bottom edge");
         }
 
-        // A PointerDown/PointerUp pair does not work here - see PoolingDemoPanelPlayModeTests.Click
-        // for why NavigationSubmitEvent is the real alternative rather than a workaround.
+        /// <remarks>
+        /// See docs/testing.md, "Simulating a click in a PlayMode UI test".
+        /// </remarks>
         private static void Click(Button button)
         {
             Assert.IsNotNull(button, "guard: cannot click a button the query did not find");

@@ -3,11 +3,13 @@ using NUnit.Framework;
 
 namespace Company.ChestGame.Tests.EditMode
 {
-    // Every concrete ISaveStore this assembly ships answers CompletesOnCallingThread with a fixed
-    // true, and PlayerPrefsStore alone also carries IMainThreadOnlyStore - see docs/saving.md, "The
-    // thread hop". None of this needs a real write: every property here is a constant answer on the
-    // type, so proving it costs nothing more than constructing the store. Nothing here ever calls
-    // WriteAsync, so PlayerPrefsStore's own construction here never touches a real PlayerPrefs key.
+    /// <summary>
+    /// Confirms <c>CompletesOnCallingThread</c> and <see cref="IMainThreadOnlyStore"/> for each
+    /// concrete <see cref="ISaveStore"/> this assembly ships.
+    /// </summary>
+    /// <remarks>
+    /// See docs/saving.md, "The thread hop, and why it is not inside SaveService".
+    /// </remarks>
     public class SaveStoreCompletesOnCallingThreadTests
     {
         [Test]

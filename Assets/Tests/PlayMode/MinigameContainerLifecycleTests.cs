@@ -10,15 +10,19 @@ using UnityEngine;
 using UnityEngine.AddressableAssets;
 using UnityEngine.TestTools;
 using VContainer;
-// System brings a second Object with it; the alias keeps every Object.Destroy meaning what it did.
 using Object = UnityEngine.Object;
 
 namespace Company.ChestGame.Tests.PlayMode
 {
-    // The stop half of the framework: End disposes the controller, destroys the view, releases the
-    // handles, and leaves the container safe to tear down again. Play mode because Object.Destroy
-    // only takes effect there. The provider is still a fake, since this is about the container's
-    // lifecycle rather than Addressables.
+    /// <summary>
+    /// Covers the stop half of the framework: <c>End</c> disposes the controller, destroys the
+    /// view, releases the handles, and leaves the container safe to tear down again. Runs in play
+    /// mode because <c>Object.Destroy</c> only takes effect there; the asset provider is still a
+    /// fake, since this is about the container's lifecycle rather than Addressables.
+    /// </summary>
+    /// <remarks>
+    /// See docs/minigames.md, "Teardown".
+    /// </remarks>
     public class MinigameContainerLifecycleTests
     {
         private const string VIEW_GUID = "33333333333333333333333333333333";
@@ -35,13 +39,15 @@ namespace Company.ChestGame.Tests.PlayMode
         private GameObject _parent;
         private MinigameContainer _minigame;
 
+        /// <remarks>
+        /// See docs/minigames.md, "A definition names its content, it does not hold it".
+        /// </remarks>
         [SetUp]
         public void SetUp()
         {
             _viewRef = new GameObject("ViewPrefab").AddComponent<TestMinigameView>();
             _parent = new GameObject("MinigameParent");
 
-            // A GUID string is all an AssetReference is, so no real addressable asset is needed.
             _viewReference = new AssetReferenceGameObject(VIEW_GUID);
             _assets = new FakeAssetProvider().With(_viewReference, _viewRef.gameObject);
 
@@ -87,14 +93,13 @@ namespace Company.ChestGame.Tests.PlayMode
             Assert.AreSame(_parent.transform, _minigame.ViewInstance.transform.parent);
         });
 
+        /// <remarks>
+        /// See docs/minigames.md, "Failure during a start".
+        /// </remarks>
         [UnityTest]
         public IEnumerator BeginAsync_WhenTheViewRejectsTheController_LeavesNoOrphanBehind() =>
             UniTask.ToCoroutine(async () =>
         {
-            // The view is instantiated before SetController runs and _running is set after it, so a
-            // throw from SetController lands in the catch with a live GameObject already in the
-            // scene. End returns early while _running is false, so if the catch does not destroy
-            // it, nothing does.
             TestMinigameView rejecting = new GameObject("RejectingViewPrefab").AddComponent<RejectingView>();
             AssetReferenceGameObject rejectingRef = new(REJECTING_GUID);
             _assets.With(rejectingRef, rejecting.gameObject);
@@ -110,7 +115,6 @@ namespace Company.ChestGame.Tests.PlayMode
             }
             catch (InvalidOperationException)
             {
-                // The rejection itself. What matters is what the catch left behind.
             }
 
             Assert.IsFalse(minigame.Running, "a start that threw did not start anything");
@@ -140,11 +144,12 @@ namespace Company.ChestGame.Tests.PlayMode
             Assert.IsTrue(viewObject == null, "the view GameObject is destroyed");
         });
 
+        /// <remarks>
+        /// See docs/minigames.md, "Teardown".
+        /// </remarks>
         [UnityTest]
         public IEnumerator End_ReleasesWhatBeginLoaded() => UniTask.ToCoroutine(async () =>
         {
-            // Handles, not instances: releasing the loaded asset rather than the instantiated
-            // object is what lets End stay synchronous.
             await _minigame.BeginAsync(_parent.transform, CancellationToken.None);
 
             _minigame.End();
@@ -175,8 +180,10 @@ namespace Company.ChestGame.Tests.PlayMode
             Assert.AreEqual(1, _definition.ReleaseContentCalls, "and releases its content only once");
         });
 
-        // Stands in for any view whose SetController fails. What it throws does not matter; that it
-        // throws after the instance exists is the scenario.
+        /// <summary>
+        /// Stands in for any view whose <c>SetController</c> fails. What it throws does not matter;
+        /// that it throws after the instance exists is the scenario.
+        /// </summary>
         private class RejectingView : TestMinigameView
         {
             public override void SetController(MinigameControllerBase controller) =>

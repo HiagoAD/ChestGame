@@ -9,12 +9,11 @@ namespace Company.ChestGame.Minigame.Core
 {
     public abstract class MinigameBaseSO : ScriptableObject
     {
-        // Authored rather than derived from the container type, which is what lets the shell start
-        // a minigame without referencing the assembly that defines it.
         [SerializeField] private string _id;
 
-        // The label every asset this minigame owns carries, and how its content is meant to arrive.
-        // See docs/content-delivery.md.
+        /// <summary>
+        /// The label every asset this minigame owns carries.
+        /// </summary>
         [SerializeField] private string _contentLabel;
         [SerializeField] private MinigameLoadPolicy _loadPolicy;
 
@@ -22,9 +21,15 @@ namespace Company.ChestGame.Minigame.Core
         public string ContentLabel => _contentLabel;
         public MinigameLoadPolicy LoadPolicy => _loadPolicy;
 
-        // The one place the blank-label rule is stated, because both delivery paths need it and
-        // used to answer it differently. Warned rather than thrown, following CatalogBuilder on a
-        // blank id, and warned rather than ignored because the failure is otherwise silent.
+        /// <summary>
+        /// Returns the content label to fetch this minigame's content by. Returns <c>false</c> and
+        /// logs a warning instead of throwing when no label is authored.
+        /// </summary>
+        /// <param name="label">The authored content label, or <c>null</c> when none is authored.</param>
+        /// <returns><c>true</c> when a label is authored; otherwise <c>false</c>.</returns>
+        /// <remarks>
+        /// See docs/content-delivery.md, "When content arrives".
+        /// </remarks>
         public bool TryGetContentLabel(out string label)
         {
             label = _contentLabel;
@@ -40,13 +45,17 @@ namespace Company.ChestGame.Minigame.Core
         public abstract Type ContainerType { get; }
         public abstract MinigameContainer GetMinigameContainer();
 
-        // The one hook a concrete minigame has for handing its controller what only it knows about.
-        // Runs from BeginAsync before the controller is injected, so a controller can build state
-        // from its own content and still be injected on top of it.
+        /// <summary>
+        /// Runs from <see cref="MinigameContainer.BeginAsync"/> before the controller is injected,
+        /// so a controller can build state from its own content and still be injected on top of it.
+        /// </summary>
         public virtual UniTask ConfigureControllerAsync(
             MinigameControllerBase controller, IAssetProvider assets, CancellationToken ct) => UniTask.CompletedTask;
 
-        // The other half of the hook: whatever ConfigureControllerAsync loaded is dropped here.
+        /// <summary>
+        /// The other half of <see cref="ConfigureControllerAsync"/>: whatever it loaded is dropped
+        /// here.
+        /// </summary>
         public virtual void ReleaseContent(IAssetProvider assets) { }
     }
 
@@ -55,17 +64,24 @@ namespace Company.ChestGame.Minigame.Core
     where TView : MinigameViewBase
     where TMinigame : MinigameContainer, new()
     {
-        // A reference, not the prefab. It serializes as a GUID rather than an object reference, so
-        // loading the descriptor does not drag the minigame's bundle in behind it. A direct field
-        // would undo that silently.
+        /// <summary>
+        /// A reference, not the prefab.
+        /// </summary>
+        /// <remarks>
+        /// See docs/minigames.md, "A definition names its content, it does not hold it".
+        /// </remarks>
         [SerializeField] private AssetReferenceGameObject _viewRef;
 
         public AssetReferenceGameObject ViewRef => _viewRef;
 
         public override Type ContainerType => typeof(TMinigame);
 
-        // Construction only: a reference cannot be resolved synchronously, so everything
-        // content-shaped happens in MinigameContainer.BeginAsync.
+        /// <summary>
+        /// Construction only.
+        /// </summary>
+        /// <remarks>
+        /// See docs/minigames.md, "Nothing loads while the container is built".
+        /// </remarks>
         public override MinigameContainer GetMinigameContainer()
         {
             TMinigame minigame = new();

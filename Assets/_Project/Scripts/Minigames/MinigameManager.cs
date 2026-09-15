@@ -31,7 +31,6 @@ namespace Company.ChestGame.Minigame
             return Build(minigameSO) as TMinigame;
         }
 
-        // Same construction, reached without naming a container type.
         public MinigameContainer Get(string id)
         {
             if (id == null || !_minigameDefsById.TryGetValue(id, out MinigameBaseSO minigameSO))
@@ -42,10 +41,11 @@ namespace Company.ChestGame.Minigame
             return Build(minigameSO);
         }
 
+        /// <remarks>
+        /// See docs/minigames.md, "Nothing loads while the container is built".
+        /// </remarks>
         private MinigameContainer Build(MinigameBaseSO minigameSO)
         {
-            // The container only: injecting the controller here would land before its own content
-            // did. That ordering belongs to BeginAsync.
             MinigameContainer wrapper = minigameSO.GetMinigameContainer();
             _resolver.Inject(wrapper);
 

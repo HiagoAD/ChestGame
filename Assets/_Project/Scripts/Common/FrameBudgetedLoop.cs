@@ -4,13 +4,13 @@ using Cysharp.Threading.Tasks;
 
 namespace Company.ChestGame.Common
 {
-    // Runs a fixed number of units of work across as many frames as they take, yielding whenever the
-    // work done since this frame started has passed a time budget, so a large fill costs several
-    // cheap frames instead of one visible hitch.
-    //
-    // Budgeted by elapsed time rather than by a count per frame, and that is the point rather than a
-    // detail: a count makes every caller finish in the same number of frames whatever a unit costs,
-    // which is exactly the difference anyone comparing two ways of doing the same work wants to see.
+    /// <summary>
+    /// Runs a fixed number of units of work across as many frames as they take, yielding whenever the
+    /// work done since this frame started has passed a time budget.
+    /// </summary>
+    /// <remarks>
+    /// See docs/architecture.md, "Engine seams: clock and random".
+    /// </remarks>
     public class FrameBudgetedLoop
     {
         private readonly IGameClock _clock;
@@ -25,9 +25,16 @@ namespace Company.ChestGame.Common
             _budgetMilliseconds = budgetMilliseconds;
         }
 
-        // Split from the async half below so a bad call throws where it was made. An async method
-        // captures what it throws into the task it returns, and a fill started from a MonoBehaviour
-        // forgets that task.
+        /// <summary>
+        /// Runs <paramref name="step"/> once for each index from 0 to <paramref name="count"/> - 1,
+        /// yielding a frame whenever the elapsed time budget is exceeded.
+        /// </summary>
+        /// <exception cref="FrameBudgetException">
+        /// <paramref name="step"/> is null, or <paramref name="count"/> is negative.
+        /// </exception>
+        /// <remarks>
+        /// See docs/architecture.md, "Why RunAsync is split, and the ordering inside the loop".
+        /// </remarks>
         public UniTask RunAsync(int count, Action<int> step, CancellationToken cancellationToken)
         {
             if (step == null) throw FrameBudgetException.NoStep();
@@ -36,24 +43,21 @@ namespace Company.ChestGame.Common
             return RunCoreAsync(count, step, cancellationToken);
         }
 
+        /// <remarks>
+        /// See docs/architecture.md, "Why RunAsync is split, and the ordering inside the loop".
+        /// </remarks>
         private async UniTask RunCoreAsync(int count, Action<int> step, CancellationToken cancellationToken)
         {
             double frameStarted = _clock.ElapsedMilliseconds;
 
             for (int index = 0; index < count; index++)
             {
-                // Before the unit rather than after it, so a token cancelled while the previous unit
-                // was running gets no further work out of the loop.
                 cancellationToken.ThrowIfCancellationRequested();
 
                 step(index);
 
-                // Nothing left to place, so a yield here would buy a frame to do nothing in.
                 if (index + 1 == count) break;
 
-                // The budget is read after a unit has run and never before, which is what makes every
-                // frame place at least one. The other order would let a unit costing more than the
-                // whole budget yield for ever and place nothing.
                 if (_clock.ElapsedMilliseconds - frameStarted < _budgetMilliseconds) continue;
 
                 await _clock.NextFrame(cancellationToken);

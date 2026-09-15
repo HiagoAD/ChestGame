@@ -4,7 +4,9 @@ using Company.ChestGame.Common;
 
 namespace Company.ChestGame.Popups.Internal
 {
-    // The popups the game can spawn, indexed by popup type.
+    /// <summary>
+    /// The popups the game can spawn, indexed by popup type.
+    /// </summary>
     public class PopupCatalog : IPopupCatalog
     {
         public IReadOnlyDictionary<Type, PopupBase> Popups { get; }

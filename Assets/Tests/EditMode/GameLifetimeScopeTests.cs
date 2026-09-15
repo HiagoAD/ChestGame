@@ -23,22 +23,18 @@ using VContainer.Unity;
 
 namespace Company.ChestGame.Tests.EditMode
 {
-    // Run against GameLifetimeScope's own registration methods rather than a copy, so dropping a
-    // registration from the composition root fails here. The root scope is everything that needs no
-    // asset, which is what keeps it assertable in edit mode. What the shipped assets contain is
-    // proved in GameBootstrapperTests.
-    //
-    // The bare SetUp registration below carries no currency overrides. That is safe only because
-    // nothing it builds performs IO: it does resolve every SaveScheduler<T> the composition owns,
-    // through RegisterCoreServices' build callback, but no scheduler, FileStore or AtomicFileStore
-    // constructor touches disk (checked, not assumed).
-    //
-    // What is NOT safe is a test resolving ICurrencyManager, the currency save handler or the
-    // currency scheduler from it: without an override that performs the real legacy import against
-    // the developer's actual persistentDataPath and real PlayerPrefs entry. Every test below that
-    // touches any of the three builds its own container through IsolatedCurrencyOverrides()
-    // instead. See docs/saving.md, "Redirecting this composition away from a developer's real
-    // save".
+    /// <summary>
+    /// Runs against GameLifetimeScope's own registration methods rather than a copy, so a dropped
+    /// registration in the composition root fails here.
+    /// </summary>
+    /// <remarks>
+    /// The bare SetUp registration carries no currency overrides. A test that resolves
+    /// ICurrencyManager, the currency save handler or the currency scheduler instead builds its own
+    /// container through IsolatedCurrencyOverrides().
+    /// See docs/architecture.md, "Boot".
+    /// See docs/architecture.md, "Registration, in two halves".
+    /// See docs/saving.md, "Redirecting this composition away from a developer's real save".
+    /// </remarks>
     public class GameLifetimeScopeTests
     {
         private ContainerBuilder _builder;
@@ -55,6 +51,9 @@ namespace Company.ChestGame.Tests.EditMode
             GameLifetimeScope.RegisterCoreServices(_builder);
         }
 
+        /// <remarks>
+        /// See docs/saving.md, "The legacy import: CurrencyLegacyImport".
+        /// </remarks>
         [TearDown]
         public void TearDown()
         {
@@ -68,8 +67,6 @@ namespace Company.ChestGame.Tests.EditMode
 
             if (_legacyPlayerPrefsKeys.Count > 0)
             {
-                // Both halves: CurrencyLegacyImport.Clear renames rather than deletes, so a
-                // successful import leaves a ".migrated" sibling this list does not itself carry.
                 foreach (string key in _legacyPlayerPrefsKeys)
                 {
                     PlayerPrefs.DeleteKey(key);
@@ -80,10 +77,14 @@ namespace Company.ChestGame.Tests.EditMode
             }
         }
 
-        // A fresh temp root and a GUID-bearing legacy PlayerPrefs key, per call - never the
-        // developer's real Application.persistentDataPath or real
-        // "ResourceBankSaveData_CurrencyType" entry. Both are recorded and cleaned up in TearDown
-        // even if the test that requested them fails.
+        /// <summary>
+        /// Builds an isolated <see cref="SaveFactoryInputs"/> and legacy PlayerPrefs key for one
+        /// test: a fresh temp root and a GUID-bearing key, recorded and cleaned up in
+        /// <see cref="TearDown"/> even if the calling test fails.
+        /// </summary>
+        /// <remarks>
+        /// See docs/testing.md, "The save suites never touch a real save".
+        /// </remarks>
         private (SaveFactoryInputs inputs, string legacyKey) IsolatedCurrencyOverrides()
         {
             string root = Path.Combine(Path.GetTempPath(), "ChestGameSaveTests_" + Guid.NewGuid().ToString("N"));
@@ -112,31 +113,32 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.IsTrue(_builder.Exists(typeof(IBootStatus), true), nameof(IBootStatus));
         }
 
+        /// <remarks>
+        /// See docs/architecture.md, "Registration, in two halves".
+        /// </remarks>
         [Test]
         public void TheBootstrapper_IsRegisteredAsTheEntryPointThatRunsIt()
         {
-            // VContainer only runs what it can find as an IAsyncStartable. Registered as the
-            // concrete type alone, the game would build a container and never boot.
             Assert.IsTrue(_builder.Exists(typeof(IAsyncStartable), true), nameof(IAsyncStartable));
         }
 
+        /// <remarks>
+        /// See docs/architecture.md, "Boot".
+        /// </remarks>
         [Test]
         public void EveryCoreServiceTheGameResolves_HasASatisfiableObjectGraph()
         {
-            // Exists() only proves a line was written. The loader needs all four sources, each of
-            // which needs the asset provider, so a missing registration anywhere down that chain
-            // fails here.
             using IObjectResolver container = _builder.Build();
 
             Assert.IsInstanceOf<GameContentLoader>(container.Resolve<GameContentLoader>());
         }
 
+        /// <remarks>
+        /// See docs/saving.md, "Redirecting this composition away from a developer's real save".
+        /// </remarks>
         [Test]
         public void EveryEngineFacingSeam_HasAProductionImplementation()
         {
-            // The seams exist so tests can substitute them; the real game still has to get real
-            // ones. Isolated even though constructing the save handler alone touches nothing, so no
-            // test here depends on that staying true.
             ContainerBuilder builder = new();
             (SaveFactoryInputs inputs, string legacyKey) = IsolatedCurrencyOverrides();
             GameLifetimeScope.RegisterCoreServices(builder, currencySaveInputs: inputs, legacyCurrencyPlayerPrefsKey: legacyKey);
@@ -154,12 +156,13 @@ namespace Company.ChestGame.Tests.EditMode
                 container.Resolve<IResourceBankSaveHandler<CurrencyType>>());
         }
 
+        /// <remarks>
+        /// See docs/architecture.md, "Currency and rewards".
+        /// See docs/saving.md, "Redirecting this composition away from a developer's real save".
+        /// </remarks>
         [Test]
         public void CurrencyManager_ResolvesWithTheRegisteredSaveHandler()
         {
-            // CurrencyManager takes its save handler as its only constructor argument, so this
-            // fails outright if the scope stops registering one. Isolated because resolving
-            // ICurrencyManager runs the real legacy import - see the fixture header.
             ContainerBuilder builder = new();
             (SaveFactoryInputs inputs, string legacyKey) = IsolatedCurrencyOverrides();
             GameLifetimeScope.RegisterCoreServices(builder, currencySaveInputs: inputs, legacyCurrencyPlayerPrefsKey: legacyKey);
@@ -169,19 +172,16 @@ namespace Company.ChestGame.Tests.EditMode
             ICurrencyManager currencyManager = container.Resolve<ICurrencyManager>();
 
             Assert.IsInstanceOf<CurrencyManager>(currencyManager);
-            // Nothing was ever seeded under the isolated GUID legacy key, so a freshly resolved
-            // manager reads as a genuine first run rather than carrying over anything real.
             Assert.AreEqual(0, currencyManager.GetCurrencyAmount(CurrencyType.Coins));
             Assert.AreEqual(0, currencyManager.GetCurrencyAmount(CurrencyType.Gems));
         }
 
+        /// <remarks>
+        /// See docs/saving.md, "What ships, and where the composition asserts its own constraints".
+        /// </remarks>
         [Test]
         public void CurrencySaveScheduler_ResolvesWithoutThrowing_AndCanFlushBlocking()
         {
-            // Resolving registers the scheduler, and Register throws SchedulerCannotFlushBlocking
-            // when CanFlushBlocking is false. So if a future change wraps the currency store in a
-            // ThreadHoppingStore, this resolve starts throwing here rather than shipping a scheduler
-            // that fails the first real pause or quit on a device.
             ContainerBuilder builder = new();
             (SaveFactoryInputs inputs, string legacyKey) = IsolatedCurrencyOverrides();
             GameLifetimeScope.RegisterCoreServices(builder, currencySaveInputs: inputs, legacyCurrencyPlayerPrefsKey: legacyKey);
@@ -193,12 +193,12 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.IsTrue(scheduler.CanFlushBlocking);
         }
 
+        /// <remarks>
+        /// See docs/saving.md, "An unregistered save looks exactly like a registered one".
+        /// </remarks>
         [Test]
         public void EverySaveThisCompositionOwns_IsRegisteredForThePauseQuitFlush()
         {
-            // Building the container is the whole act: the build callback resolves each scheduler,
-            // and resolving is what registers it. An unregistered save is never flushed at
-            // pause/quit and looks identical otherwise, so nothing else here would notice.
             ContainerBuilder builder = new();
             (SaveFactoryInputs inputs, string legacyKey) = IsolatedCurrencyOverrides();
             GameLifetimeScope.RegisterCoreServices(builder, currencySaveInputs: inputs, legacyCurrencyPlayerPrefsKey: legacyKey);
@@ -226,11 +226,12 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.IsTrue(_builder.Exists(typeof(MinigameContentPreloader), true), nameof(MinigameContentPreloader));
         }
 
+        /// <remarks>
+        /// See docs/architecture.md, "Telling the player what boot is doing".
+        /// </remarks>
         [Test]
         public void WithNoLabelToReportInto_BootStillHasSomethingToReportThrough()
         {
-            // The bootstrapper reports unconditionally, so an unwired label slot, and every
-            // container a test builds, still has to resolve one.
             using IObjectResolver container = _builder.Build();
 
             IBootStatus status = container.Resolve<IBootStatus>();
@@ -239,11 +240,12 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.DoesNotThrow(() => status.Report("anything"));
         }
 
+        /// <remarks>
+        /// See docs/architecture.md, "Telling the player what boot is doing".
+        /// </remarks>
         [Test]
         public void ABootStatusHandedIn_IsTheOneTheGameReportsThrough()
         {
-            // The scene's label is the one thing the root scope cannot construct for itself.
-            // Registering it is what connects the bootstrapper to the boot scene.
             ContainerBuilder builder = new();
             RecordingBootStatus reporter = new();
 
@@ -254,12 +256,12 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.AreSame(reporter, container.Resolve<IBootStatus>());
         }
 
+        /// <remarks>
+        /// See docs/architecture.md, "Registration, in two halves".
+        /// </remarks>
         [Test]
         public void ThePreloader_ResolvesWithTheLoadedCatalogAndTheCoreAssetProvider()
         {
-            // Reaches across both halves of the split, the catalog from the loaded one and the
-            // provider from core, which is the graph that fails silently if either registration
-            // moves.
             GameLifetimeScope.RegisterLoadedServices(_builder, ContentWithAStubParentPrefab());
 
             using IObjectResolver container = _builder.Build();
@@ -267,13 +269,13 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.IsInstanceOf<MinigameContentPreloader>(container.Resolve<MinigameContentPreloader>());
         }
 
+        /// <remarks>
+        /// See docs/architecture.md, "Registration, in two halves".
+        /// See docs/saving.md, "Redirecting this composition away from a developer's real save".
+        /// </remarks>
         [Test]
         public void EveryLoadedServiceTheGameResolves_HasASatisfiableObjectGraph()
         {
-            // The three services whose constructors reach outside themselves: PopupManager needs a
-            // catalog and a parent provider, MinigameManager needs a catalog and the resolver, and
-            // RewardsManager reaches across both halves. Isolated because it resolves
-            // ICurrencyManager transitively - see the fixture header.
             ContainerBuilder builder = new();
             (SaveFactoryInputs inputs, string legacyKey) = IsolatedCurrencyOverrides();
             GameLifetimeScope.RegisterCoreServices(builder, currencySaveInputs: inputs, legacyCurrencyPlayerPrefsKey: legacyKey);
@@ -286,11 +288,12 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.IsInstanceOf<RewardsManager>(container.Resolve<IRewardsManager>());
         }
 
+        /// <remarks>
+        /// See docs/architecture.md, "Registration, in two halves".
+        /// </remarks>
         [Test]
         public void TheLoadedConfig_IsBuiltFromTheDocumentThatWasLoaded()
         {
-            // The registration parses the carried document rather than fetching one, which is why
-            // nothing downstream can observe a half-built config.
             GameLifetimeScope.RegisterLoadedServices(_builder, ContentWithAStubParentPrefab());
 
             using IObjectResolver container = _builder.Build();
@@ -302,12 +305,12 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.AreEqual(50, config.CoinsReward);
         }
 
+        /// <remarks>
+        /// See docs/architecture.md, "Popups".
+        /// </remarks>
         [Test]
         public void ResolvingPopupManager_DoesNotCreateTheSharedCanvasYet()
         {
-            // The parent canvas is DontDestroyOnLoad, so building it during resolution would leak a
-            // scene object into every consumer of the container. Counting from before the
-            // registration catches an eager constructor as well as an eager resolve.
             _parentPrefab = new GameObject("PopupParentPrefab").AddComponent<PopupParent>();
 
             int before = LivePopupParents();

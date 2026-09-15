@@ -2,23 +2,29 @@ using System.Collections.Generic;
 
 namespace Company.ChestGame.Saving
 {
-    // Flushes any number of ISaveFlushable from one call, without the caller naming or referencing
-    // their types.
+    /// <summary>
+    /// Flushes any number of <see cref="ISaveFlushable"/> from one call, without the caller naming
+    /// or referencing their types.
+    /// </summary>
     public interface ISaveFlushRegistry
     {
-        // Throws SaveException when flushable.CanFlushBlocking is false: registering is a
-        // declaration that this wants flushing, and one that cannot be flushed is a wiring mistake.
-        // Idempotent per instance.
+        /// <summary>
+        /// Idempotent per instance.
+        /// </summary>
+        /// <exception cref="SaveException">When <c>flushable.CanFlushBlocking</c> is
+        /// false.</exception>
         void Register(ISaveFlushable flushable);
 
-        // A no-op if flushable was never registered.
+        /// <summary>A no-op if flushable was never registered.</summary>
         void Unregister(ISaveFlushable flushable);
 
-        // Flushes everything registered. Never throws: one failure is logged and the rest still
-        // flush, so this is safe to call from a lifecycle callback that must not propagate.
+        /// <summary>
+        /// Flushes everything registered. Never throws: one failure is logged and the rest still
+        /// flush.
+        /// </summary>
         void FlushAll();
 
-        // Everything currently registered, in registration order.
+        /// <summary>Everything currently registered, in registration order.</summary>
         IReadOnlyList<ISaveFlushable> Registered { get; }
     }
 }

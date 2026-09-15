@@ -108,6 +108,24 @@ runs in edit mode with no player loop and no real waiting. `FakeGameClock` parks
 releases them from `AdvanceFrame()`, and the continuations resume synchronously inside that call, so
 a test can assert the moment it returns.
 
+### Why RunAsync is split, and the ordering inside the loop
+
+`RunAsync` validates its arguments synchronously before handing off to a private `RunCoreAsync` for the
+loop itself. The split matters because an async method captures what it throws into the task it returns
+rather than throwing at the call site, and a fill started from a `MonoBehaviour` that never awaits the
+returned task would lose that exception entirely; keeping the checks in the synchronous half means a bad
+call throws where it was made.
+
+Inside the loop, cancellation is checked before each unit runs, not after, so a token cancelled while the
+previous unit was running gets no further work out of the loop. The last unit skips the yield afterward,
+since there is nothing left to place and a yield there would only buy a frame to do nothing in. The
+budget itself is checked in the opposite order: after a unit has run rather than before, which is what
+guarantees every frame places at least one unit. Checking it first would let a single unit costing more
+than the whole budget yield forever and place nothing - which is also why the constructor rejects a
+budget of zero rather than treating it as "no budget": with the check running after each unit, zero would
+mean exactly one unit per frame, the per-frame cost the class exists to avoid, while reading at the call
+site like the budgeting had simply been switched off.
+
 ## Boot
 
 The game starts in `Scenes/Boot.unity`, not in the game scene. Opening `Game.unity` directly will not
@@ -125,6 +143,12 @@ the whole design rests on:
 4. `MinigameContentPreloader` fetches whatever asked to arrive up front.
 5. `Game.unity` opens, and its own `GameSceneLifetimeScope` is parented to that scope through
    `LifetimeScope.EnqueueParent`.
+
+`GameBootstrapper` resolves `MinigameContentPreloader` from the child scope it just built
+(`_gameScope`), because the preloader needs the catalog, which does not exist until the content it
+was built from arrived. The scene load is wrapped in `using (LifetimeScope.EnqueueParent(_gameScope))`
+so `Game.unity`'s own scope can be parented to the one built at boot without that scene holding a
+reference to an object that did not exist when it was authored.
 
 Step 1 is the only one whose failure is not a boot failure. A meta save this build cannot read is
 logged and reset to a fresh document, because meta holds nothing a player earned; the identical
@@ -153,7 +177,8 @@ constructed before the content arrived.
 part of booting down to the three lines in the bootstrapper. It reads the four sources sequentially
 rather than in parallel. Nothing there is slow enough for the difference to matter, and one at a time
 means a failure names the source that caused it instead of whichever of four raced to the exception
-first.
+first. `LoadAsync_ReadsEverySourceExactlyOnce` asserts an exact count rather than at least once,
+because a source read twice is a source downloaded twice.
 
 ### Registration, in two halves
 
@@ -213,6 +238,15 @@ that scene already had. `SilentBootStatus` is what gets registered when there is
 built by a test, or a boot scene whose slot was never wired. Registering a silent one rather than
 nothing keeps the bootstrapper free of a null check at every call site.
 
+`Configure` converts `_bootStatus` through a Unity-overloaded comparison before handing it to
+`RegisterCoreServices`: `_bootStatus != null ? _bootStatus : null`, never `is not null`. A missing or
+destroyed `BootStatusLabel` is Unity-null - the C# reference itself is not null, and only the
+overloaded `==`/`!=` operators on `UnityEngine.Object` know to treat it as gone. `RegisterCoreServices`
+then decides whether to register a `SilentBootStatus` with `status ?? new SilentBootStatus()`, and the
+plain `??` operator does not call that overloaded operator - it only tests the raw reference. Passing
+`_bootStatus` straight through on `is not null` (or skipping the conversion) would leave a destroyed
+component's dead reference sitting in the container instead of the `SilentBootStatus` fallback.
+
 A failure during boot is reported to that label and then rethrown. Swallowing it would make
 `StartAsync` return normally, which is a lie the rest of boot is built on: the game scene was never
 loaded and no service downstream exists. Rethrowing also keeps the exception reaching a developer,
@@ -225,6 +259,10 @@ application quits, not boot failing, and there is nobody left to read a message 
 
 Saying why at all is the reason the `Core` group ships local. The config, the popup and this label
 are the three things that have to be present before the game can explain that nothing else is.
+
+`StartAsync_WhenContentCannotBeLoaded_TellsThePlayerWhy` exists because a corrupt bundle or a
+malformed content document used to escape this reporting entirely, through VContainer, and leave the
+boot screen narrating a step that had already failed instead of saying why boot stopped.
 
 ## Entry point and game flow
 
@@ -250,7 +288,9 @@ whoever is holding the phone, and anything not under that base is a bug rather t
 problem, so it is left to blow up where it can be seen.
 
 `OnDestroy` ends whatever is running, so the controller is disposed and the view destroyed rather
-than left to the garbage collector with live subscriptions.
+than left to the garbage collector with live subscriptions. `SetStartButtonInteractable` guards
+`_startButton` with a null check because the button is gone by the time a start cancelled by this
+object's own destruction unwinds, which is the ordinary shutdown path rather than an error.
 
 An unfinished chests run persists, and so do currencies, including between sessions.
 `ChestsRunSaveDocument` carries exactly two members, the chest count and which chests are open, and
@@ -279,7 +319,9 @@ reaches the game through three steps with one job each:
 - `IGameConfigSource` fetches the raw document asynchronously. `AddressablesGameConfigSource` is the
   only class that knows the key, and it goes through `IAssetProvider` to turn that key into bytes.
 - `LocalJsonGameConfig` parses and validates it. It loads nothing itself, and takes the document
-  rather than the source, so parse-and-validate stays a synchronous constructor.
+  rather than the source, so parse-and-validate stays a synchronous constructor. This is deliberately
+  a one-shot parse over an already-fetched document; a live remote config that could push updates
+  while the game is running would likely need it to grow callbacks instead.
 - `IGameConfig` is what the rest of the game consumes.
 
 Pointing the game at a real remote config means registering a different source and changing nothing
@@ -300,6 +342,13 @@ which lives in `Common` so neither owner needs a reference to the other's assemb
 parse cleanly and still describe something unplayable: a field the server renamed, or one this client
 predates, deserializes to 0. Rewards cannot be negative, because a negative reward would be handed to
 `AddCurrency`, which rejects it and logs an error on every single win.
+
+An unrecognized field in the document is ignored rather than rejected, so a server rolling out a new
+field does not break clients that predate it; `UnknownFields_AreIgnoredSoTheConfigCanGrowServerSide`
+feeds a document carrying the chests minigame's own fields, which `LocalJsonGameConfig` no longer
+knows about, alongside the two it does. Zero is accepted as distinct from negative: it is a legitimate
+tuning value, a currency the game currently gives none of, and `ConfigValidation` only rejects a
+reward going negative.
 
 ## Catalogs
 
@@ -337,6 +386,17 @@ empty-slot reasoning, since the entry is still reachable by type and the game st
 two unauthored entries from colliding as a duplicate nobody wrote. An empty slot passes silently
 there, because the type-keyed build over the same entries has already warned about it.
 
+An empty inspector slot is the most common authoring mistake, and `OnValidate` itself leaves one
+behind whenever it clears a duplicate it caught. `OnValidate` only guards inspector edits, though: a
+merge or a hand-edited data file can still produce a duplicate type or id that reaches
+`MinigameCatalog`'s constructor directly, which is why the catalog itself still has to check for one
+rather than trusting authoring time to have caught it.
+
+Within one `MinigameCatalog`, the type-keyed build runs before the id-keyed one. Two entries that
+share a container type throw from the type-keyed lookup before the id-keyed lookup is ever reached, so
+proving the id-keyed lookup's own duplicate check needs two entries of distinct container types
+sharing an id.
+
 ## Popups
 
 `PopupBase<TPopup, TData>` and `PopupManager` are a typed popup framework: popups receive
@@ -348,6 +408,11 @@ doing only what it is about: picking a prefab, picking a parent, handing over th
 prefab that was handed to it already loaded. Resolving `IPopupManager` therefore has no side effects,
 which matters because a `DontDestroyOnLoad` object built during resolution would leak into every
 consumer of the container, tests included. There is a test pinning exactly that.
+
+`IPopupParentProvider` is the one content source among the four `GameBootstrapperTests` exercises
+whose result nothing else in that fixture would notice going missing: `PopupParentProvider` holds the
+prefab it was given untouched until a popup is actually shown, so asking it for `Default` is what
+forces the shipped prefab to have been real.
 
 `AddressablesPopupParentSource` asks for the prefab as a `GameObject` and reads the component off it,
 rather than asking for `PopupParent` directly. Whether a loader can hand back a component off a
@@ -372,16 +437,18 @@ No bare `throw new Exception` remains in game code. A test asserting "this throw
 satisfied by an unrelated `NullReferenceException` from somewhere inside the call, and a caller
 should be able to tell a missing asset from a malformed one.
 
-Four typed failures sit deliberately **outside** that base, all under `InvalidOperationException`:
-`PoolException`, `FrameBudgetException`, `SaveMigrationException` and `SaveInspectorException`. Being
-under `ChestGameException` is not a label in this project, it is behaviour. `GameManager` catches
-exactly that base, turns whatever it caught into a content-unavailable popup and treats it as
-handled, on the understanding that anything outside it is a bug and is left to blow up where it can
-be seen. Everything those four types report is a wiring mistake: an unassigned prefab slot, a holder
-that was never built, a view that was never injected, two migrations claiming the same `FromVersion`.
-Reporting one of those as a delivery failure would tell a player their connection is bad and swallow
-the bug that caused it. `PrefabPoolTests` and `FrameBudgetedLoopTests` each pin that with an
-`IsNotInstanceOf<ChestGameException>`, so a later tidy-up of the hierarchy cannot quietly undo it.
+Five typed failures sit deliberately **outside** that base, all under `InvalidOperationException`:
+`PoolException`, `FrameBudgetException`, `SaveMigrationException`, `SaveInspectorException` and
+`PoolRaceException`. Being under `ChestGameException` is not a label in this project, it is behaviour.
+`GameManager` catches exactly that base, turns whatever it caught into a content-unavailable popup and
+treats it as handled, on the understanding that anything outside it is a bug and is left to blow up
+where it can be seen. Everything those five types report is a wiring mistake: an unassigned prefab
+slot, a holder that was never built, a view that was never injected, two migrations claiming the same
+`FromVersion`, the pooling demo set up with an unset-up race, an unknown solo strategy, or an
+unassigned document or prefab. Reporting one of those as a delivery failure would tell a player their
+connection is bad and swallow the bug that caused it. `PrefabPoolTests` and `FrameBudgetedLoopTests`
+each pin that with an `IsNotInstanceOf<ChestGameException>`, so a later tidy-up of the hierarchy cannot
+quietly undo it.
 
 Saving draws the same line twice, which is why it appears on both sides above: a save a build has no
 path forward for is data and stays `SaveException.NoMigrationPath`, while a broken migration chain is
@@ -392,6 +459,11 @@ different things: a container type for the type-keyed lookups, an authored strin
 id-keyed one. Type keys keep their original wording; anything else is quoted in the message, because
 a blank-looking id is otherwise invisible.
 
+`MissingAssetException` carries its path as a plain string, whatever key the loader that raised it was
+given, rather than an Addressables-specific type; `Common` holds no opinion about which loader that is.
+The overload taking an inner exception exists because the loader that raised it knows why the lookup
+failed; without it, only the key would reach the caller's report.
+
 ## Currency and rewards
 
 `CurrencyManager` wraps [Resource Bank](https://gitlab.com/tn-asset-library/resource-bank), providing
@@ -400,6 +472,12 @@ currencies by extending the `CurrencyType` enum. It takes an
 `IResourceBankSaveHandler<CurrencyType>` as its only constructor argument, registered in the scope,
 so a test can hand it an in-memory save instead of the real one.
 
+`OnCurrencyChanged` and `OnCurrencySpent` do not report the same number for the same spend:
+`OnCurrencyChanged` always reports the delta applied to the balance (negative for a spend, positive
+for an add), while `OnCurrencySpent` reports the size of the withdrawal as a positive amount. This
+mirrors what `ResourceBankCallbacks` itself documents, and `FakeCurrencyManager` reproduces the same
+asymmetry for tests that stand in for the real bank.
+
 The balance lives in a file, not in PlayerPrefs: `CurrencyResourceBankSaveHandle` writes through
 `ISaveService` to `<persistentDataPath>/Saves/currency.sav`, as readable, unprotected JSON swapped
 into place rather than overwritten. PlayerPrefs holds only the one-time legacy import - the
@@ -407,8 +485,7 @@ into place rather than overwritten. PlayerPrefs holds only the one-time legacy i
 and then renamed to `ResourceBankSaveData_CurrencyType.migrated` rather than deleted. Do not read
 that entry as the live balance; it is spent. See [saving.md](saving.md), "The legacy import".
 
-The class also marks the places a production game would hook up analytics and a currency purchase
-flow, both left as commented examples.
+The planned analytics hooks and purchase flow are recorded in [WIP.md](WIP.md).
 
 One simplification against the library's own example: `ResourceBank.ResourceIdMap`, which maps enum
 values to strings, was dropped. See

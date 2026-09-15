@@ -8,10 +8,14 @@ using UnityEngine;
 
 namespace Company.ChestGame.Tests.EditMode
 {
-    // FileStore against a real file system, under a throwaway root created per test and removed in
-    // TearDown regardless of outcome. Never Application.persistentDataPath and never
-    // FileStore.DefaultRootDirectory(): the constructor takes a root precisely so a test never has
-    // to touch a developer's real save folder. See docs/saving.md.
+    /// <summary>
+    /// Tests <see cref="FileStore"/> against a real file system, under a throwaway root created per
+    /// test and removed in <c>TearDown</c> regardless of outcome. Never
+    /// <c>Application.persistentDataPath</c> and never <see cref="FileStore.DefaultRootDirectory"/>.
+    /// </summary>
+    /// <remarks>
+    /// See docs/saving.md, "FileStore".
+    /// </remarks>
     public class FileStoreTests
     {
         private string _root;
@@ -29,8 +33,6 @@ namespace Company.ChestGame.Tests.EditMode
         {
             if (Directory.Exists(_root)) Directory.Delete(_root, recursive: true);
         }
-
-        // --- Key handling (property 5) -----------------------------------------------------------
 
         [TestCase(null)]
         [TestCase("")]
@@ -71,10 +73,6 @@ namespace Company.ChestGame.Tests.EditMode
         [Test]
         public void WriteAsync_WithAKeyContainingAnInvalidFilenameCharacter_ThrowsInvalidKey()
         {
-            // '/' is also an invalid file name character on this platform, so the case above alone
-            // would not tell "rejects a separator" apart from "rejects anything in
-            // GetInvalidFileNameChars". NUL is in that set and is not a separator, so this pins the
-            // other half of the check.
             char invalid = Array.Find(Path.GetInvalidFileNameChars(), c => c != Path.DirectorySeparatorChar && c != Path.AltDirectorySeparatorChar);
             string key = "a" + invalid + "b";
 
@@ -86,9 +84,6 @@ namespace Company.ChestGame.Tests.EditMode
         [Test]
         public void ReadAsync_ExistsAsync_AndDeleteAsync_AlsoRejectABadKey()
         {
-            // PathFor is one method shared by all four operations. This is not a repeat of the
-            // WriteAsync cases above; it is the check that the other three actually go through that
-            // same method rather than a copy of it that could drift.
             const string badKey = "a/b";
 
             Assert.Throws<SaveException>(
@@ -102,9 +97,6 @@ namespace Company.ChestGame.Tests.EditMode
         [Test]
         public void ARejectedKey_NeverResolvesToTheFileOfAnAcceptedOne()
         {
-            // An earlier version sanitised unsafe characters to '_', which mapped a/b and a_b onto
-            // the same file. This proves the replacement behaviour: rejection, not rewriting - the
-            // bad key throws instead of silently landing on the good key's file.
             byte[] original = { 1, 2, 3 };
             SynchronousUniTask.Complete(_store.WriteAsync("a_b", original, CancellationToken.None));
 
@@ -114,8 +106,6 @@ namespace Company.ChestGame.Tests.EditMode
             byte[] stillThere = SynchronousUniTask.Result(_store.ReadAsync("a_b", CancellationToken.None));
             CollectionAssert.AreEqual(original, stillThere, "the rejected write must not have landed on the accepted key's file");
         }
-
-        // --- Round trip and lifecycle (property 6) ------------------------------------------------
 
         [Test]
         public void WriteAsync_ThenReadAsync_ReturnsIdenticalBytes()
@@ -165,8 +155,6 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.IsTrue(Directory.Exists(_root));
         }
 
-        // --- Cancellation (property 7) ------------------------------------------------------------
-
         [Test]
         public void EveryMethod_WithAnAlreadyCancelledToken_ThrowsOperationCanceledException()
         {
@@ -185,8 +173,6 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.IsFalse(Directory.Exists(_root),
                 "a cancelled write must not have gotten far enough to create the root directory");
         }
-
-        // --- DefaultRootDirectory: read, never used to build a store in these tests --------------
 
         [Test]
         public void DefaultRootDirectory_IsSavesUnderPersistentDataPath()

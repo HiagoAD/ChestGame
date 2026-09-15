@@ -4,16 +4,20 @@ using Cysharp.Threading.Tasks;
 
 namespace Company.ChestGame.Saving.Demo
 {
-    // Edits a save SavePipelineProbe.RunAsync already wrote, in place, then reloads it through the
-    // same combination to see whether the edit is accepted or caught. Which edit applies is the
-    // whole demonstration: None, Base64 and Xor are decoded, edited and re-encoded exactly as a
-    // curious player with a decoder would; Hmac and Aes cannot be reached that way, so a byte in the
-    // protected body is flipped instead. See docs/saving.md, "The protectors, and what a key
-    // shipping inside the binary buys".
+    /// <summary>
+    /// Edits a save <see cref="SavePipelineProbe.RunAsync"/> already wrote, in place, then reloads it
+    /// through the same combination to see whether the edit is accepted or caught.
+    /// </summary>
+    /// <remarks>
+    /// See docs/saving.md, "The tamper button, and why it edits two different ways".
+    /// </remarks>
     public static class SaveTamper
     {
         private static readonly UTF8Encoding Utf8 = new(false);
 
+        /// <remarks>
+        /// See docs/saving.md, "The tamper button, and why it edits two different ways".
+        /// </remarks>
         public static async UniTask<SaveTamperResult> RunAsync(SaveStorage storage, SaveCodec codec, SaveProtection protection,
             SaveFactoryInputs inputs, string key, long tamperedBalance, CancellationToken ct)
         {
@@ -26,9 +30,6 @@ namespace Company.ChestGame.Saving.Demo
 
             SaveEnvelope envelope = SaveEnvelope.Parse(Utf8.GetString(storedBytes));
 
-            // Hmac and Aes: flip a byte of the protected body itself - the demo has no key-free way
-            // to reach the value underneath. Everything else: decode, edit the balance, re-encode -
-            // exactly what a curious player with a decoder does.
             byte[] tamperedBody = protection switch
             {
                 SaveProtection.Hmac => FlipLastByte(envelope.GetBody()),

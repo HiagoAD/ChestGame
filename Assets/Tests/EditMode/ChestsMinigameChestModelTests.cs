@@ -4,8 +4,10 @@ using NUnit.Framework;
 
 namespace Company.ChestGame.Tests.EditMode
 {
-    // ChestsMinigameChestModel is plain C# with no Unity dependency, so its whole state machine is
-    // reachable from edit mode.
+    /// <summary>
+    /// Exercises <see cref="ChestsMinigameChestModel"/>'s whole state machine, reachable from edit
+    /// mode because the model is plain C# with no Unity dependency.
+    /// </summary>
     public class ChestsMinigameChestModelTests
     {
         private ChestsMinigameChestModel _chest;
@@ -55,11 +57,12 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.AreEqual(0.3f, _chest.Completition);
         }
 
+        /// <remarks>
+        /// See docs/minigames.md, "The board is rebuilt every game".
+        /// </remarks>
         [Test]
         public void StateChangedEvent_SeesTheUpdatedProgress()
         {
-            // Completition is written before the state property raises, so a listener that reads
-            // both never observes a half-applied chest.
             float progressSeenByListener = -1f;
             _chest.OnStateChanged += _ => progressSeenByListener = _chest.Completition;
 
@@ -98,11 +101,12 @@ namespace Company.ChestGame.Tests.EditMode
             CollectionAssert.IsEmpty(_observedStates);
         }
 
+        /// <remarks>
+        /// See docs/minigames.md, "The board is rebuilt every game".
+        /// </remarks>
         [Test]
         public void SetOpening_AfterTheChestIsOpen_IsIgnored()
         {
-            // The progress loop and the open timer resume in the same frame. If a stray progress
-            // tick ever arrived after the chest opened, an opened chest would visibly reopen.
             _chest.SetOpen(true);
             _observedStates.Clear();
 

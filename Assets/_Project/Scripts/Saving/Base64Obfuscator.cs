@@ -3,9 +3,13 @@ using System.Text;
 
 namespace Company.ChestGame.Saving
 {
-    // Base64-encodes the codec's bytes and nothing more. Obfuscation only: anyone can reverse it
-    // without a key. IsTextSafe is false: the output is ASCII, but a base64 string is not itself a
-    // JSON value.
+    /// <summary>
+    /// Base64-encodes the codec's bytes and nothing more. Obfuscation only: anyone can reverse it
+    /// without a key.
+    /// </summary>
+    /// <remarks>
+    /// IsTextSafe is false: the output is ASCII, but a base64 string is not itself a JSON value.
+    /// </remarks>
     public class Base64Obfuscator : IPayloadProtector
     {
         public string Id => "base64";
@@ -13,7 +17,10 @@ namespace Company.ChestGame.Saving
 
         public byte[] Protect(byte[] plain) => Encoding.ASCII.GetBytes(Convert.ToBase64String(plain));
 
-        // Lets FormatException propagate: this type has no key to report a failure against.
+        /// <summary>
+        /// Lets <see cref="FormatException"/> propagate: this type has no key to report a failure
+        /// against.
+        /// </summary>
         public byte[] Unprotect(byte[] stored) => Convert.FromBase64String(Encoding.ASCII.GetString(stored));
     }
 }

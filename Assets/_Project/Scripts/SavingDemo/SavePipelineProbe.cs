@@ -6,15 +6,26 @@ using Cysharp.Threading.Tasks;
 
 namespace Company.ChestGame.Saving.Demo
 {
-    // Runs one storage/codec/protection combination end to end, composing the components directly
-    // rather than going through SaveServiceFactory. See docs/saving.md, "Why the probe builds from
-    // SaveComponentFactory rather than SaveServiceFactory".
+    /// <summary>
+    /// Runs one storage/codec/protection combination end to end, composing the components directly
+    /// rather than going through <see cref="SaveServiceFactory"/>.
+    /// </summary>
+    /// <remarks>
+    /// See docs/saving.md, "Why the probe builds from SaveComponentFactory rather than SaveServiceFactory".
+    /// </remarks>
     public static class SavePipelineProbe
     {
-        // throwOnInvalidBytes: true - the default UTF8Encoding silently replaces bad sequences with
-        // U+FFFD instead of reporting them, which would hide exactly the case Render exists to catch.
+        /// <summary>
+        /// Strict UTF-8 decoding used to detect a byte sequence <see cref="Render"/> cannot render as text.
+        /// </summary>
+        /// <remarks>
+        /// See docs/saving.md, "The bytes are always renderable, and that is structural".
+        /// </remarks>
         private static readonly UTF8Encoding StrictUtf8 = new(false, true);
 
+        /// <remarks>
+        /// See docs/saving.md, "Why the probe builds from SaveComponentFactory rather than SaveServiceFactory".
+        /// </remarks>
         public static async UniTask<SaveProbeResult> RunAsync(SaveStorage storage, SaveCodec codec, SaveProtection protection,
             SaveFactoryInputs inputs, string key, SaveInspectorDocument document, CancellationToken ct)
         {
@@ -31,7 +42,6 @@ namespace Company.ChestGame.Saving.Demo
             SaveInspectorDocument loaded = await service.LoadAsync<SaveInspectorDocument>(key, ct);
             readStopwatch.Stop();
 
-            // Straight back through the store, not a re-encode: this is what actually landed.
             byte[] rawBytes = await store.ReadAsync(key, ct);
             (string renderedText, bool isHexDump) = Render(rawBytes);
 
@@ -40,16 +50,23 @@ namespace Company.ChestGame.Saving.Demo
                 readStopwatch.Elapsed.TotalMilliseconds, loaded);
         }
 
-        // The plaintext baseline every combination's size is measured against. Runs the probe
-        // again under a different key rather than hard-coding a number, so a change to
-        // SaveInspectorDocument or SaveEnvelope's shape is reflected here too.
+        /// <summary>
+        /// The plaintext baseline every combination's size is measured against.
+        /// </summary>
+        /// <remarks>
+        /// See docs/saving.md, "The bytes are always renderable, and that is structural".
+        /// </remarks>
         public static UniTask<SaveProbeResult> RunBaselineAsync(SaveStorage storage, SaveFactoryInputs inputs,
             string baselineKey, SaveInspectorDocument document, CancellationToken ct) =>
             RunAsync(storage, SaveCodec.Json, SaveProtection.None, inputs, baselineKey, document, ct);
 
-        // isHexDump is true only when bytes is not valid UTF-8. Nothing this factory can build
-        // today produces that - every combination stores valid UTF-8 end to end - so the hex path
-        // exists for a byte sequence nothing ships today.
+        /// <summary>
+        /// Renders <paramref name="bytes"/> as text. <c>isHexDump</c> is true only when
+        /// <paramref name="bytes"/> is not valid UTF-8.
+        /// </summary>
+        /// <remarks>
+        /// See docs/saving.md, "The bytes are always renderable, and that is structural".
+        /// </remarks>
         public static (string text, bool isHexDump) Render(byte[] bytes)
         {
             if (bytes == null || bytes.Length == 0) return (string.Empty, false);

@@ -5,16 +5,25 @@ using Cysharp.Threading.Tasks;
 
 namespace Company.ChestGame.Tests.EditMode
 {
-    // An in-memory ISaveStore, so SaveService's own logic - the first-run/corrupt distinction, the
-    // version and component checks - can be tested without a real file system underneath it.
-    // FileStore gets its own fixture in FileStoreTests for what only a real file system can prove.
+    /// <summary>
+    /// An in-memory <see cref="ISaveStore"/> test double.
+    /// </summary>
+    /// <remarks>
+    /// See docs/testing.md, "The save fixtures".
+    /// </remarks>
     public class FakeSaveStore : ISaveStore
     {
         private readonly Dictionary<string, byte[]> _files = new();
 
-        // Bypasses SaveAsync, for tests that need an envelope on "disk" that SaveService's own
-        // codec and protector could never have produced - a corrupt one, one from a different
-        // schema version, one naming a different codec or protector.
+        /// <summary>
+        /// Stores <paramref name="bytes"/> directly under <paramref name="key"/>, bypassing
+        /// <see cref="WriteAsync"/> and the codec/protector pipeline it would normally go through.
+        /// </summary>
+        /// <remarks>
+        /// Use this to place an envelope on "disk" that the pipeline could never have produced
+        /// itself: a corrupt one, one from a different schema version, or one naming a different
+        /// codec or protector.
+        /// </remarks>
         public void Seed(string key, byte[] bytes) => _files[key] = bytes;
 
         public UniTask WriteAsync(string key, byte[] bytes, CancellationToken ct)
@@ -43,9 +52,13 @@ namespace Company.ChestGame.Tests.EditMode
             return UniTask.CompletedTask;
         }
 
-        // Every member above is a plain dictionary operation wrapped in an already-completed
-        // UniTask - nothing here ever suspends, so this is always true, matching every real
-        // ISaveStore this assembly ships except ThreadHoppingStore.
+        /// <summary>
+        /// Always <c>true</c>: every operation above is a dictionary access wrapped in an
+        /// already-completed <see cref="UniTask"/>, so none of them ever suspends.
+        /// </summary>
+        /// <remarks>
+        /// See docs/saving.md, "The thread hop, and why it is not inside SaveService".
+        /// </remarks>
         public bool CompletesOnCallingThread => true;
     }
 }

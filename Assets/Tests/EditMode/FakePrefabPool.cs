@@ -6,10 +6,13 @@ using UnityEngine;
 
 namespace Company.ChestGame.Tests.EditMode
 {
-    // A pool whose Get() costs a chosen amount of the fake clock's time instead of whatever a real
-    // pool costs. FakeGameClock never advances on its own and there is no engine underneath to make
-    // SetActive expensive, so the real pools are indistinguishable under it. This stands in for
-    // "cheap" and "expensive", the way FrameBudgetedLoopTests' CostlyStep stands in for real work.
+    /// <summary>
+    /// A pool whose Get() costs a chosen amount of the fake clock's time instead of whatever a real
+    /// pool costs.
+    /// </summary>
+    /// <remarks>
+    /// See docs/pooling.md, "How the race is measured".
+    /// </remarks>
     public sealed class FakePrefabPool<T> : IPrefabPool<T> where T : Component
     {
         private readonly FakeGameClock _clock;
@@ -56,11 +59,12 @@ namespace Company.ChestGame.Tests.EditMode
             foreach (T instance in new List<T>(_handedOut)) Release(instance);
         }
 
+        /// <remarks>
+        /// A no-op: <see cref="Get"/> always pays its cost fresh, so nothing here would be warmed.
+        /// See docs/pooling.md, "How the race is measured".
+        /// </remarks>
         public void Prewarm(int count)
         {
-            // Nothing parks here - Get pays the cost fresh every time - so warming would only inflate
-            // CreatedCount without the race seeing a hit. The tests that care about prewarming use
-            // the real pools, where a hit is real.
         }
 
         public void Trim() { }
