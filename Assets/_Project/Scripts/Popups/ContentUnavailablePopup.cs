@@ -28,6 +28,6 @@ namespace Company.ChestGame.Popups
 
         protected override void OnInitialize() => _messageText.text = Data.Message;
 
-        private void Close() => Destroy(gameObject);
+        private void Close() => RequestClose();
     }
 }

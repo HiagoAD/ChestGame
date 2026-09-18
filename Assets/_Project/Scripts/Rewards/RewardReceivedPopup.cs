@@ -1,4 +1,3 @@
-using System;
 using System.Threading.Tasks;
 using Company.ChestGame.Currency;
 using Company.ChestGame.Popups;
@@ -39,14 +38,14 @@ namespace Company.ChestGame.Rewards
             {
                 CurrencyType.Coins => coinsSprite,
                 CurrencyType.Gems => gemsSprite,
-                _ => throw new NotImplementedException()
+                _ => throw new UnmappedCurrencyIconException(Data.CurrencyType)
             };
             amountText.text = $"+{Data.Amount} {Data.CurrencyType}";
         }
 
         private void OnCloseButton()
         {
-            Destroy(gameObject);
+            RequestClose();
         }
 
 

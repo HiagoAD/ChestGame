@@ -37,8 +37,15 @@ namespace Company.ChestGame.Popups
 
             TPopup popup = Object.Instantiate(popupPrefab, parent) as TPopup;
             popup.Initialize(data);
+            popup.OnCloseRequested += OnPopupCloseRequested;
 
             return popup;
+        }
+
+        private static void OnPopupCloseRequested(PopupBase popup)
+        {
+            popup.OnCloseRequested -= OnPopupCloseRequested;
+            Object.Destroy(popup.gameObject);
         }
     }
 }

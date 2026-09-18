@@ -87,6 +87,14 @@ is what all three save keys (`currency`, `chests`, `meta`) read and write throug
 touch `GameBootstrapperTests`, `GameLifetimeScopeTests` and [saving.md](saving.md) for no behavioural
 gain, so the names stay for now and their declarations say what they actually govern.
 
+## `RewardsManager` still throws an untyped `NotImplementedException`
+
+`RewardsManager.cs:36` has the same shape the MVC pass fixed in `RewardReceivedPopup`: a
+`CurrencyType` switch whose default arm throws `NotImplementedException`, so an unmapped currency
+escapes as an exception nothing under `ChestGameException` can catch. The popup's version became
+`UnmappedCurrencyIconException`; this one was left alone because it is reward logic rather than a
+view, and widening the MVC pass into it would have muddied that diff. It wants the same treatment.
+
 ## Known gaps in the tests
 
 - **`GameShellView`'s own behaviour is untested.** The shell's rules moved to `GameShellController`
