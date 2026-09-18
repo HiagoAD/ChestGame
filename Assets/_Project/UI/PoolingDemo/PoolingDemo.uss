@@ -196,7 +196,7 @@
     position: absolute;
     top: 160px;
     right: var(--gutter);
-    min-width: 240px;
+    min-width: 256px;
     font-size: 26px;
 }
 

@@ -1926,15 +1926,20 @@ The toggle itself moves to `top: 272px`, below the pooling toggle's 160-256 band
 while both are collapsed.
 
 The two toggles also have to read as one stack, and the label is what decides that. Each toggle is as
-wide as its label needs above a shared `min-width: 240px`. "Pooling Demo" fits inside that floor;
-"Save Inspector" did not, so its button grew to 246 px, left the stack with a ragged left edge, and
-squeezed its own padding to almost nothing beside the roomier button above it. The button now reads
-**Saving Demo**. That follows the convention the existing toggle already set - the button names a
-topic, the panel it opens carries the full title, the same way "Pooling Demo" opens "Object Pooling" -
-and it fits the shared floor, so both buttons resolve to exactly 240 x 96 with aligned edges without
-the pooling demo changing at all. A future label that outgrows 240 px widens only its own button;
-`DemoOverlaysPlayModeTests` fails on exactly that, rather than a reviewer having to notice it. Game UI canvases sort at 0, so 99 still draws above the game. The pooling
-demo is untouched: the save inspector carries the asymmetry on its own.
+wide as its label needs above a shared `min-width`, so the stack only lines up while that floor is
+above every label. "Save Inspector" overflowed it, so its button grew, left the stack with a ragged
+left edge, and squeezed its own padding to almost nothing beside the button above it. The button now
+reads **Saving Demo**, following the convention the existing toggle already set - the button names a
+topic, the panel it opens carries the full title, the same way "Pooling Demo" opens "Object Pooling".
+
+The floor is `256px`, and it has to clear the *longest* label rather than the shortest. It was 240px
+on the assumption that "Pooling Demo" fitted inside it, which it does not: that label needs 248px, so
+the pooling toggle sat 8px wider than the save inspector's and the column was ragged from the start.
+Raising the floor above both labels is what makes the two resolve to the same width with aligned
+edges. A future label that outgrows 256px widens only its own button and breaks the alignment again;
+`DemoOverlaysPlayModeTests.Collapsed_TheTwoDemoToggles_FormOneAlignedColumn` fails on exactly that,
+rather than a reviewer having to notice it - which is how this was caught. Game UI canvases sort at 0,
+so 99 still draws above the game.
 
 This is a fixed arrangement for exactly two overlays. A third full-screen overlay would need its
 toggle below both existing chromes and its chrome above both existing toggles, and past that point
