@@ -99,8 +99,10 @@ gain, so the names stay for now and their declarations say what they actually go
   `CurrencyLabelView` in the scene got bound, but it finds one with `FindAnyObjectByType`, so nothing
   asserts that the "GemsArea" and "CoinsArea" instances resolve to controllers watching
   `CurrencyType.Gems` and `CurrencyType.Coins` respectively.
-- **No test reads the boot status label back.** `IBootStatus` is registered and resolved under test,
-  and `BootStatusLabel` is three lines, but nothing drives boot and reads the label.
+- **`GameLifetimeScope.Configure`'s unwired-label branch is unexercised.** `BootStatusLabelTests`
+  reads the label back and `BootStatusModelTests` covers the model, but `Configure` only runs through
+  the real `LifetimeScope` lifecycle, so the case where the serialized `_bootStatus` is missing and
+  the model ends up bound to nothing is not asserted anywhere.
 - **The play-mode ordering test is dormant.**
   `ChestsMinigameIntegrationTests.OnTheRealPlayerLoop_NoProgressTickLandsAfterAChestOpens` passes
   with or without the `SetOpening` guard, because the real player loop currently orders the two tasks

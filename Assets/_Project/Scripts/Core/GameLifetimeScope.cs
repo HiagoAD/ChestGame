@@ -84,9 +84,13 @@ namespace Company.ChestGame.Core
         /// <remarks>
         /// See docs/architecture.md, "Telling the player what boot is doing".
         /// </remarks>
-        protected override void Configure(IContainerBuilder builder) =>
-            RegisterCoreServices(builder, _bootStatus != null ? _bootStatus : null,
-                CurrencySaveInputsOverride, LegacyCurrencyPlayerPrefsKeyOverride);
+        protected override void Configure(IContainerBuilder builder)
+        {
+            BootStatusModel bootStatus = new();
+            if (_bootStatus != null) _bootStatus.Bind(bootStatus);
+
+            RegisterCoreServices(builder, bootStatus, CurrencySaveInputsOverride, LegacyCurrencyPlayerPrefsKeyOverride);
+        }
 
         /// <summary>
         /// Registers everything buildable the moment the container is, needing no loaded asset.

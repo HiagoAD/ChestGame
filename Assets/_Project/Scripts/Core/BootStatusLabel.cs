@@ -4,23 +4,40 @@ using UnityEngine;
 namespace Company.ChestGame.Core
 {
     /// <summary>
-    /// Boot scene's <see cref="IBootStatus"/>, backed by a serialized <see cref="TMP_Text"/> label.
+    /// Boot scene's view for <see cref="BootStatusModel"/>, backed by a serialized
+    /// <see cref="TMP_Text"/> label.
     /// </summary>
     /// <remarks>
-    /// See docs/architecture.md, "Telling the player what boot is doing".
+    /// Binds to a model rather than a controller: there is no behaviour here to control, and a label
+    /// that mirrors a string needs none. See docs/mvc.md. See docs/architecture.md, "Telling the
+    /// player what boot is doing".
     /// </remarks>
-    public class BootStatusLabel : MonoBehaviour, IBootStatus
+    public class BootStatusLabel : MonoBehaviour
     {
         [SerializeField] private TMP_Text _label;
 
+        private BootStatusModel _model;
+
         /// <summary>
-        /// Writes <paramref name="message"/> to the label. Does nothing if the label was never wired.
+        /// Subscribes to <paramref name="model"/> and renders its current
+        /// <see cref="BootStatusModel.Message"/> immediately.
         /// </summary>
-        /// <param name="message">The status text to display.</param>
-        /// <remarks>
-        /// See docs/architecture.md, "Telling the player what boot is doing".
-        /// </remarks>
-        public void Report(string message)
+        /// <param name="model">The model to render.</param>
+        public void Bind(BootStatusModel model)
+        {
+            _model = model;
+            _model.OnMessageChanged += Render;
+            Render(_model.Message);
+        }
+
+        private void OnDestroy()
+        {
+            if (_model == null) return;
+
+            _model.OnMessageChanged -= Render;
+        }
+
+        private void Render(string message)
         {
             if (_label == null) return;
 
