@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using Company.ChestGame.Common;
+using Company.ChestGame.Mvc;
 using Cysharp.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.UI;
@@ -13,12 +15,10 @@ namespace Company.ChestGame.Pooling.Demo
     /// prefab, races whatever prefab it is given, and nothing in the game holds a reference to it.
     /// </summary>
     /// <remarks>
-    /// See docs/architecture.md, "Assembly layout".
+    /// See docs/architecture.md, "Assembly layout". See docs/mvc.md.
     /// </remarks>
-    public sealed class PoolingDemoPanel : MonoBehaviour
+    public sealed class PoolingDemoPanel : ViewBase<IPoolRaceController>
     {
-        private static readonly int[] BoardSizes = { 8, 100, 500, 2000 };
-
         /// <summary>
         /// The fill budget every lane races under.
         /// </summary>
@@ -26,12 +26,6 @@ namespace Company.ChestGame.Pooling.Demo
         /// See docs/pooling.md, "PoolRace, and why simultaneous lanes are not solo timings".
         /// </remarks>
         private const double FillBudgetMilliseconds = 2d;
-
-        /// <summary>
-        /// The largest selectable board size. Every lane's pool is bounded to this once, so switching
-        /// board size between races never has to rebuild a pool, only trim it.
-        /// </summary>
-        private const int MaxBoardSize = 2000;
 
         private const string SelectedClass = "is-selected";
 
@@ -55,18 +49,12 @@ namespace Company.ChestGame.Pooling.Demo
         [Header("What to race")]
         [SerializeField] private RectTransform _itemPrefab;
 
-        private IPoolRaceController _race;
         private PoolStrategy[] _laneOrder;
 
         private VisualElement _chrome;
         private VisualElement _lanesSlot;
         private Button _toggleButton;
         private bool _expanded;
-
-        private int _boardSizeIndex = 1;
-        private FillMode _fillMode = FillMode.Cold;
-        private bool _solo;
-        private PoolStrategy _soloStrategy = PoolStrategy.ActivationPool;
 
         private Button[] _boardSizeButtons;
         private Button[] _strategyButtons;
@@ -77,11 +65,9 @@ namespace Company.ChestGame.Pooling.Demo
         private Label _readoutLabel;
         private Label _peakFrameLabel;
 
-        private float _peakFrameSeconds;
-
         /// <summary>
-        /// Validates the authored references, binds the chrome, builds the race, and starts
-        /// collapsed.
+        /// Validates the authored references, builds and binds the controller, binds the chrome,
+        /// and starts collapsed.
         /// </summary>
         /// <exception cref="PoolRaceException">
         /// When <c>_document</c> or <c>_itemPrefab</c> is unassigned, <c>_laneSlots</c>' length does
@@ -102,22 +88,54 @@ namespace Company.ChestGame.Pooling.Demo
                 throw PoolRaceException.LaneSlotCountMismatch(_laneOrder.Length, _laneSlots?.Length ?? 0);
             }
 
+            Bind(BuildController());
             BindChrome();
-            BuildRace();
 
             _expanded = true;
             ToggleExpanded();
         }
 
+        /// <summary>
+        /// Builds the lanes from the authored item prefab and lane slots, bounding every lane's
+        /// pool to <see cref="PoolRace{T}.MaxBoardSize"/>, and races them on their own
+        /// <see cref="UnityGameClock"/> linked to this panel's destruction.
+        /// </summary>
         /// <remarks>
         /// See docs/pooling.md, "PoolingDemoPanel's startup order".
         /// </remarks>
-        private void OnDestroy()
+        private IPoolRaceController BuildController()
+        {
+            Transform[] laneRoots = new Transform[_laneSlots.Length];
+            for (int i = 0; i < _laneSlots.Length; i++) laneRoots[i] = _laneSlots[i];
+
+            PoolRaceLane<RectTransform>[] lanes =
+                PoolRaceLaneFactory.BuildAll(_itemPrefab, laneRoots, PoolRace<RectTransform>.MaxBoardSize);
+
+            return new PoolRace<RectTransform>(lanes, new UnityGameClock(), FillBudgetMilliseconds, this.GetCancellationTokenOnDestroy());
+        }
+
+        protected override void OnBind()
+        {
+            Controller.OnRaceCompleted += OnRaceCompleted;
+            Controller.OnSelectionChanged += RefreshControlLabels;
+        }
+
+        /// <summary>Unsubscribes from the controller and disposes it, since this view owns it.</summary>
+        protected override void OnUnbind()
+        {
+            Controller.OnRaceCompleted -= OnRaceCompleted;
+            Controller.OnSelectionChanged -= RefreshControlLabels;
+            Controller.Dispose();
+        }
+
+        /// <remarks>
+        /// See docs/pooling.md, "PoolingDemoPanel's startup order".
+        /// </remarks>
+        protected override void OnDestroy()
         {
             if (_lanesSlot != null) _lanesSlot.UnregisterCallback<GeometryChangedEvent>(OnLanesSlotGeometryChanged);
-            if (_race != null) _race.OnRaceCompleted -= OnRaceCompleted;
 
-            _race?.Dispose();
+            base.OnDestroy();
         }
 
         private void OnLanesSlotGeometryChanged(GeometryChangedEvent _) => PlaceLanes();
@@ -127,10 +145,10 @@ namespace Company.ChestGame.Pooling.Demo
         /// </remarks>
         private void Update()
         {
-            if (_race == null || !_race.IsRunning) return;
+            if (!IsBound || !Controller.IsRunning) return;
 
-            _peakFrameSeconds = Mathf.Max(_peakFrameSeconds, Time.unscaledDeltaTime);
-            _peakFrameLabel.text = $"Peak frame time (real, this device): {_peakFrameSeconds * 1000f:F1} ms";
+            Controller.Tick(Time.unscaledDeltaTime);
+            _peakFrameLabel.text = $"Peak frame time (real, this device): {Controller.PeakFrameSeconds * 1000f:F1} ms";
         }
 
         /// <remarks>
@@ -153,18 +171,19 @@ namespace Company.ChestGame.Pooling.Demo
             Required<Button>(root, "run-button").clicked += OnRunClicked;
 
             _fillModeButton = Required<Button>(root, "fill-mode-button");
-            _fillModeButton.clicked += CycleFillMode;
+            _fillModeButton.clicked += Controller.CycleFillMode;
 
             _modeButton = Required<Button>(root, "mode-button");
-            _modeButton.clicked += ToggleSolo;
+            _modeButton.clicked += Controller.ToggleSolo;
 
-            _boardSizeButtons = new Button[BoardSizes.Length];
-            for (int i = 0; i < BoardSizes.Length; i++)
+            IReadOnlyList<int> boardSizes = Controller.BoardSizes;
+            _boardSizeButtons = new Button[boardSizes.Count];
+            for (int i = 0; i < boardSizes.Count; i++)
             {
                 int index = i;
                 _boardSizeButtons[i] = Required<Button>(root, $"size-{i}");
-                _boardSizeButtons[i].text = BoardSizes[i].ToString();
-                _boardSizeButtons[i].clicked += () => SetBoardSize(index);
+                _boardSizeButtons[i].text = boardSizes[i].ToString();
+                _boardSizeButtons[i].clicked += () => Controller.SetBoardSize(index);
             }
 
             _strategyButtons = new Button[_laneOrder.Length];
@@ -175,7 +194,7 @@ namespace Company.ChestGame.Pooling.Demo
                 int index = i;
                 _strategyButtons[i] = Required<Button>(root, $"strategy-{i}");
                 _strategyButtons[i].text = ShortNameOf(_laneOrder[i]);
-                _strategyButtons[i].clicked += () => SetSoloStrategy(index);
+                _strategyButtons[i].clicked += () => Controller.SetSoloStrategy(_laneOrder[index]);
 
                 Required<Label>(root, $"lane-name-{i}").text = _laneOrder[i].ToString();
                 _headlineLabels[i] = Required<Label>(root, $"lane-headline-{i}");
@@ -201,21 +220,6 @@ namespace Company.ChestGame.Pooling.Demo
             if (element == null) throw PoolRaceException.MissingElement(typeof(T).Name, name);
 
             return element;
-        }
-
-        /// <remarks>
-        /// See docs/pooling.md, "PoolingDemoPanel's startup order".
-        /// </remarks>
-        private void BuildRace()
-        {
-            Transform[] laneRoots = new Transform[_laneSlots.Length];
-            for (int i = 0; i < _laneSlots.Length; i++) laneRoots[i] = _laneSlots[i];
-
-            PoolRaceLane<RectTransform>[] lanes = PoolRaceLaneFactory.BuildAll(_itemPrefab, laneRoots, MaxBoardSize);
-
-            PoolRace<RectTransform> race = new(lanes, new UnityGameClock(), FillBudgetMilliseconds, this.GetCancellationTokenOnDestroy());
-            race.OnRaceCompleted += OnRaceCompleted;
-            _race = race;
         }
 
         /// <remarks>
@@ -249,47 +253,14 @@ namespace Company.ChestGame.Pooling.Demo
             if (_expanded) PlaceLanes();
         }
 
-        private void SetBoardSize(int index)
-        {
-            _boardSizeIndex = index;
-            RefreshControlLabels();
-        }
-
-        /// <summary>
-        /// Cycles the fill mode Cold -> Prewarmed -> Reuse -> Cold.
-        /// </summary>
-        private void CycleFillMode()
-        {
-            _fillMode = _fillMode switch
-            {
-                FillMode.Cold => FillMode.Prewarmed,
-                FillMode.Prewarmed => FillMode.Reuse,
-                _ => FillMode.Cold
-            };
-            RefreshControlLabels();
-        }
-
-        private void ToggleSolo()
-        {
-            _solo = !_solo;
-            RefreshControlLabels();
-        }
-
-        private void SetSoloStrategy(int index)
-        {
-            _soloStrategy = _laneOrder[index];
-            RefreshControlLabels();
-        }
-
         private void OnRunClicked()
         {
-            _peakFrameSeconds = 0f;
             _peakFrameLabel.text = "Peak frame time: -";
-            _readoutLabel.text = _solo
-                ? $"Running solo: {_soloStrategy} ({_fillMode})..."
-                : $"Running all four ({_fillMode})...";
+            _readoutLabel.text = Controller.Solo
+                ? $"Running solo: {Controller.SoloStrategy} ({Controller.FillMode})..."
+                : $"Running all four ({Controller.FillMode})...";
 
-            _race.StartRace(BoardSizes[_boardSizeIndex], _fillMode, _solo, _soloStrategy);
+            Controller.StartRace();
         }
 
         /// <remarks>
@@ -299,16 +270,16 @@ namespace Company.ChestGame.Pooling.Demo
         {
             for (int i = 0; i < _boardSizeButtons.Length; i++)
             {
-                _boardSizeButtons[i].EnableInClassList(SelectedClass, i == _boardSizeIndex);
+                _boardSizeButtons[i].EnableInClassList(SelectedClass, i == Controller.BoardSizeIndex);
             }
 
             for (int i = 0; i < _strategyButtons.Length; i++)
             {
-                _strategyButtons[i].EnableInClassList(SelectedClass, _solo && _laneOrder[i] == _soloStrategy);
+                _strategyButtons[i].EnableInClassList(SelectedClass, Controller.Solo && _laneOrder[i] == Controller.SoloStrategy);
             }
 
-            _fillModeButton.text = $"Fill: {_fillMode}";
-            _modeButton.text = _solo ? "Mode: Solo" : "Mode: All Four";
+            _fillModeButton.text = $"Fill: {Controller.FillMode}";
+            _modeButton.text = Controller.Solo ? "Mode: Solo" : "Mode: All Four";
         }
 
         /// <summary>

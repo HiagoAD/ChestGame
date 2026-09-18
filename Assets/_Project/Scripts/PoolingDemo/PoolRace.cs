@@ -18,6 +18,14 @@ namespace Company.ChestGame.Pooling.Demo
     /// </remarks>
     public sealed class PoolRace<T> : IPoolRaceController where T : Component
     {
+        /// <summary>
+        /// The largest selectable board size. Every lane's pool is bounded to this once, so
+        /// switching board size between races never has to rebuild a pool, only trim it.
+        /// </summary>
+        public const int MaxBoardSize = 2000;
+
+        private static readonly int[] BoardSizeValues = { 8, 100, 500, MaxBoardSize };
+
         private readonly IReadOnlyList<PoolRaceLane<T>> _lanes;
         private readonly IGameClock _clock;
         private readonly double _budgetMilliseconds;
@@ -26,9 +34,23 @@ namespace Company.ChestGame.Pooling.Demo
         private CancellationTokenSource _raceCancellation;
         private bool _disposed;
 
+        private int _boardSizeIndex = 1;
+        private FillMode _fillMode = FillMode.Cold;
+        private bool _solo;
+        private PoolStrategy _soloStrategy = PoolStrategy.ActivationPool;
+        private float _peakFrameSeconds;
+
+        public IReadOnlyList<int> BoardSizes => BoardSizeValues;
+        public int BoardSizeIndex => _boardSizeIndex;
+        public FillMode FillMode => _fillMode;
+        public bool Solo => _solo;
+        public PoolStrategy SoloStrategy => _soloStrategy;
+
         public bool IsRunning => _raceCancellation != null;
         public RaceResult? LastResult { get; private set; }
+        public float PeakFrameSeconds => _peakFrameSeconds;
 
+        public event Action OnSelectionChanged;
         public event Action<RaceResult> OnRaceCompleted;
 
         /// <summary>
@@ -91,10 +113,14 @@ namespace Company.ChestGame.Pooling.Demo
             CancelRace();
             PrepareLanes(running, fillMode, boardSize);
 
+            _peakFrameSeconds = 0f;
             CancellationTokenSource ownCancellation = CancellationTokenSource.CreateLinkedTokenSource(_externalToken);
             _raceCancellation = ownCancellation;
             RunRaceAsync(running, boardSize, fillMode, solo, ownCancellation).Forget();
         }
+
+        /// <summary>Starts a race over <see cref="BoardSizeIndex"/>, <see cref="FillMode"/>, <see cref="Solo"/> and <see cref="SoloStrategy"/>.</summary>
+        public void StartRace() => StartRace(BoardSizeValues[_boardSizeIndex], _fillMode, _solo, _soloStrategy);
 
         public void CancelRace()
         {
@@ -103,6 +129,42 @@ namespace Company.ChestGame.Pooling.Demo
             _raceCancellation.Cancel();
             _raceCancellation.Dispose();
             _raceCancellation = null;
+        }
+
+        public void SetBoardSize(int index)
+        {
+            _boardSizeIndex = index;
+            OnSelectionChanged?.Invoke();
+        }
+
+        public void CycleFillMode()
+        {
+            _fillMode = _fillMode switch
+            {
+                FillMode.Cold => FillMode.Prewarmed,
+                FillMode.Prewarmed => FillMode.Reuse,
+                _ => FillMode.Cold
+            };
+            OnSelectionChanged?.Invoke();
+        }
+
+        public void ToggleSolo()
+        {
+            _solo = !_solo;
+            OnSelectionChanged?.Invoke();
+        }
+
+        public void SetSoloStrategy(PoolStrategy strategy)
+        {
+            _soloStrategy = strategy;
+            OnSelectionChanged?.Invoke();
+        }
+
+        public void Tick(float deltaTimeSeconds)
+        {
+            if (!IsRunning) return;
+
+            _peakFrameSeconds = Mathf.Max(_peakFrameSeconds, deltaTimeSeconds);
         }
 
         public void Dispose()

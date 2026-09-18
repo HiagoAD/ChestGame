@@ -261,6 +261,143 @@ namespace Company.ChestGame.Tests.EditMode
             }
         }
 
+        [Test]
+        public void NewRace_SelectionDefaults_MatchWhatTheDemoOpensWith()
+        {
+            PoolRace<RectTransform> race = new(new[] { FakeLane(PoolStrategy.ActivationPool, 1d) }, _clock, BudgetMilliseconds);
+
+            Assert.AreEqual(1, race.BoardSizeIndex);
+            Assert.AreEqual(FillMode.Cold, race.FillMode);
+            Assert.IsFalse(race.Solo);
+            Assert.AreEqual(PoolStrategy.ActivationPool, race.SoloStrategy);
+        }
+
+        [Test]
+        public void BoardSizes_LargestValue_EqualsMaxBoardSize()
+        {
+            PoolRace<RectTransform> race = new(new[] { FakeLane(PoolStrategy.ActivationPool, 1d) }, _clock, BudgetMilliseconds);
+
+            Assert.AreEqual(PoolRace<RectTransform>.MaxBoardSize, race.BoardSizes[race.BoardSizes.Count - 1],
+                "the largest selectable board size has to be exactly what every lane's pool was built with room for, or the biggest selection could ask a lane to hold more than it has space for");
+        }
+
+        [Test]
+        public void SetBoardSize_ChangesBoardSizeIndex_AndRaisesOnSelectionChanged()
+        {
+            PoolRace<RectTransform> race = new(new[] { FakeLane(PoolStrategy.ActivationPool, 1d) }, _clock, BudgetMilliseconds);
+            int raised = 0;
+            race.OnSelectionChanged += () => raised++;
+
+            race.SetBoardSize(2);
+
+            Assert.AreEqual(2, race.BoardSizeIndex);
+            Assert.AreEqual(1, raised);
+        }
+
+        [Test]
+        public void CycleFillMode_GoesColdThenPrewarmedThenReuseThenBackToCold()
+        {
+            PoolRace<RectTransform> race = new(new[] { FakeLane(PoolStrategy.ActivationPool, 1d) }, _clock, BudgetMilliseconds);
+
+            race.CycleFillMode();
+            Assert.AreEqual(FillMode.Prewarmed, race.FillMode);
+
+            race.CycleFillMode();
+            Assert.AreEqual(FillMode.Reuse, race.FillMode);
+
+            race.CycleFillMode();
+            Assert.AreEqual(FillMode.Cold, race.FillMode);
+        }
+
+        [Test]
+        public void ToggleSolo_FlipsSolo_AndRaisesOnSelectionChanged()
+        {
+            PoolRace<RectTransform> race = new(new[] { FakeLane(PoolStrategy.ActivationPool, 1d) }, _clock, BudgetMilliseconds);
+            int raised = 0;
+            race.OnSelectionChanged += () => raised++;
+
+            race.ToggleSolo();
+            Assert.IsTrue(race.Solo);
+
+            race.ToggleSolo();
+            Assert.IsFalse(race.Solo);
+
+            Assert.AreEqual(2, raised);
+        }
+
+        [Test]
+        public void SetSoloStrategy_ChangesSoloStrategy_AndRaisesOnSelectionChanged()
+        {
+            PoolRaceLane<RectTransform>[] lanes = { FakeLane(PoolStrategy.ActivationPool, 1d), FakeLane(PoolStrategy.UnityPool, 1d) };
+            PoolRace<RectTransform> race = new(lanes, _clock, BudgetMilliseconds);
+            int raised = 0;
+            race.OnSelectionChanged += () => raised++;
+
+            race.SetSoloStrategy(PoolStrategy.UnityPool);
+
+            Assert.AreEqual(PoolStrategy.UnityPool, race.SoloStrategy);
+            Assert.AreEqual(1, raised);
+        }
+
+        [Test]
+        public void StartRace_Parameterless_RunsTheCurrentlySelectedBoardSizeFillModeAndStrategy()
+        {
+            PoolRaceLane<RectTransform>[] lanes = { FakeLane(PoolStrategy.ActivationPool, 1d), FakeLane(PoolStrategy.ParkedPool, 1d) };
+            PoolRace<RectTransform> race = new(lanes, _clock, BudgetMilliseconds);
+
+            race.SetBoardSize(0);
+            race.ToggleSolo();
+            race.SetSoloStrategy(PoolStrategy.ParkedPool);
+
+            race.StartRace();
+            _clock.AdvanceUntilIdle();
+
+            Assert.IsTrue(race.LastResult.HasValue, "guard: the race has to have settled");
+            Assert.IsTrue(race.LastResult.Value.Solo, "the solo selection should have carried into the parameterless start");
+            Assert.AreEqual(1, race.LastResult.Value.Lanes.Count, "solo carries exactly one lane");
+            Assert.AreEqual(PoolStrategy.ParkedPool, race.LastResult.Value.Lanes[0].Strategy,
+                "the selected solo strategy should have carried into the parameterless start");
+            Assert.AreEqual(race.BoardSizes[0], race.LastResult.Value.Lanes[0].PlacedCount,
+                "the selected board size should have carried into the parameterless start");
+        }
+
+        [Test]
+        public void Tick_WhileRunning_TracksThePeakDeltaTime_AndClearsOnTheNextRace()
+        {
+            PoolRaceLane<RectTransform>[] lanes =
+            {
+                FakeLane(PoolStrategy.ActivationPool, 4d),
+                FakeLane(PoolStrategy.ParkedPool, 4d)
+            };
+            PoolRace<RectTransform> race = new(lanes, _clock, BudgetMilliseconds);
+
+            race.StartRace(9, FillMode.Cold, solo: false, PoolStrategy.ActivationPool);
+            Assert.AreEqual(0f, race.PeakFrameSeconds, "guard: a freshly started race has nothing recorded yet");
+
+            race.Tick(0.016f);
+            race.Tick(0.033f);
+            race.Tick(0.02f);
+
+            Assert.AreEqual(0.033f, race.PeakFrameSeconds, 0.0001f,
+                "the peak has to be the largest tick handed to it, not the last one or their sum");
+
+            _clock.AdvanceUntilIdle();
+            Assert.IsTrue(race.LastResult.HasValue, "guard: the race has to have settled");
+
+            race.StartRace(9, FillMode.Cold, solo: false, PoolStrategy.ActivationPool);
+            Assert.AreEqual(0f, race.PeakFrameSeconds, "starting a new race has to clear the previous race's peak");
+        }
+
+        [Test]
+        public void Tick_WhileNotRunning_DoesNothing()
+        {
+            PoolRace<RectTransform> race = new(new[] { FakeLane(PoolStrategy.ActivationPool, 1d) }, _clock, BudgetMilliseconds);
+
+            race.Tick(5f);
+
+            Assert.AreEqual(0f, race.PeakFrameSeconds, "a race that never started has nothing to measure");
+        }
+
         /// <summary>
         /// Expects exactly <paramref name="count"/> occurrences of the edit-mode destroy-refusal
         /// error log, matched by regex. Call before the action that triggers them.
