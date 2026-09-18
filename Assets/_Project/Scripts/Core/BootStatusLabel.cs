@@ -1,3 +1,4 @@
+using System;
 using TMPro;
 using UnityEngine;
 
@@ -23,8 +24,17 @@ namespace Company.ChestGame.Core
         /// <see cref="BootStatusModel.Message"/> immediately.
         /// </summary>
         /// <param name="model">The model to render.</param>
+        /// <exception cref="ArgumentNullException"><paramref name="model"/> is <c>null</c>.</exception>
+        /// <exception cref="InvalidOperationException">This label is already bound.</exception>
         public void Bind(BootStatusModel model)
         {
+            if (model == null) throw new ArgumentNullException(nameof(model));
+            if (_model != null)
+            {
+                throw new InvalidOperationException(
+                    $"{nameof(BootStatusLabel)} is already bound; a view binds once per instance");
+            }
+
             _model = model;
             _model.OnMessageChanged += Render;
             Render(_model.Message);

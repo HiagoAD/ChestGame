@@ -130,6 +130,34 @@ namespace Company.ChestGame.Tests.EditMode
         }
 
         [Test]
+        public void StartAsync_CancelledMidFlight_UnwindsWithoutSpawningAPopup()
+        {
+            const string label = "content.stalled";
+            MinigameContainer container = BuildContainer("id",
+                definition => definition.WithContent(label, MinigameLoadPolicy.OnDemand));
+            _assets.WithDownloadSize(label, 4096);
+            _assets.StallDownloads = true;
+
+            List<bool> busyStates = new();
+            _controller.OnBusyChanged += busyStates.Add;
+
+            using CancellationTokenSource cancellation = new();
+            UniTask starting = _controller.StartAsync("id", _parent.transform, cancellation.Token);
+            Assert.AreEqual(UniTaskStatus.Pending, starting.Status,
+                "guard: the start has to be in flight for cancelling it to mean anything");
+
+            cancellation.Cancel();
+
+            Assert.AreEqual(UniTaskStatus.Canceled, starting.Status,
+                "a cancelled start must surface as cancellation rather than completing");
+            Assert.IsEmpty(_popups.SpawnCalls,
+                "cancelling a start is not a content failure, so it must not reach the player as one");
+            CollectionAssert.AreEqual(new[] { true, false }, busyStates,
+                "the busy flag must clear when a cancelled start unwinds, or the button stays dead");
+            Assert.IsFalse(container.Running);
+        }
+
+        [Test]
         public void StartAsync_RaisesBusyThenNotBusy()
         {
             BuildContainer("id");
