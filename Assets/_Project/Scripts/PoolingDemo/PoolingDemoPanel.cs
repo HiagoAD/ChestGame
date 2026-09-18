@@ -88,8 +88,17 @@ namespace Company.ChestGame.Pooling.Demo
                 throw PoolRaceException.LaneSlotCountMismatch(_laneOrder.Length, _laneSlots?.Length ?? 0);
             }
 
-            Bind(BuildController());
-            BindChrome();
+            IPoolRaceController controller = BuildController();
+            try
+            {
+                Bind(controller);
+                BindChrome();
+            }
+            catch
+            {
+                controller.Dispose();
+                throw;
+            }
 
             _expanded = true;
             ToggleExpanded();

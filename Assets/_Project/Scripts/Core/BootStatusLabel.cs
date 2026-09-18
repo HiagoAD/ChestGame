@@ -21,7 +21,8 @@ namespace Company.ChestGame.Core
 
         /// <summary>
         /// Subscribes to <paramref name="model"/> and renders its current
-        /// <see cref="BootStatusModel.Message"/> immediately.
+        /// <see cref="BootStatusModel.Message"/>, unless nothing has been reported yet, in which
+        /// case the label keeps the text the scene authored.
         /// </summary>
         /// <param name="model">The model to render.</param>
         /// <exception cref="ArgumentNullException"><paramref name="model"/> is <c>null</c>.</exception>
@@ -37,7 +38,7 @@ namespace Company.ChestGame.Core
 
             _model = model;
             _model.OnMessageChanged += Render;
-            Render(_model.Message);
+            if (_model.Message != null) Render(_model.Message);
         }
 
         private void OnDestroy()

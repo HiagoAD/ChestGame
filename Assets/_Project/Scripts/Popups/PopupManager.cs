@@ -36,12 +36,16 @@ namespace Company.ChestGame.Popups
             parent ??= _parentProvider.Default;
 
             TPopup popup = Object.Instantiate(popupPrefab, parent) as TPopup;
-            popup.Initialize(data);
             popup.OnCloseRequested += OnPopupCloseRequested;
+            popup.Initialize(data);
 
             return popup;
         }
 
+        /// <remarks>
+        /// Static so the manager holds no reference to any popup it spawned, and so the delegate a
+        /// popup carries cannot keep anything alive.
+        /// </remarks>
         private static void OnPopupCloseRequested(PopupBase popup)
         {
             popup.OnCloseRequested -= OnPopupCloseRequested;

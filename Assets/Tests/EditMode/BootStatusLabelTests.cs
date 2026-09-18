@@ -54,6 +54,19 @@ namespace Company.ChestGame.Tests.EditMode
         }
 
         [Test]
+        public void Bind_BeforeAnythingIsReported_LeavesTheAuthoredTextAlone()
+        {
+            BootStatusModel model = new();
+            BootStatusLabel label = BuildLabel(out TMP_Text text);
+            text.text = "Loading...";
+
+            label.Bind(model);
+
+            Assert.AreEqual("Loading...", text.text,
+                "binding a model nothing has reported to must not blank the text the scene authored");
+        }
+
+        [Test]
         public void AfterBinding_ALaterReport_UpdatesTheLabel()
         {
             BootStatusModel model = new();
