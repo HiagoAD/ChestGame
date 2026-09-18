@@ -11,7 +11,7 @@ using VContainer;
 
 namespace Company.ChestGame.Minigame.Chests.Internal
 {
-    public class ChestsMinigameView : MinigameViewBase
+    public class ChestsMinigameView : MinigameViewBase<ChestsMinigameController>
     {
         /// <summary>
         /// Milliseconds of frame time the board fill may spend before yielding to the next frame.
@@ -40,7 +40,6 @@ namespace Company.ChestGame.Minigame.Chests.Internal
         private IPrefabPool<ChestsMinigameChestElementView> _pool;
         private FrameBudgetedLoop _fill;
         private CancellationTokenSource _fillCancellation;
-        private ChestsMinigameController _controller;
 
         /// <summary>
         /// Supplies the game clock used to budget the board fill.
@@ -63,19 +62,15 @@ namespace Company.ChestGame.Minigame.Chests.Internal
         /// <remarks>
         /// See docs/minigames.md, "The board is rebuilt every game".
         /// </remarks>
-        public override void SetController(MinigameControllerBase controller)
+        protected override void OnControllerSet()
         {
-            Debug.Assert(controller is ChestsMinigameController, $"Wrong controller type, ChestsMinigameController expected, got {controller.GetType()} instead");
-
-            _controller = (ChestsMinigameController)controller;
-
-            _pool = CreatePool(_controller.Chests.Count);
+            _pool = CreatePool(Controller.Chests.Count);
 
             _fill = new FrameBudgetedLoop(_clock, FillBudgetMilliseconds);
 
-            _controller.OnStateChange += OnControllerStateChanged;
-            _controller.OnGameFinished += OnGameFinished;
-            _controller.OnAttemptsChanged += UpdateAttemptsText;
+            Controller.OnStateChange += OnControllerStateChanged;
+            Controller.OnGameFinished += OnGameFinished;
+            Controller.OnAttemptsChanged += UpdateAttemptsText;
         }
 
         /// <remarks>
@@ -95,11 +90,11 @@ namespace Company.ChestGame.Minigame.Chests.Internal
             _pool?.Dispose();
             _pool = null;
 
-            if (_controller == null) return;
+            if (Controller == null) return;
 
-            _controller.OnStateChange -= OnControllerStateChanged;
-            _controller.OnGameFinished -= OnGameFinished;
-            _controller.OnAttemptsChanged -= UpdateAttemptsText;
+            Controller.OnStateChange -= OnControllerStateChanged;
+            Controller.OnGameFinished -= OnGameFinished;
+            Controller.OnAttemptsChanged -= UpdateAttemptsText;
         }
 
         private void OnControllerStateChanged(ChestsMinigameController.State state)
@@ -140,7 +135,7 @@ namespace Company.ChestGame.Minigame.Chests.Internal
         {
             try
             {
-                await _fill.RunAsync(_controller.Chests.Count, AcquireChest, cancellationToken);
+                await _fill.RunAsync(Controller.Chests.Count, AcquireChest, cancellationToken);
             }
             catch (OperationCanceledException)
             {
@@ -150,7 +145,7 @@ namespace Company.ChestGame.Minigame.Chests.Internal
         private void AcquireChest(int index)
         {
             ChestsMinigameChestElementView instance = _pool.Get(_chestsParent);
-            instance.Init(_controller.Chests[index], _controller.OnChestClicked);
+            instance.Init(Controller.Chests[index], Controller.OnChestClicked);
 
             _chestInstances.Add(instance);
         }
@@ -193,7 +188,7 @@ namespace Company.ChestGame.Minigame.Chests.Internal
         private void UpdateAttemptsText(int _) => UpdateAttemptsText();
         private void UpdateAttemptsText(bool empty = false)
         {
-            _attemptsText.text = empty ? "" : $"Attempts: {_controller.Attempts} / {_controller.TotalAttempts}";
+            _attemptsText.text = empty ? "" : $"Attempts: {Controller.Attempts} / {Controller.TotalAttempts}";
         }
 
         private void SetControlMessage(string message)

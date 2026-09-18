@@ -25,7 +25,8 @@
         "TapNation.Modules",
         "UniTask",
         "Unity.Addressables",
-        "Unity.ResourceManager"
+        "Unity.ResourceManager",
+        "Company.ChestGame.Mvc"
     ],
     "includePlatforms": [
         "Editor"

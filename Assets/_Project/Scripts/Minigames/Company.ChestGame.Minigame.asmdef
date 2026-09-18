@@ -6,7 +6,8 @@
         "Company.ChestGame.Assets",
         "VContainer",
         "UniTask",
-        "Unity.Addressables"
+        "Unity.Addressables",
+        "Company.ChestGame.Mvc"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

@@ -9,6 +9,7 @@ only. Future work goes in [WIP.md](WIP.md). The full policy is in [CLAUDE.md](..
 | File | Covers |
 |---|---|
 | [architecture.md](architecture.md) | Assemblies, boot order, game flow, engine seams, config, catalogs, popups, exceptions, currency |
+| [mvc.md](mvc.md) | The model, controller and view contract, `IController` and `ViewBase<TController>`, and why the minigame framework keeps its own view base |
 | [asset-loading.md](asset-loading.md) | `IAssetProvider`, the two load routes and their lifetime rules, handle tracking, failure translation |
 | [content-delivery.md](content-delivery.md) | Addressable groups, local vs remote, load policies, timeouts, building and serving content |
 | [minigames.md](minigames.md) | The minigame framework contract, container lifecycle, and the chests implementation |
