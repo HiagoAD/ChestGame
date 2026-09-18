@@ -6,6 +6,7 @@
         "Unity.Addressables",
         "Company.ChestGame.Saving",
         "Company.ChestGame.Saving.Demo",
+        "Company.ChestGame.Mvc",
         "UniTask"
     ],
     "includePlatforms": [

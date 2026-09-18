@@ -1,5 +1,5 @@
 using System;
-using System.Threading;
+using Company.ChestGame.Mvc;
 using Cysharp.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.UIElements;
@@ -7,30 +7,20 @@ using UnityEngine.UIElements;
 namespace Company.ChestGame.Saving.Demo
 {
     /// <summary>
-    /// UI half of the probe/tamper pair for the save inspector demo. Binds to the tree authored in
-    /// SaveInspector.uxml by name, and only sets text and toggles classes on it.
+    /// The save inspector's view: binds the tree authored in SaveInspector.uxml by name, forwards
+    /// button presses to an <see cref="ISaveInspectorController"/> it builds itself, and renders that
+    /// controller's state. Decides nothing about the save or tamper flows themselves.
     /// </summary>
     /// <remarks>
-    /// See docs/saving.md, "The save inspector".
+    /// This view builds its own controller and so, unlike a view handed an already-built controller,
+    /// owns disposing it: see <see cref="OnUnbind"/>. See docs/mvc.md. See docs/saving.md, "The save
+    /// inspector".
     /// </remarks>
-    public sealed class SaveInspectorPanel : MonoBehaviour
+    public sealed class SaveInspectorPanel : ViewBase<ISaveInspectorController>
     {
         private const string SelectedClass = "is-selected";
         private const string TamperAcceptedClass = "tamper-readout--accepted";
         private const string TamperRejectedClass = "tamper-readout--rejected";
-
-        /// <summary>
-        /// Storage key every Save and Tamper operation on this panel uses.
-        /// </summary>
-        private const string Key = "save-inspector-demo";
-
-        /// <summary>
-        /// Storage key the plaintext-baseline computation writes under, kept separate from
-        /// <see cref="Key"/> so it cannot overwrite what Save or Tamper wrote.
-        /// </summary>
-        private const string BaselineKey = "save-inspector-demo-baseline";
-
-        private const long TamperedBalance = 999999;
 
         /// <summary>
         /// Upper bound, in characters, on how much of a rendered save this panel displays before
@@ -40,10 +30,6 @@ namespace Company.ChestGame.Saving.Demo
         /// See docs/saving.md, "SaveInspectorPanel, binding, keys and truncation".
         /// </remarks>
         private const int MaxRenderedCharacters = 4000;
-
-        private static readonly SaveStorage[] Storages = (SaveStorage[])Enum.GetValues(typeof(SaveStorage));
-        private static readonly SaveCodec[] Codecs = (SaveCodec[])Enum.GetValues(typeof(SaveCodec));
-        private static readonly SaveProtection[] Protections = (SaveProtection[])Enum.GetValues(typeof(SaveProtection));
 
         /// <summary>
         /// The save inspector's full chrome panel. Must be assigned in the inspector: <see cref="Start"/>
@@ -68,9 +54,6 @@ namespace Company.ChestGame.Saving.Demo
         private Button[] _storageButtons;
         private Button[] _codecButtons;
         private Button[] _protectionButtons;
-        private int _storageIndex;
-        private int _codecIndex;
-        private int _protectionIndex;
 
         private Button _saveButton;
         private Button _tamperButton;
@@ -80,17 +63,8 @@ namespace Company.ChestGame.Saving.Demo
         private VisualElement _tamperReadout;
         private Label _tamperLabel;
 
-        private SaveFactoryInputs _inputs;
-        private SaveInspectorDocument _sample;
-
-        private bool _busy;
-        private bool _hasSaved;
-        private SaveStorage _savedStorage;
-        private SaveCodec _savedCodec;
-        private SaveProtection _savedProtection;
-
         /// <summary>
-        /// Builds the sample document, binds the authored UI tree, and opens the panel collapsed.
+        /// Builds the controller, binds the authored UI tree, and opens the panel collapsed.
         /// </summary>
         /// <exception cref="SaveInspectorException">
         /// When <see cref="_document"/> or <see cref="_toggleDocument"/> is not assigned.
@@ -103,13 +77,35 @@ namespace Company.ChestGame.Saving.Demo
             if (_document == null) throw SaveInspectorException.NoDocument();
             if (_toggleDocument == null) throw SaveInspectorException.NoToggleDocument();
 
-            _inputs = SaveFactoryInputs.Defaults();
-            _sample = new SaveInspectorDocument();
-
+            Bind(BuildController());
             BindChrome();
 
             _expanded = true;
             ToggleExpanded();
+        }
+
+        private static ISaveInspectorController BuildController() => new SaveInspectorController();
+
+        protected override void OnBind()
+        {
+            Controller.OnSelectionChanged += RefreshControlLabels;
+            Controller.OnBusyChanged += RenderBusy;
+            Controller.OnSaveCompleted += ShowSaveResult;
+            Controller.OnSaveFailed += ShowSaveFailure;
+            Controller.OnTamperCompleted += ShowTamperResult;
+            Controller.OnTamperFailed += ShowTamperFailure;
+        }
+
+        /// <summary>Unsubscribes from the controller and disposes it, since this view owns it.</summary>
+        protected override void OnUnbind()
+        {
+            Controller.OnSelectionChanged -= RefreshControlLabels;
+            Controller.OnBusyChanged -= RenderBusy;
+            Controller.OnSaveCompleted -= ShowSaveResult;
+            Controller.OnSaveFailed -= ShowSaveFailure;
+            Controller.OnTamperCompleted -= ShowTamperResult;
+            Controller.OnTamperFailed -= ShowTamperFailure;
+            Controller.Dispose();
         }
 
         /// <summary>
@@ -139,16 +135,19 @@ namespace Company.ChestGame.Saving.Demo
             Required<Button>(root, "close-button").clicked += ToggleExpanded;
 
             _saveButton = Required<Button>(root, "save-button");
-            _saveButton.clicked += () => SaveAsync().Forget();
+            _saveButton.clicked += OnSaveClicked;
 
             _tamperButton = Required<Button>(root, "tamper-button");
-            _tamperButton.clicked += () => TamperAsync().Forget();
-            _tamperButton.SetEnabled(false);
+            _tamperButton.clicked += OnTamperClicked;
 
-            _storageButtons = BindSegment(root, "storage", Storages.Length, i => ShortNameOf(Storages[i]), SetStorage);
-            _codecButtons = BindSegment(root, "codec", Codecs.Length, i => ShortNameOf(Codecs[i]), SetCodec);
-            _protectionButtons = BindSegment(root, "protection", Protections.Length, i => Protections[i].ToString(), SetProtection);
+            _storageButtons = BindSegment(root, "storage", Controller.Storages.Count,
+                i => ShortNameOf(Controller.Storages[i]), Controller.SetStorage);
+            _codecButtons = BindSegment(root, "codec", Controller.Codecs.Count,
+                i => ShortNameOf(Controller.Codecs[i]), Controller.SetCodec);
+            _protectionButtons = BindSegment(root, "protection", Controller.Protections.Count,
+                i => Controller.Protections[i].ToString(), Controller.SetProtection);
 
+            RenderBusy(Controller.IsBusy);
             RefreshControlLabels();
             ShowIdleReadout();
             ShowIdleTamperReadout();
@@ -220,85 +219,47 @@ namespace Company.ChestGame.Saving.Demo
             _ => "Json"
         };
 
-        private void SetStorage(int index)
-        {
-            _storageIndex = index;
-            RefreshControlLabels();
-        }
-
-        private void SetCodec(int index)
-        {
-            _codecIndex = index;
-            RefreshControlLabels();
-        }
-
-        private void SetProtection(int index)
-        {
-            _protectionIndex = index;
-            RefreshControlLabels();
-        }
-
         private void RefreshControlLabels()
         {
-            for (int i = 0; i < _storageButtons.Length; i++) _storageButtons[i].EnableInClassList(SelectedClass, i == _storageIndex);
-            for (int i = 0; i < _codecButtons.Length; i++) _codecButtons[i].EnableInClassList(SelectedClass, i == _codecIndex);
-            for (int i = 0; i < _protectionButtons.Length; i++) _protectionButtons[i].EnableInClassList(SelectedClass, i == _protectionIndex);
+            for (int i = 0; i < _storageButtons.Length; i++) _storageButtons[i].EnableInClassList(SelectedClass, i == Controller.StorageIndex);
+            for (int i = 0; i < _codecButtons.Length; i++) _codecButtons[i].EnableInClassList(SelectedClass, i == Controller.CodecIndex);
+            for (int i = 0; i < _protectionButtons.Length; i++) _protectionButtons[i].EnableInClassList(SelectedClass, i == Controller.ProtectionIndex);
         }
 
-        private void SetBusy(bool busy)
+        private void RenderBusy(bool busy)
         {
-            _busy = busy;
             _saveButton.SetEnabled(!busy);
-            _tamperButton.SetEnabled(!busy && _hasSaved);
+            _tamperButton.SetEnabled(!busy && Controller.HasSaved);
         }
 
-        private async UniTaskVoid SaveAsync()
+        private void OnSaveClicked()
         {
-            if (_busy) return;
-            SetBusy(true);
-
-            SaveStorage storage = Storages[_storageIndex];
-            SaveCodec codec = Codecs[_codecIndex];
-            SaveProtection protection = Protections[_protectionIndex];
-            CancellationToken ct = this.GetCancellationTokenOnDestroy();
-
-            try
-            {
-                SaveProbeResult baseline = await SavePipelineProbe.RunBaselineAsync(storage, _inputs, BaselineKey, _sample, ct);
-                SaveProbeResult result = await SavePipelineProbe.RunAsync(storage, codec, protection, _inputs, Key, _sample, ct);
-
-                _savedStorage = storage;
-                _savedCodec = codec;
-                _savedProtection = protection;
-                _hasSaved = true;
-
-                ShowSaveResult(storage, codec, protection, result, baseline);
-            }
-            catch (OperationCanceledException)
-            {
-            }
-            catch (SaveException failure)
-            {
-                Debug.LogException(failure);
-                _readoutLabel.text = $"Save failed: {failure.Message}";
-                _timingsLabel.text = "write - · read -";
-            }
-            finally
-            {
-                SetBusy(false);
-            }
+            if (!IsBound) return;
+            Controller.SaveAsync(this.GetCancellationTokenOnDestroy()).Forget();
         }
 
-        private void ShowSaveResult(SaveStorage storage, SaveCodec codec, SaveProtection protection, SaveProbeResult result, SaveProbeResult baseline)
+        private void OnTamperClicked()
+        {
+            if (!IsBound) return;
+            Controller.TamperAsync(this.GetCancellationTokenOnDestroy()).Forget();
+        }
+
+        private void ShowSaveResult(SaveProbeResult result, SaveProbeResult baseline)
         {
             double percentOfBaseline = baseline.ByteCount == 0 ? 0d : 100d * result.ByteCount / baseline.ByteCount;
 
             _readoutLabel.text =
-                $"{ComboText(storage, codec, protection)}\n" +
+                $"{ComboText(Controller.SavedStorage, Controller.SavedCodec, Controller.SavedProtection)}\n" +
                 $"{result.ByteCount} bytes ({percentOfBaseline:F0}% of the {baseline.ByteCount}-byte plaintext baseline)";
             _timingsLabel.text = $"write {result.WriteMilliseconds:F2} ms  ·  read {result.ReadMilliseconds:F2} ms";
 
             SetBytesText(result);
+        }
+
+        private void ShowSaveFailure(SaveException failure)
+        {
+            _readoutLabel.text = $"Save failed: {failure.Message}";
+            _timingsLabel.text = "write - · read -";
         }
 
         /// <summary>
@@ -329,53 +290,18 @@ namespace Company.ChestGame.Saving.Demo
         }
 
         /// <summary>
-        /// Edits the save Save last wrote and reloads it through the same combination.
-        /// </summary>
-        /// <remarks>
-        /// See docs/saving.md, "The tamper button, and why it edits two different ways".
-        /// </remarks>
-        private async UniTaskVoid TamperAsync()
-        {
-            if (_busy || !_hasSaved) return;
-            SetBusy(true);
-
-            SaveStorage storage = _savedStorage;
-            SaveCodec codec = _savedCodec;
-            SaveProtection protection = _savedProtection;
-            CancellationToken ct = this.GetCancellationTokenOnDestroy();
-
-            try
-            {
-                SaveTamperResult result = await SaveTamper.RunAsync(storage, codec, protection, _inputs, Key, TamperedBalance, ct);
-                ShowTamperResult(storage, codec, protection, result);
-            }
-            catch (OperationCanceledException)
-            {
-            }
-            catch (SaveInspectorException failure)
-            {
-                Debug.LogException(failure);
-                _tamperLabel.text = failure.Message;
-            }
-            finally
-            {
-                SetBusy(false);
-            }
-        }
-
-        /// <summary>
         /// Renders the tamper outcome, styling accepted and refused edits so they do not look alike.
         /// </summary>
         /// <remarks>
         /// See docs/saving.md, "The tamper button, and why it edits two different ways".
         /// </remarks>
-        private void ShowTamperResult(SaveStorage storage, SaveCodec codec, SaveProtection protection, SaveTamperResult result)
+        private void ShowTamperResult(SaveTamperResult result)
         {
             bool accepted = result.Outcome == SaveTamperOutcome.Loaded;
             _tamperReadout.EnableInClassList(TamperAcceptedClass, accepted);
             _tamperReadout.EnableInClassList(TamperRejectedClass, !accepted);
 
-            string combo = ComboText(storage, codec, protection);
+            string combo = ComboText(Controller.SavedStorage, Controller.SavedCodec, Controller.SavedProtection);
             _tamperLabel.text = result.Outcome switch
             {
                 SaveTamperOutcome.Loaded =>
@@ -385,6 +311,11 @@ namespace Company.ChestGame.Saving.Demo
                 _ =>
                     $"{combo}\nREJECTED as unreadable - {result.Error.Message}"
             };
+        }
+
+        private void ShowTamperFailure(SaveInspectorException failure)
+        {
+            _tamperLabel.text = failure.Message;
         }
 
         private void ShowIdleTamperReadout()
