@@ -1,6 +1,5 @@
 using System.Collections;
 using System.IO;
-using System.Reflection;
 using System.Threading;
 using Company.ChestGame.Config;
 using Company.ChestGame.Core;
@@ -236,10 +235,9 @@ namespace Company.ChestGame.Tests.PlayMode
             Assert.IsNotNull(gameShellView, "the game scene no longer contains a GameShellView");
             Assert.IsTrue(gameShellView.IsBound, "GameShellView was never bound to its controller");
 
-            CurrencyWatcher watcher = Object.FindAnyObjectByType<CurrencyWatcher>();
-            Assert.IsNotNull(watcher, "the game scene no longer contains a CurrencyWatcher");
-            Assert.IsNotNull(InjectedField(watcher, "_currencyManager"),
-                "CurrencyWatcher was never injected with the currency manager");
+            CurrencyLabelView currencyLabelView = Object.FindAnyObjectByType<CurrencyLabelView>();
+            Assert.IsNotNull(currencyLabelView, "the game scene no longer contains a CurrencyLabelView");
+            Assert.IsTrue(currencyLabelView.IsBound, "CurrencyLabelView was never bound to its controller");
         }
 
         private static T Resolve<T>() => SceneScope().Container.Resolve<T>();
@@ -250,14 +248,6 @@ namespace Company.ChestGame.Tests.PlayMode
             Assert.IsNotNull(scope, "the game scene carries no scope of its own");
 
             return scope;
-        }
-
-        private static object InjectedField(object target, string fieldName)
-        {
-            FieldInfo field = target.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic);
-            Assert.IsNotNull(field, $"{target.GetType().Name} has no field called {fieldName}");
-
-            return field.GetValue(target);
         }
     }
 }

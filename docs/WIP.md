@@ -94,8 +94,11 @@ gain, so the names stay for now and their declarations say what they actually go
   click before VContainer injection is swallowed by the `IsBound` guard, and that the button tracks
   `OnBusyChanged`. Both need a scene or the `ChestElementViewLifetimeTests` pattern (deactivate, add
   the component, reflect the fields in, reactivate).
-- **`CurrencyWatcher` label updates are untested** (`UI/CurrencyWatcher.cs`). Only its injection is
-  asserted, in `GameBootstrapperTests`. Cosmetic UI binding, judged low value.
+- **No test proves the two currency labels get different currencies.** `CurrencyLabelControllerTests`
+  asserts the controller's filtering and formatting, and `GameBootstrapperTests` asserts a
+  `CurrencyLabelView` in the scene got bound, but it finds one with `FindAnyObjectByType`, so nothing
+  asserts that the "GemsArea" and "CoinsArea" instances resolve to controllers watching
+  `CurrencyType.Gems` and `CurrencyType.Coins` respectively.
 - **No test reads the boot status label back.** `IBootStatus` is registered and resolved under test,
   and `BootStatusLabel` is three lines, but nothing drives boot and reads the label.
 - **The play-mode ordering test is dormant.**

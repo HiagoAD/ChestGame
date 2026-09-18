@@ -15,6 +15,7 @@ using Company.ChestGame.Popups.Internal;
 using Company.ChestGame.Rewards;
 using Company.ChestGame.Saving;
 using Company.ChestGame.Tests.Common;
+using Company.ChestGame.UI;
 using NUnit.Framework;
 using TapNation.Modules.ResourceBank.Saving;
 using UnityEngine;
@@ -108,6 +109,7 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.IsTrue(_builder.Exists(typeof(IPopupParentSource), true), nameof(IPopupParentSource));
             Assert.IsTrue(_builder.Exists(typeof(IResourceBankSaveHandler<CurrencyType>), true), "IResourceBankSaveHandler<CurrencyType>");
             Assert.IsTrue(_builder.Exists(typeof(ICurrencyManager), true), nameof(ICurrencyManager));
+            Assert.IsTrue(_builder.Exists(typeof(CurrencyLabelControllerFactory), true), nameof(CurrencyLabelControllerFactory));
             Assert.IsTrue(_builder.Exists(typeof(GameContentLoader), true), nameof(GameContentLoader));
             Assert.IsTrue(_builder.Exists(typeof(GameBootstrapper), true), nameof(GameBootstrapper));
             Assert.IsTrue(_builder.Exists(typeof(IBootStatus), true), nameof(IBootStatus));

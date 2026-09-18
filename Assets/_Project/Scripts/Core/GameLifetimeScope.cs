@@ -9,6 +9,7 @@ using Company.ChestGame.Popups;
 using Company.ChestGame.Popups.Internal;
 using Company.ChestGame.Rewards;
 using Company.ChestGame.Saving;
+using Company.ChestGame.UI;
 using TapNation.Modules.ResourceBank.Saving;
 using UnityEngine;
 using VContainer;
@@ -163,6 +164,7 @@ namespace Company.ChestGame.Core
             builder.RegisterBuildCallback(resolver => resolver.Resolve<SaveScheduler<GameMetaSaveDocument>>());
 
             builder.Register<ICurrencyManager, CurrencyManager>(Lifetime.Singleton);
+            builder.Register<CurrencyLabelControllerFactory>(Lifetime.Singleton);
 
             builder.Register<GameContentLoader>(Lifetime.Singleton);
 

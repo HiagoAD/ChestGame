@@ -26,7 +26,8 @@
         "UniTask",
         "Unity.Addressables",
         "Unity.ResourceManager",
-        "Company.ChestGame.Mvc"
+        "Company.ChestGame.Mvc",
+        "Company.ChestGame.UI"
     ],
     "includePlatforms": [
         "Editor"
