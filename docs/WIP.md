@@ -89,12 +89,11 @@ gain, so the names stay for now and their declarations say what they actually go
 
 ## Known gaps in the tests
 
-- **`GameManager`'s behaviour is untested** (`Gameplay/GameManager.cs`). `GameBootstrapperTests` only
-  asserts that the game scene's `GameManager` gets injected. Nothing asserts that it calls
-  `MinigameContainer.End()`, that the start button goes non-interactable while a start is in flight,
-  or that a `ChestGameException` becomes a `ContentUnavailablePopup`. The pattern in
-  `ChestElementViewLifetimeTests` (deactivate, add the component, reflect the fields in, reactivate)
-  would close all three, and `FakePopupManager` already records what would have been spawned.
+- **`GameShellView`'s own behaviour is untested.** The shell's rules moved to `GameShellController`
+  and `GameShellControllerTests` asserts them, so what is left unasserted is the view half: that a
+  click before VContainer injection is swallowed by the `IsBound` guard, and that the button tracks
+  `OnBusyChanged`. Both need a scene or the `ChestElementViewLifetimeTests` pattern (deactivate, add
+  the component, reflect the fields in, reactivate).
 - **`CurrencyWatcher` label updates are untested** (`UI/CurrencyWatcher.cs`). Only its injection is
   asserted, in `GameBootstrapperTests`. Cosmetic UI binding, judged low value.
 - **No test reads the boot status label back.** `IBootStatus` is registered and resolved under test,

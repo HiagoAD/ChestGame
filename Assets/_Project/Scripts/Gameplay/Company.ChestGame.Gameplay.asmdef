@@ -5,6 +5,7 @@
         "Company.ChestGame.Popups",
         "Company.ChestGame.Common",
         "Company.ChestGame.Minigame",
+        "Company.ChestGame.Mvc",
         "UnityEngine.UI",
         "VContainer",
         "UniTask"

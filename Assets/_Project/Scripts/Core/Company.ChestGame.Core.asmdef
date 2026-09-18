@@ -6,6 +6,7 @@
         "Company.ChestGame.Assets",
         "Company.ChestGame.Config",
         "Company.ChestGame.Currency",
+        "Company.ChestGame.Gameplay",
         "Company.ChestGame.Minigame",
         "Company.ChestGame.Popups",
         "Company.ChestGame.Rewards",

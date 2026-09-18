@@ -232,10 +232,9 @@ namespace Company.ChestGame.Tests.PlayMode
         [Test]
         public void TheSceneObjects_AreInjectedFromBothHalvesOfTheSplit()
         {
-            GameManager gameManager = Object.FindAnyObjectByType<GameManager>();
-            Assert.IsNotNull(gameManager, "the game scene no longer contains a GameManager");
-            Assert.IsNotNull(InjectedField(gameManager, "_minigamesManager"),
-                "GameManager was never injected with the minigame manager");
+            GameShellView gameShellView = Object.FindAnyObjectByType<GameShellView>();
+            Assert.IsNotNull(gameShellView, "the game scene no longer contains a GameShellView");
+            Assert.IsTrue(gameShellView.IsBound, "GameShellView was never bound to its controller");
 
             CurrencyWatcher watcher = Object.FindAnyObjectByType<CurrencyWatcher>();
             Assert.IsNotNull(watcher, "the game scene no longer contains a CurrencyWatcher");
