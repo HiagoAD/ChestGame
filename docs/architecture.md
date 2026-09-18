@@ -12,6 +12,7 @@ compile instead of quietly working.
 
 ```
 Company.ChestGame.Common      _Project/Scripts/Common/     leaf: engine seams, FrameBudgetedLoop, exceptions, catalog policy
+Company.ChestGame.Mvc         _Project/Scripts/Mvc/        leaf: IController and ViewBase<TController>, the MVC vocabulary
 Company.ChestGame.Pooling     _Project/Scripts/Pooling/    leaf: the prefab pool seam and its four strategies
 Company.ChestGame.Pooling.Demo _Project/Scripts/PoolingDemo/ the standalone race panel; nothing in the game references it
 Company.ChestGame.Saving      _Project/Scripts/Saving/     the ISaveService seam, its stores, codecs, protectors and scheduler
@@ -22,7 +23,7 @@ Company.ChestGame.Currency    _Project/Scripts/Currency/
 Company.ChestGame.Popups      _Project/Scripts/Popups/
 Company.ChestGame.Minigame    _Project/Scripts/Minigames/  the framework, no minigame in it
 Company.ChestGame.Rewards     _Project/Scripts/Rewards/
-Company.ChestGame.Gameplay    _Project/Scripts/Gameplay/   the shell: GameManager and nothing else
+Company.ChestGame.Gameplay    _Project/Scripts/Gameplay/   the shell: GameShellView, GameShellController and nothing else
 Company.ChestGame.UI          _Project/Scripts/UI/
 Company.ChestGame.Core        _Project/Scripts/Core/       composition root, both LifetimeScopes
 Company.ChestGame.Editor      _Project/Scripts/Editor/     content build, save corpus and save inspector prefab generators
@@ -36,7 +37,7 @@ Company.ChestGame.Tests.EditMode  Tests/EditMode/
 Company.ChestGame.Tests.PlayMode  Tests/PlayMode/
 ```
 
-The chests minigame is an assembly of its own and the shell does not reference it. `GameManager`
+The chests minigame is an assembly of its own and the shell does not reference it. `GameShellController`
 asks for a minigame by authored id, which is the only reason it can start one without naming its
 type. Its code lives under `Scripts/Minigames/Implementation/Minigames/`; its assets (definition
 asset, prefabs, sprite, config document) live under `_Project/Minigames/Chests/`. The assembly
@@ -155,18 +156,19 @@ logged and reset to a fresh document, because meta holds nothing a player earned
 choice for currency would not be safe. Everything past the load is unguarded, so a failure there
 fails boot like any other. See [saving.md](saving.md) for what meta holds.
 
-`GameSceneLifetimeScope` is the game scene's scope and it registers nothing: its `Configure` is
-empty. It exists to be the scene's injection root, so `GameManager` and `CurrencyWatcher` are
-auto-injected from a scope that can see both halves of the registration split. Its auto-inject list
-holds two scene objects, `Canvas` and `GameManager`, and injection reaches every child of a listed
-object: the two `CurrencyWatcher`s are injected because they sit under
-`Canvas/SafeArea/TopBar/ConsumablesArea`. A new object that needs injection either goes under one of
-those two or is added to the list. The root scope cannot
-resolve `IMinigameManager` at all, which is why the auto-inject list has to live here rather than in
-the boot scene. `GameBootstrapperTests` pins that.
+`GameSceneLifetimeScope` is the game scene's scope. Its `Configure` registers `GameShellController`,
+which needs `IMinigameManager` - resolvable only once this scope's parent chain has loaded content,
+which the root scope cannot do at all. That is also why the scope has to exist as the scene's
+injection root rather than letting the boot scene inject everything: `GameShellView` and
+`CurrencyLabelView` are auto-injected from a scope that can see both halves of the registration
+split. Its auto-inject list holds two scene objects, `Canvas` and the GameObject still named
+`GameManager`, and injection reaches every child of a listed object: the two `CurrencyLabelView`s sit
+under `Canvas/SafeArea/TopBar/ConsumablesArea`. A new object that needs injection either goes under
+one of those two or is added to the list. `GameBootstrapperTests` pins that the root scope cannot
+resolve `IMinigameManager`.
 
 It lives in `Company.ChestGame.Core` alongside the root scope, which is what lets
-`Company.ChestGame.Gameplay` stay `GameManager` and nothing else.
+`Company.ChestGame.Gameplay` stay `GameShellView`, `GameShellController` and nothing else.
 
 No service ever exists with its data not yet arrived, so nothing anywhere has to ask whether loading
 has finished. `LoadedContent` is a carrier and nothing else, with no loading, parsing or validation
@@ -233,19 +235,21 @@ place. See [saving.md](saving.md), "The pause/quit flush lives on GameLifetimeSc
 
 Each step reports through `IBootStatus`. An interface rather than a label, because the bootstrapper is
 a plain class and reaching a TextMeshPro component from it would put a scene object in the one part
-of booting that has none. `BootStatusLabel` is the boot scene's implementation and holds the label
-that scene already had. `SilentBootStatus` is what gets registered when there is no label: a container
-built by a test, or a boot scene whose slot was never wired. Registering a silent one rather than
+of booting that has none. `BootStatusModel` implements it: a plain model holding the last reported
+message and an `OnMessageChanged` event, with no engine types in it. `BootStatusLabel` is the boot
+scene's view for that model - it binds in `Configure` and renders `Message` to the label that scene
+already had, deciding nothing else; see [mvc.md](mvc.md). `SilentBootStatus` is what gets registered
+when a caller of `RegisterCoreServices` leaves `status` null - a container built by a test, most
+commonly, since nothing there builds a `BootStatusModel` for it. Registering a silent one rather than
 nothing keeps the bootstrapper free of a null check at every call site.
 
-`Configure` converts `_bootStatus` through a Unity-overloaded comparison before handing it to
-`RegisterCoreServices`: `_bootStatus != null ? _bootStatus : null`, never `is not null`. A missing or
-destroyed `BootStatusLabel` is Unity-null - the C# reference itself is not null, and only the
-overloaded `==`/`!=` operators on `UnityEngine.Object` know to treat it as gone. `RegisterCoreServices`
-then decides whether to register a `SilentBootStatus` with `status ?? new SilentBootStatus()`, and the
-plain `??` operator does not call that overloaded operator - it only tests the raw reference. Passing
-`_bootStatus` straight through on `is not null` (or skipping the conversion) would leave a destroyed
-component's dead reference sitting in the container instead of the `SilentBootStatus` fallback.
+`Configure` always builds its own `BootStatusModel` and passes it to `RegisterCoreServices` as
+`status`, so the boot scene itself never falls back to `SilentBootStatus`. Binding the label is a
+separate, narrower step: `if (_bootStatus != null) _bootStatus.Bind(bootStatus)`, using the
+Unity-overloaded comparison rather than `is not null`, because a missing or destroyed
+`BootStatusLabel` is Unity-null - the C# reference itself is not null, and only the overloaded
+`==`/`!=` operators on `UnityEngine.Object` know to treat it as gone. Skipping that check would call
+`Bind` on a dead component instead of simply leaving boot reporting to a model nothing renders.
 
 A failure during boot is reported to that label and then rethrown. Swallowing it would make
 `StartAsync` return normally, which is a lie the rest of boot is built on: the game scene was never
@@ -266,20 +270,22 @@ boot screen narrating a step that had already failed instead of saying why boot 
 
 ## Entry point and game flow
 
-`GameManager` is the shell, and it deliberately knows no minigame by type. It holds an authored id
-(`chests` in the shipped scene), asks `IMinigameManager` for whatever is registered under it, and
-drives it through the framework's own surface.
+`GameShellController` is the shell's rules, and it deliberately knows no minigame by type.
+`GameShellView` holds the authored id (`chests` in the shipped scene) and passes it to `StartAsync`,
+which asks `IMinigameManager` for whatever is registered under it and drives it through the
+framework's own surface. See [mvc.md](mvc.md) for what the split leaves each half deciding.
 
 Asking for the minigame already running just restarts it. Asking for a different one tears the current
 one down first, which is why the active id is tracked alongside the active container: the container's
 type no longer identifies which minigame it is, because the shell only ever sees the base type back
 from the manager.
 
-Starting is asynchronous, so the shell guards it. A `_starting` flag stops a second press building a
-second container while the first start is in flight, and the button is made non-interactable for the
-duration, because a start that goes to the network can take long enough for a player to conclude the
-button is broken. The cancellation token is the component's own, so a scene change mid-load unwinds
-the start instead of finishing into a destroyed shell.
+Starting is asynchronous, so `GameShellController.StartAsync` guards itself: a `_starting` field stops
+a second press building a second container while the first start is in flight, and `GameShellView`
+makes the button non-interactable for the duration through `OnBusyChanged`, because a start that goes
+to the network can take long enough for a player to conclude the button is broken. The cancellation
+token is the view's own, so a scene change mid-load unwinds the start instead of finishing into a
+destroyed shell.
 
 A failed start becomes a `ContentUnavailablePopup` carrying a plain sentence, not the exception's own
 message, which names keys and labels the player has no use for. The catch is on `ChestGameException`
@@ -287,10 +293,12 @@ on purpose: a missing key and a broken download arrive as different types and re
 whoever is holding the phone, and anything not under that base is a bug rather than a delivery
 problem, so it is left to blow up where it can be seen.
 
-`OnDestroy` ends whatever is running, so the controller is disposed and the view destroyed rather
-than left to the garbage collector with live subscriptions. `SetStartButtonInteractable` guards
-`_startButton` with a null check because the button is gone by the time a start cancelled by this
-object's own destruction unwinds, which is the ordinary shutdown path rather than an error.
+`GameShellController.Dispose` ends whatever is running. It runs when `GameSceneLifetimeScope` tears
+down rather than from the view's own destruction, because the controller, not `GameShellView`, owns
+that lifetime under the MVC split - see [mvc.md](mvc.md). `GameShellView.RenderBusy` still guards
+`_startButton` with a null check, because the button can already be gone by the time a start cancelled
+by the view's own destruction unwinds through the controller's `finally`, which is the ordinary
+shutdown path rather than an error.
 
 An unfinished chests run persists, and so do currencies, including between sessions.
 `ChestsRunSaveDocument` carries exactly two members, the chest count and which chests are open, and
@@ -440,7 +448,7 @@ should be able to tell a missing asset from a malformed one.
 Five typed failures sit deliberately **outside** that base, all under `InvalidOperationException`:
 `PoolException`, `FrameBudgetException`, `SaveMigrationException`, `SaveInspectorException` and
 `PoolRaceException`. Being under `ChestGameException` is not a label in this project, it is behaviour.
-`GameManager` catches exactly that base, turns whatever it caught into a content-unavailable popup and
+`GameShellController` catches exactly that base, turns whatever it caught into a content-unavailable popup and
 treats it as handled, on the understanding that anything outside it is a bug and is left to blow up
 where it can be seen. Everything those five types report is a wiring mistake: an unassigned prefab
 slot, a holder that was never built, a view that was never injected, two migrations claiming the same
@@ -492,5 +500,6 @@ values to strings, was dropped. See
 `Assets/AssetLibrary/ResourceBank/Examples/CurrencyManager/CurrencyManagerExample.cs` for the full
 version.
 
-`CurrencyWatcher` subscribes to the events and updates TextMeshPro labels in the UI. `RewardsManager`
+`CurrencyLabelController` subscribes to the events and formats the label text; `CurrencyLabelView`
+renders it to a TextMeshPro label. `RewardsManager`
 picks a random currency reward from the config values and shows a `RewardReceivedPopup`.

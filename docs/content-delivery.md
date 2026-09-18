@@ -109,9 +109,10 @@ can tell a delivery problem from a bug; the size query for that label still has 
 failure being pinned is one that survives the gap between measuring and fetching, not one measuring
 itself would have already caught.
 
-`GameManager` makes the start button non-interactable while a start is in flight and turns a failed
-one into a `ContentUnavailablePopup` rather than leaving a button that silently does nothing. There
-is no progress bar in the game scene; boot is the only place a download is narrated.
+`GameShellView` makes the start button non-interactable while a start is in flight, following the
+busy state `GameShellController` raises, and the controller turns a failed start into a
+`ContentUnavailablePopup` rather than leaving a button that silently does nothing. There is no
+progress bar in the game scene; boot is the only place a download is narrated.
 
 ## Progress reporting
 

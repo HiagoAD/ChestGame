@@ -235,9 +235,9 @@ column: the same index also drives `BuildAll`'s `laneRoots` alignment and the de
 A finished race carries one `LaneMetrics` per lane that ran, in strategy order, with `Solo` carrying
 exactly one. `Solo` and `FillMode` travel on the `RaceResult` itself rather than living only on the
 request that started it, so a finished race is labelled with what it actually ran: `PoolingDemoPanel`
-reads `result.FillMode` rather than its own `_fillMode` field when it writes the readout, because a
-tap on the Fill button while a race is still in flight would otherwise relabel figures that already
-landed with a mode that did not produce them.
+reads `result.FillMode` rather than the controller's current `FillMode` when it writes the readout,
+because a tap on the Fill button while a race is still in flight would otherwise relabel figures that
+already landed with a mode that did not produce them.
 
 ## LaneMetrics, and why Instantiated/Destroyed are not what tests assert
 
@@ -259,13 +259,15 @@ see, through the same path a tap on the toggle takes.
 race. Both die with the prefab in practice - it is teardown discipline rather than a fix for a live
 leak.
 
-`Update` measures `Time.unscaledDeltaTime`, not the `IGameClock` the race itself runs on: it is
-reading the real frame time this `MonoBehaviour` is living in for the peak-frame readout, and the
-race's own orchestration has to stay testable against a fake clock, so it cannot be the thing this
-reads.
+`Update` feeds `Time.unscaledDeltaTime` to `IPoolRaceController.Tick`, not the `IGameClock` the race
+itself runs on: it is reading the real frame time this `MonoBehaviour` is living in for the peak-frame
+readout, and the race's own orchestration has to stay testable against a fake clock, so it cannot be
+the thing this reads. The peak itself lives on the controller, since it measures the race rather than
+the widgets that display it; `Tick` takes a plain `float` so an edit-mode test can drive it
+deterministically. See [mvc.md](mvc.md).
 
-`BuildRace` gives the race its own `UnityGameClock` rather than an injected one, because this panel
-is dropped into a scene and is not part of anything's object graph to inject one from. It links the
+`BuildController` gives the race its own `UnityGameClock` rather than an injected one, because this
+panel is dropped into a scene and is not part of anything's object graph to inject one from. It links the
 race to `this.GetCancellationTokenOnDestroy()`, so a race still in flight when the panel is torn
 down unwinds instead of filling into lanes that are going away.
 

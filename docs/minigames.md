@@ -41,7 +41,7 @@ to keep.
 
 Each call to `Get` or `Get(id)` is a new game session, so it builds and injects a fresh container
 rather than handing back a shared one; sharing one would leak the previous round's controller state
-into the next. The id-keyed path is what `GameManager` actually calls, so it has to reach the same
+into the next. The id-keyed path is what `GameShellController` actually calls, so it has to reach the same
 construction the type-keyed path does rather than a construction of its own.
 
 The container itself keeps a reference to the `MinigameBaseSO` definition it was built from, because
@@ -145,7 +145,7 @@ Authoring:
 11. An entry in `MinigameList.asset`, which is the one existing file that changes.
 12. A content build, if the group is remote.
 
-The shell needs no change: `GameManager` starts whatever id it is given.
+The shell needs no change: `GameShellController` starts whatever id it is given.
 
 ## The chests minigame
 

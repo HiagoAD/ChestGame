@@ -712,10 +712,11 @@ on: a `SaveProfileSO` field added before any asset authors a value defaults to i
 member sits there is the backend a never-configured profile silently gets.
 
 `SaveInspectorPanel` labels each segmented button by reading the enum value at that index
-(`Storages`, `Codecs` and `Protections`, built from `Enum.GetValues`) and mapping it through a
-`ShortNameOf` switch, rather than hardcoding a display order or trusting what SaveInspector.uxml
-happens to say at that index. That keeps the panel safe against the one reordering the append-only
-rule above does not rule out by itself: even if a future edit changed declaration order in a way
+(`SaveInspectorController.Storages`, `Codecs` and `Protections`, built from `Enum.GetValues`) and
+mapping it through a `ShortNameOf` switch, rather than hardcoding a display order or trusting what
+SaveInspector.uxml happens to say at that index. That keeps it safe against the one reordering the
+append-only rule above does not rule out by itself: even if a future edit changed declaration order
+in a way
 that still respected "append only," every button would still show the label for the value it
 actually selects.
 
@@ -1656,7 +1657,7 @@ with no way for anything to thread an argument through — and its body is
 `currencySaveInputs` nor `legacyCurrencyPlayerPrefsKey`. `GameBootstrapperTests` is a `PlayMode` test
 that loads the real Boot scene and lets it run exactly as a player's device would: `Awake()` →
 `Configure()` → this exact zero-argument call → `ICurrencyManager` resolved for the game scene's
-`CurrencyWatcher` → `ResourceBank<T>`'s constructor → `CurrencyResourceBankSaveHandle.Load()` → the
+the game scene's currency labels → `ResourceBank<T>`'s constructor → `CurrencyResourceBankSaveHandle.Load()` → the
 real `CurrencyLegacyImport` against the real `"ResourceBankSaveData_CurrencyType"` PlayerPrefs entry.
 Nothing about the previous section's two optional parameters touches any step of that chain, because
 none of it is reachable from outside `Configure()`'s own fixed signature.
@@ -1791,7 +1792,7 @@ call only** — the field is consumed and nulled — so every later call, which 
 the same path a fresh install would.
 
 That placement is what makes the view free. `MinigameContainer.BeginAsync` injects, instantiates the
-view, and calls `SetController`, and only then does `GameManager` call `NewGame()` — by which point
+view, and calls `SetController`, and only then does `GameShellController` call `NewGame()` — by which point
 the view is subscribed to `OnStateChange`/`OnAttemptsChanged`, and `ChestsMinigameChestElementView.Init`
 re-drives itself from `ChestsMinigameChestModel.CurrentState` the moment the pool binds it. Restoring
 through the existing `Attempts` setter and `SetOpen` therefore needed **no view code at all**: the view
@@ -2022,14 +2023,15 @@ out its random IV producing a lucky pass, and both were checked with gzip in the
 compressed body puts gzip's magic bytes *inside* the protected region without changing which edit
 path applies.
 
-`SaveInspectorPanel.TamperAsync` reads the combination from `_savedStorage`/`_savedCodec`/
-`_savedProtection`, captured when Save last ran, rather than from whatever the segmented controls
+`SaveInspectorController.TamperAsync` reads the combination from `SavedStorage`/`SavedCodec`/
+`SavedProtection`, captured when Save last ran, rather than from whatever the segmented controls
 show at the moment Tamper is pressed — tampering with a combination nothing was saved under would
 just fail to parse, which is not the demonstration this button exists for. Its `catch
-(SaveInspectorException)` looks unreachable given the button is disabled until `_hasSaved` is true,
-but stays reachable if something else clears the key it saved under first. `ShowTamperResult` is the
-whole point of the panel made visible: it toggles CSS classes so an accepted edit and a refused one
-are styled differently and cannot be mistaken for each other.
+(SaveInspectorException)` looks unreachable given the button is disabled until `HasSaved` is true,
+but stays reachable if something else clears the key it saved under first. The controller reports the
+outcome and `SaveInspectorPanel.ShowTamperResult` is the whole point of the panel made visible: it
+toggles CSS classes so an accepted edit and a refused one are styled differently and cannot be
+mistaken for each other. See [mvc.md](mvc.md) for what the split leaves each half deciding.
 
 ### `SaveBenchmark`, and the number the plan got wrong
 

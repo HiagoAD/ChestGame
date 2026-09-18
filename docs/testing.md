@@ -410,7 +410,7 @@ Addressables' own logging.
 `AReferenceLoadCancelledBeforeItArrives_LeavesNothingLoaded` proves that `AddressablesAssetProvider.LoadAsync`
 unwinds a cancellation without leaking the ref-count it already took. Addressables takes the ref-count
 on the call rather than on the await, so a token that fires while the bytes are still coming used to
-throw straight past the provider's own bookkeeping; `GameManager` passes `GetCancellationTokenOnDestroy`,
+throw straight past the provider's own bookkeeping; `GameShellView` passes `GetCancellationTokenOnDestroy`,
 so leaving the scene mid-load is exactly this case, and the test runs in play mode because the leak it
 is proving the absence of is a real `ResourceManager`'s ref-count.
 
