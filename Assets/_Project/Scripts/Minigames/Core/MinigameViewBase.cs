@@ -13,8 +13,7 @@ namespace Company.ChestGame.Minigame.Core
     /// </summary>
     /// <typeparam name="TController">The controller type this view renders.</typeparam>
     /// <remarks>
-    /// The non-generic <see cref="MinigameViewBase"/> remains because <c>MinigameContainer</c> holds
-    /// a view without naming its controller type.
+    /// See docs/mvc.md, "Why the minigame framework keeps its own view base".
     /// </remarks>
     public abstract class MinigameViewBase<TController> : MinigameViewBase
         where TController : MinigameControllerBase

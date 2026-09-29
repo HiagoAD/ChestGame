@@ -54,6 +54,36 @@ purpose: a subclass that declares its own `OnDestroy` without `override` gets a 
 the compiler, where a private base method would simply have been hidden and the view's subscriptions
 would have outlived it silently.
 
+### A view that binds to a model
+
+Not every view earns a controller. `BootStatusLabel` binds to `BootStatusModel` directly: there is no
+behaviour to control, since the label mirrors the one string the bootstrapper reports, so a controller
+would be a class forwarding `Message` unchanged. It is therefore not a `ViewBase<TController>`, whose
+constraint names a controller, and it states the two guarantees that base exists for itself: `Bind`
+throws when called twice, and `OnDestroy` unsubscribes from the model. It is still a view in the sense
+that matters, since it renders and decides nothing. See [architecture.md](architecture.md), "Telling
+the player what boot is doing".
+
+### Where a view gets its controller, and who disposes it
+
+A view reaches `Bind` in one of three ways, and they differ in who owns the controller afterwards.
+
+When a screen has one controller, it is a registered singleton and the view is injected with it.
+`GameShellView` gets `GameShellController` this way. The scope that registered the controller disposes
+it, which is why `ViewBase.OnUnbind` releases subscriptions and does not dispose: a view does not own
+a controller it was handed.
+
+When the scene holds several instances of one view, each needing its own controller, a single
+registered instance cannot serve. The scene carries more than one `CurrencyLabelView`, each watching a
+different currency chosen by a serialized field on the view, so a shared controller would make them
+all show the same one. `CurrencyLabelControllerFactory` is registered instead, and each view builds
+its controller from it with its own `CurrencyType`. Having built the controller, that view owns
+disposing it and does so in `OnUnbind`.
+
+A standalone view that nothing injects builds its own. `PoolingDemoPanel` and `SaveInspectorPanel` are
+demo prefabs outside the game's scopes, so each builds its controller in `Start` and calls `Bind`, and
+owns disposing it in `OnUnbind` for the same reason.
+
 ## Why the minigame framework keeps its own view base
 
 `MinigameViewBase` does not derive from `ViewBase<TController>`, and that is deliberate.

@@ -6,9 +6,7 @@ namespace Company.ChestGame.UI
     /// Builds a <see cref="CurrencyLabelController"/> for one <see cref="CurrencyType"/>.
     /// </summary>
     /// <remarks>
-    /// The scene carries more than one <see cref="CurrencyLabelView"/>, each watching a different
-    /// currency, so the controller cannot be a single registered instance; this factory is what is
-    /// registered instead. See docs/mvc.md.
+    /// See docs/mvc.md, "Where a view gets its controller, and who disposes it".
     /// </remarks>
     public class CurrencyLabelControllerFactory
     {

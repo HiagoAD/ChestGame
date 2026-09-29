@@ -43,8 +43,7 @@ namespace Company.ChestGame.Popups
         }
 
         /// <remarks>
-        /// Static so the manager holds no reference to any popup it spawned, and so the delegate a
-        /// popup carries cannot keep anything alive.
+        /// See docs/architecture.md, "Popups".
         /// </remarks>
         private static void OnPopupCloseRequested(PopupBase popup)
         {

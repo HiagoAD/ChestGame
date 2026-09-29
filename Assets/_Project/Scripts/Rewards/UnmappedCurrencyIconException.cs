@@ -1,4 +1,4 @@
-using Company.ChestGame.Common;
+using System;
 using Company.ChestGame.Currency;
 
 namespace Company.ChestGame.Rewards
@@ -10,7 +10,7 @@ namespace Company.ChestGame.Rewards
     /// <remarks>
     /// See docs/architecture.md, "Exception hierarchy".
     /// </remarks>
-    public class UnmappedCurrencyIconException : ChestGameException
+    public class UnmappedCurrencyIconException : InvalidOperationException
     {
         public CurrencyType CurrencyType { get; }
 

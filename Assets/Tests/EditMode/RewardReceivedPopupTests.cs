@@ -1,7 +1,10 @@
+using System;
+using Company.ChestGame.Common;
 using Company.ChestGame.Currency;
 using Company.ChestGame.Rewards;
 using NUnit.Framework;
 using UnityEngine;
+using Object = UnityEngine.Object;
 
 namespace Company.ChestGame.Tests.EditMode
 {
@@ -34,6 +37,24 @@ namespace Company.ChestGame.Tests.EditMode
                 () => popup.Initialize(new RewardReceivedPopupData(unmapped, 10)));
 
             Assert.AreEqual(unmapped, error.CurrencyType);
+        }
+
+        /// <remarks>
+        /// See docs/architecture.md, "Exception hierarchy".
+        /// </remarks>
+        [Test]
+        public void UnmappedCurrencyIconException_IsDeliberatelyNotUnderChestGameException()
+        {
+            _popupObject = new GameObject("RewardReceivedPopup");
+            _popupObject.SetActive(false);
+            RewardReceivedPopup popup = _popupObject.AddComponent<RewardReceivedPopup>();
+
+            UnmappedCurrencyIconException failure = Assert.Throws<UnmappedCurrencyIconException>(
+                () => popup.Initialize(new RewardReceivedPopupData((CurrencyType)99, 10)));
+
+            Assert.IsNotInstanceOf<ChestGameException>(failure,
+                "or the shell would report a wiring bug to the player as a content download failure and carry on");
+            Assert.IsInstanceOf<InvalidOperationException>(failure);
         }
     }
 }

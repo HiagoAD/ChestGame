@@ -9,9 +9,8 @@ namespace Company.ChestGame.Core
     /// <see cref="TMP_Text"/> label.
     /// </summary>
     /// <remarks>
-    /// Binds to a model rather than a controller: there is no behaviour here to control, and a label
-    /// that mirrors a string needs none. See docs/mvc.md. See docs/architecture.md, "Telling the
-    /// player what boot is doing".
+    /// See docs/mvc.md, "A view that binds to a model".
+    /// See docs/architecture.md, "Telling the player what boot is doing".
     /// </remarks>
     public class BootStatusLabel : MonoBehaviour
     {

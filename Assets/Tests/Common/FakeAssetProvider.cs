@@ -22,6 +22,7 @@ namespace Company.ChestGame.Tests.Common
         private readonly Dictionary<AssetReference, Object> _assetsByReference = new();
         private readonly Dictionary<AssetReference, Exception> _failuresByReference = new();
         private readonly Dictionary<string, long> _downloadSizes = new();
+        private readonly List<UniTaskCompletionSource> _uncancellableStalls = new();
 
         public List<string> RequestedKeys { get; } = new();
         public List<AssetReference> RequestedReferences { get; } = new();
@@ -52,12 +53,29 @@ namespace Company.ChestGame.Tests.Common
 
         /// <summary>
         /// A download that neither finishes nor fails. It still ends when the token it was handed
-        /// is cancelled, exactly as the real provider does.
+        /// is cancelled, exactly as the real provider does, unless
+        /// <see cref="StalledDownloadsIgnoreCancellation"/> is set.
         /// </summary>
         /// <remarks>
         /// See docs/content-delivery.md, "Timeouts".
         /// </remarks>
         public bool StallDownloads { get; set; }
+
+        /// <summary>
+        /// Under <see cref="StallDownloads"/>, makes a stalled download ignore the token it was
+        /// handed and end only when <see cref="CompleteStalledDownloads"/> is called: a fetch that
+        /// finishes after its caller has already given up. Off by default, and read when the
+        /// download is asked for.
+        /// </summary>
+        public bool StalledDownloadsIgnoreCancellation { get; set; }
+
+        /// <summary>
+        /// Under <see cref="StalledDownloadsIgnoreCancellation"/>, also registers a callback on the
+        /// stalled download's token that throws, so cancelling that token makes the cancelling
+        /// call throw an <see cref="AggregateException"/> while the download itself stays pending.
+        /// Off by default, and read when the download is asked for.
+        /// </summary>
+        public bool StalledDownloadsThrowOnCancellation { get; set; }
 
         public CancellationToken LastToken { get; private set; }
 
@@ -168,13 +186,43 @@ namespace Company.ChestGame.Tests.Common
             if (StallDownloads)
             {
                 UniTaskCompletionSource stalled = new();
-                ct.Register(() => stalled.TrySetCanceled(ct));
+
+                if (StalledDownloadsIgnoreCancellation)
+                {
+                    _uncancellableStalls.Add(stalled);
+
+                    if (StalledDownloadsThrowOnCancellation)
+                    {
+                        ct.Register(() => throw new InvalidOperationException(
+                            $"{nameof(FakeAssetProvider)}: a cancellation callback that throws"));
+                    }
+                }
+                else
+                {
+                    ct.Register(() => stalled.TrySetCanceled(ct));
+                }
 
                 return stalled.Task;
             }
 
             progress?.Report(1f);
             return UniTask.CompletedTask;
+        }
+
+        /// <summary>
+        /// Finishes, successfully, every download stalled under
+        /// <see cref="StalledDownloadsIgnoreCancellation"/>, running its awaiting continuations
+        /// before this returns. Does nothing when none is stalled.
+        /// </summary>
+        public void CompleteStalledDownloads()
+        {
+            UniTaskCompletionSource[] stalls = _uncancellableStalls.ToArray();
+            _uncancellableStalls.Clear();
+
+            foreach (UniTaskCompletionSource stalled in stalls)
+            {
+                stalled.TrySetResult();
+            }
         }
     }
 }

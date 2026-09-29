@@ -90,10 +90,61 @@ gain, so the names stay for now and their declarations say what they actually go
 ## `RewardsManager` still throws an untyped `NotImplementedException`
 
 `RewardsManager.cs:36` has the same shape the MVC pass fixed in `RewardReceivedPopup`: a
-`CurrencyType` switch whose default arm throws `NotImplementedException`, so an unmapped currency
-escapes as an exception nothing under `ChestGameException` can catch. The popup's version became
-`UnmappedCurrencyIconException`; this one was left alone because it is reward logic rather than a
-view, and widening the MVC pass into it would have muddied that diff. It wants the same treatment.
+`CurrencyType` switch whose default arm throws `NotImplementedException`, so a currency with no
+reward mapped escapes as an exception a test cannot tell from any other failure. The popup's version
+became `UnmappedCurrencyIconException`, a wiring-mistake type that sits outside `ChestGameException`
+on purpose (see [architecture.md](architecture.md), "Exception hierarchy"); this one was left alone
+because it is reward logic rather than a view, and widening the MVC pass into it would have muddied
+that diff. It wants the same treatment: a typed wiring-mistake failure in place of the untyped one.
+The exact type is not decided.
+
+## A chests save with a null `OpenedChestIndices` passes validation and then throws
+
+`ChestsMinigameController.ShouldDiscardRestore` (`ChestsMinigameController.cs:186`) reads the list as
+`document.OpenedChestIndices ?? new List<int>()`, so a null list is validated as an empty one, and with
+a matching `ChestCount` and a `TotalAttempts` above zero the save is kept. `RestoreFrom` (`:209` and
+`:214`) then iterates and counts `document.OpenedChestIndices` directly and throws a
+`NullReferenceException`. `ChestsRunSaveDocument`'s `= new()` initializer covers a save that leaves the
+key out, but not one that writes `"OpenedChestIndices": null`: Newtonsoft's default settings, which
+`JsonCodec.Decode` and the migration path's `ToObject<T>` both use, assign the explicit null over the
+initializer. Checked against the `Newtonsoft.Json.dll` the project ships, for both routes. Nothing this
+game writes produces it, since `BuildCurrentRunDocument` always writes a list; a hand-edited or foreign
+file does.
+
+The throw lands after `NewGame` has already consumed the pending restore and closed the board, so the
+controller is left in `NotStarted` and the next call takes the fresh-run path and overwrites the file.
+It is not a `ChestGameException`, so the shell does not catch it. No test covers a null list. Fixing it
+needs a decided policy: discard the save like the other three unusable states in
+[saving.md](saving.md), "Restore, discard, and why it lives in `NewGame()`", or treat null as an empty
+run and restore nothing.
+
+## `MinigameContainer.BeginAsync` leaves the controller undisposed when a start fails after injection
+
+`BeginAsync` injects the controller at `MinigameContainer.cs:85`, and for the chests controller
+`Inject` is what registers its `SaveScheduler` with `ISaveFlushRegistry`. Everything after that line is
+synchronous and can still throw: instantiating the view (`:87`, which is also where the wrong-prefab
+case in open decision 3 lands) and `SetController` (`:88`, which throws `ArgumentException` when the
+controller is not the view's `TController`). The catch at `:91` destroys the partial view and releases
+the content, but never disposes `ControllerInstance`, and `End` cannot do it because it returns early
+until `_running` is set at `:89`. The scheduler therefore stays in the root scope's registry until that
+scope is destroyed, one more for each failed start, and is flushed at every pause and quit. The
+"`Register` runs last" ordering in [saving.md](saving.md), "A scheduler the composition root cannot
+name has to register itself", closes a throw inside `Inject` and nothing after it.
+
+`NewGame` never runs on that controller, so nothing marks its scheduler dirty and the cost is a stale
+registration rather than a wrong write. No test asserts the controller is disposed on a failed start:
+`BeginAsync_WhenTheViewRejectsTheController_LeavesNoOrphanBehind` checks the view and not the
+controller.
+
+The same tail has a related gap: `BeginAsync` never checks its token between the last await
+(`ConfigureControllerAsync`, `:84`) and `_running` being set at `:89`. If a cancel lands during that
+await and the await completes anyway, because the definition's override or the provider did not
+observe the token, the container injects the controller, which registers its `SaveScheduler`, and
+instantiates the view for a caller that has already given up. `GameShellController` covers it by
+checking its own linked token once `BeginAsync` returns and calling `End()` on the container (see
+[architecture.md](architecture.md), "Entry point and game flow"), so the shell is safe. The container
+is not, and neither is any other caller of `BeginAsync`. A check before `Inject` would close it at the
+source; whether to add one is not decided.
 
 ## Known gaps in the tests
 

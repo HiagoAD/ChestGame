@@ -283,9 +283,10 @@ from the manager.
 Starting is asynchronous, so `GameShellController.StartAsync` guards itself: a `_starting` field stops
 a second press building a second container while the first start is in flight, and `GameShellView`
 makes the button non-interactable for the duration through `OnBusyChanged`, because a start that goes
-to the network can take long enough for a player to conclude the button is broken. The cancellation
-token is the view's own, so a scene change mid-load unwinds the start instead of finishing into a
-destroyed shell.
+to the network can take long enough for a player to conclude the button is broken. The caller's
+cancellation token is the view's own destroy token, so a scene change mid-load unwinds the start
+instead of finishing into a destroyed shell. The controller does not hand it to `BeginAsync` as it
+is: it links it to a lifetime token of its own first, described below.
 
 A failed start becomes a `ContentUnavailablePopup` carrying a plain sentence, not the exception's own
 message, which names keys and labels the player has no use for. The catch is on `ChestGameException`
@@ -293,12 +294,33 @@ on purpose: a missing key and a broken download arrive as different types and re
 whoever is holding the phone, and anything not under that base is a bug rather than a delivery
 problem, so it is left to blow up where it can be seen.
 
-`GameShellController.Dispose` ends whatever is running. It runs when `GameSceneLifetimeScope` tears
-down rather than from the view's own destruction, because the controller, not `GameShellView`, owns
-that lifetime under the MVC split - see [mvc.md](mvc.md). `GameShellView.RenderBusy` still guards
-`_startButton` with a null check, because the button can already be gone by the time a start cancelled
-by the view's own destruction unwinds through the controller's `finally`, which is the ordinary
-shutdown path rather than an error.
+The controller owns a lifetime cancellation source, and `GameShellController.Dispose` is idempotent:
+it cancels that source, ends whatever is running and drops the `OnBusyChanged` subscribers, in that
+order. It runs when `GameSceneLifetimeScope` tears down rather than from the view's own destruction, because the
+controller, not `GameShellView`, owns that lifetime under the MVC split - see [mvc.md](mvc.md). Every
+start runs `BeginAsync` on a token linked from the caller's token and that lifetime source, so
+disposing the controller cancels a start in flight, and `StartAsync` called after `Dispose` does
+nothing.
+
+Cancelling is not enough on its own, because a cancelled `BeginAsync` can still complete: content that
+arrived late, or an await that never observed the token. When it returns after the linked token was
+cancelled, the shell ends the container it just began instead of publishing it, and the start
+surfaces as cancellation, so `NewGame` never runs. Publishing it would leave the container outliving
+the scene with its controller's `SaveScheduler` still registered in the root scope's
+`ISaveFlushRegistry`, and `Dispose` could not end it, because a container that was never published is
+not the active minigame.
+
+A disposed controller still logs a `ChestGameException` but spawns no popup, because the scene it would
+appear over is gone. `Dispose` cancels the lifetime source and does not dispose it: a start still
+unwinding holds a linked source registered on it, cancelling is enough, and the source has no timer, so
+there is nothing for disposing it to release.
+
+`GameShellView.RenderBusy` still guards `_startButton` with a null check, because the button can
+already be gone by the time a start cancelled by the view's own destruction unwinds through the
+controller's `finally`, which is the ordinary shutdown path rather than an error. The same guard
+covers `Dispose` itself: it cancels the lifetime source before it drops the `OnBusyChanged`
+subscribers, so a start it cancels can raise `OnBusyChanged(false)` to a subscriber that is still
+attached, from inside `Dispose`, and that is harmless for the same reason.
 
 An unfinished chests run persists, and so do currencies, including between sessions.
 `ChestsRunSaveDocument` carries exactly two members, the chest count and which chests are open, and
@@ -412,6 +434,12 @@ strongly-typed data on initialization rather than a stringly-typed dictionary. `
 `IPopupCatalog` and an `IPopupParentProvider` rather than loading anything itself, which leaves it
 doing only what it is about: picking a prefab, picking a parent, handing over the data.
 
+A popup never destroys itself. `PopupBase.RequestClose` raises `OnCloseRequested`, and `PopupManager`,
+which subscribed when it spawned the popup, unsubscribes and destroys it. The handler is a static
+method, so the manager holds no reference to any popup it spawned and the delegate a popup carries
+cannot keep anything alive: the popup passes itself as the argument, so the handler needs no state, and
+a delegate to a static method has no target to keep reachable.
+
 `PopupParentProvider` creates the shared `DontDestroyOnLoad` canvas lazily, on first use, from a
 prefab that was handed to it already loaded. Resolving `IPopupManager` therefore has no side effects,
 which matters because a `DontDestroyOnLoad` object built during resolution would leak into every
@@ -445,18 +473,25 @@ No bare `throw new Exception` remains in game code. A test asserting "this throw
 satisfied by an unrelated `NullReferenceException` from somewhere inside the call, and a caller
 should be able to tell a missing asset from a malformed one.
 
-Five typed failures sit deliberately **outside** that base, all under `InvalidOperationException`:
-`PoolException`, `FrameBudgetException`, `SaveMigrationException`, `SaveInspectorException` and
-`PoolRaceException`. Being under `ChestGameException` is not a label in this project, it is behaviour.
-`GameShellController` catches exactly that base, turns whatever it caught into a content-unavailable popup and
-treats it as handled, on the understanding that anything outside it is a bug and is left to blow up
-where it can be seen. Everything those five types report is a wiring mistake: an unassigned prefab
-slot, a holder that was never built, a view that was never injected, two migrations claiming the same
-`FromVersion`, the pooling demo set up with an unset-up race, an unknown solo strategy, or an
-unassigned document or prefab. Reporting one of those as a delivery failure would tell a player their
-connection is bad and swallow the bug that caused it. `PrefabPoolTests` and `FrameBudgetedLoopTests`
-each pin that with an `IsNotInstanceOf<ChestGameException>`, so a later tidy-up of the hierarchy cannot
-quietly undo it.
+Six typed failures sit deliberately **outside** that base, all under `InvalidOperationException`:
+`PoolException`, `FrameBudgetException`, `SaveMigrationException`, `SaveInspectorException`,
+`PoolRaceException` and `UnmappedCurrencyIconException`. Being under `ChestGameException` is not a
+label in this project, it is behaviour. `GameShellController` catches exactly that base, turns whatever
+it caught into a content-unavailable popup and treats it as handled, on the understanding that anything
+outside it is a bug and is left to blow up where it can be seen. Everything those six types report is a
+wiring mistake: an unassigned prefab slot, a holder that was never built, a view that was never
+injected, two migrations claiming the same `FromVersion`, the pooling demo set up with an unset-up
+race, an unknown solo strategy, an unassigned document or prefab, or a currency with no icon sprite
+mapped. Reporting one of those as a delivery failure would tell a player their connection is bad and
+swallow the bug that caused it. `PrefabPoolTests`, `FrameBudgetedLoopTests`, `PoolRaceTests` and
+`RewardReceivedPopupTests` pin that for `PoolException`, `FrameBudgetException`, `PoolRaceException`
+and `UnmappedCurrencyIconException` respectively, each with an `IsNotInstanceOf<ChestGameException>`,
+so a later tidy-up of the hierarchy cannot quietly undo it.
+
+Cancellation is pinned the same way, for a different reason. `MinigameContainerContentTests` and
+`MinigameContentPreloaderTests` assert `IsNotInstanceOf<ChestGameException>` on the
+`OperationCanceledException` that a cancelled start or preload surfaces, because a scene going away or
+an app quitting is not a delivery failure and the player must not be told about it.
 
 Saving draws the same line twice, which is why it appears on both sides above: a save a build has no
 path forward for is data and stays `SaveException.NoMigrationPath`, while a broken migration chain is
