@@ -79,8 +79,8 @@ namespace Company.ChestGame.Gameplay
         /// </param>
         /// <exception cref="OperationCanceledException">
         /// The start had to begin a container, and <paramref name="ct"/> was cancelled or the
-        /// controller was disposed before it finished, including after the container had already
-        /// begun, in which case the container is ended rather than kept and
+        /// controller was disposed before it finished. The cancellation surfaces from
+        /// <see cref="MinigameContainer.BeginAsync"/>; no container is begun or kept and
         /// <see cref="MinigameControllerBase.NewGame"/> is not called. A restart of the minigame
         /// already running completes synchronously, does not observe the token and never throws
         /// this.
@@ -106,12 +106,6 @@ namespace Company.ChestGame.Gameplay
 
                     MinigameContainer starting = _minigames.Get(id);
                     await starting.BeginAsync(parent, token);
-
-                    if (token.IsCancellationRequested)
-                    {
-                        starting.End();
-                        token.ThrowIfCancellationRequested();
-                    }
 
                     _activeMinigame = starting;
                     _activeMinigameId = id;

@@ -119,6 +119,8 @@ namespace Company.ChestGame.Tests.PlayMode
 
             Assert.IsFalse(minigame.Running, "a start that threw did not start anything");
             Assert.IsNull(minigame.ViewInstance, "the container must not still be holding the instance");
+            Assert.AreEqual(1, _controller.DisposeCalls,
+                "the controller was injected before the view rejected it, so it must be disposed exactly once");
 
             await UniTask.Yield();
 

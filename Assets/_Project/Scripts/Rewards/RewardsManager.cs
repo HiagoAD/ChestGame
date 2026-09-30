@@ -33,7 +33,7 @@ namespace Company.ChestGame.Rewards
             {
                 CurrencyType.Coins => _gameConfig.CoinsReward,
                 CurrencyType.Gems => _gameConfig.GemsReward,
-                _ => throw new NotImplementedException()
+                _ => throw new UnmappedCurrencyRewardException(currencyType)
             };
 
             _currencyManager.AddCurrency(currencyType, amount, source);

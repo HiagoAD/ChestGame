@@ -302,13 +302,25 @@ start runs `BeginAsync` on a token linked from the caller's token and that lifet
 disposing the controller cancels a start in flight, and `StartAsync` called after `Dispose` does
 nothing.
 
-Cancelling is not enough on its own, because a cancelled `BeginAsync` can still complete: content that
-arrived late, or an await that never observed the token. When it returns after the linked token was
-cancelled, the shell ends the container it just began instead of publishing it, and the start
-surfaces as cancellation, so `NewGame` never runs. Publishing it would leave the container outliving
-the scene with its controller's `SaveScheduler` still registered in the root scope's
-`ISaveFlushRegistry`, and `Dispose` could not end it, because a container that was never published is
-not the active minigame.
+Cancelling is not enough on its own, because a cancelled `BeginAsync` can still reach its last
+await's completion: content that arrived late, or an await that never observed the token. The
+container closes that itself. `MinigameContainer.BeginAsync` checks its token after the last await
+and before it injects the controller, so a start cancelled by then throws
+`OperationCanceledException` without injecting, instantiating the view or setting `_running`, and
+releases the content as for any failure. `BeginAsync` therefore never returns successfully once its
+token was cancelled before that synchronous tail. A cancel arriving inside that tail would still let
+it succeed and the shell publish the container, but that is unreachable today: every canceller (the
+view's destroy token, the shell's lifetime source) is cancelled on the main thread, and nothing in
+the tail (`Inject`, `Instantiate` running `Awake`/`OnEnable`, `SetController`) triggers one. The
+shell publishes whatever it returns, with no token check of its own and nothing to end afterwards.
+The check lives in the container because a controller injected for a caller that had given up would
+leave its `SaveScheduler` registered in the root scope's `ISaveFlushRegistry` after the scene is
+gone, and `Dispose` could not end it, because a container that was never published is not the active
+minigame. Guarding only in the shell would have left every other caller of `BeginAsync` exposed. A
+PlayMode test boots the real game, starts the chests minigame through the real `GameShellView`,
+tears the game scene down, and asserts the minigame was ended and its `SaveScheduler` unregistered,
+which covers the real scene teardown. It does not cover a download in flight, because under the
+Asset Database play mode script there is none.
 
 A disposed controller still logs a `ChestGameException` but spawns no popup, because the scene it would
 appear over is gone. `Dispose` cancels the lifetime source and does not dispose it: a start still
@@ -328,11 +340,13 @@ the controller builds its own `SaveScheduler<ChestsRunSaveDocument>` because `Co
 this assembly to build one for it.
 
 A restored run resumes its attempt count rather than resetting it: `Attempts` comes back as the
-number of chests that were open. A run is discarded instead of restored when the saved chest count no
-longer matches the configuration, when the indices are out of range or repeated, or when the run had
-already used its attempts. Each of those is a state a save can legitimately be in, from a config
-change or a hand-edited file, rather than defensive paranoia. Finishing
-a run overwrites the save with an empty document in the same call, so a finished run never resumes.
+number of chests that were open. A run is discarded instead of restored when the saved chest count
+no longer matches the configuration, when the indices are out of range or repeated, when the run had
+already used its attempts, or when the saved index list is null. The full list is in
+[saving.md](saving.md), "Restore, discard, and why it lives in `NewGame()`". Each of those is a
+state a save can legitimately be in, from a config change or a hand-edited file, rather than
+defensive paranoia. Finishing a run overwrites the save with an empty document in the same call, so
+a finished run never resumes.
 
 The save cannot name where the prize is, and that is structural rather than a convention: see design
 decision [#17](design-decisions.md#17-decision-9-is-enforced-by-the-save-models-shape-not-by-a-comment),
@@ -473,20 +487,21 @@ No bare `throw new Exception` remains in game code. A test asserting "this throw
 satisfied by an unrelated `NullReferenceException` from somewhere inside the call, and a caller
 should be able to tell a missing asset from a malformed one.
 
-Six typed failures sit deliberately **outside** that base, all under `InvalidOperationException`:
+Seven typed failures sit deliberately **outside** that base, all under `InvalidOperationException`:
 `PoolException`, `FrameBudgetException`, `SaveMigrationException`, `SaveInspectorException`,
-`PoolRaceException` and `UnmappedCurrencyIconException`. Being under `ChestGameException` is not a
+`PoolRaceException`, `UnmappedCurrencyIconException` and `UnmappedCurrencyRewardException`. Being under `ChestGameException` is not a
 label in this project, it is behaviour. `GameShellController` catches exactly that base, turns whatever
 it caught into a content-unavailable popup and treats it as handled, on the understanding that anything
-outside it is a bug and is left to blow up where it can be seen. Everything those six types report is a
+outside it is a bug and is left to blow up where it can be seen. Everything those seven types report is a
 wiring mistake: an unassigned prefab slot, a holder that was never built, a view that was never
 injected, two migrations claiming the same `FromVersion`, the pooling demo set up with an unset-up
-race, an unknown solo strategy, an unassigned document or prefab, or a currency with no icon sprite
-mapped. Reporting one of those as a delivery failure would tell a player their connection is bad and
-swallow the bug that caused it. `PrefabPoolTests`, `FrameBudgetedLoopTests`, `PoolRaceTests` and
-`RewardReceivedPopupTests` pin that for `PoolException`, `FrameBudgetException`, `PoolRaceException`
-and `UnmappedCurrencyIconException` respectively, each with an `IsNotInstanceOf<ChestGameException>`,
-so a later tidy-up of the hierarchy cannot quietly undo it.
+race, an unknown solo strategy, an unassigned document or prefab, a currency with no icon sprite
+mapped, or a currency with no reward mapped. Reporting one of those as a delivery failure would tell a player their connection is bad and
+swallow the bug that caused it. `PrefabPoolTests`, `FrameBudgetedLoopTests`, `SaveMigratorTests`,
+`SaveTamperTests`, `PoolRaceTests` and `RewardReceivedPopupTests` pin that for `PoolException`,
+`FrameBudgetException`, `SaveMigrationException`, `SaveInspectorException`, `PoolRaceException` and
+`UnmappedCurrencyIconException` respectively, each with an `IsNotInstanceOf<ChestGameException>`, so
+a later tidy-up of the hierarchy cannot quietly undo it.
 
 Cancellation is pinned the same way, for a different reason. `MinigameContainerContentTests` and
 `MinigameContentPreloaderTests` assert `IsNotInstanceOf<ChestGameException>` on the

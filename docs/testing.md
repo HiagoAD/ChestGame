@@ -4,12 +4,12 @@ Two suites, split by what only a real engine can prove.
 
 | Suite | Ours | Wall time |
 |---|---|---|
-| EditMode | 703 | ~2 s |
-| PlayMode | 73 | ~24 s |
+| EditMode | 708 | ~2 s |
+| PlayMode | 74 | ~25 s |
 
 Reproduce them with `ci/run-tests.sh`; the wall times move a little run to run. The numbers are
 written here rather than linked because `ci-results/` is gitignored, so a fresh clone has none until
-it runs the suites itself. The EditMode runner reports 704: the
+it runs the suites itself. The EditMode runner reports 709: the
 Addressables package ships one editor test of its own
 (`AddressableAssets.DocExampleCode.TestStub.RequiredTest`) and Unity picks it up. It is not ours and
 is not counted above.
@@ -80,6 +80,11 @@ inspector's chrome sorts above the pooling demo, so an open save inspector cover
 toggle instead of the reverse. Either inequality failing leaves one overlay's toggle floating on top of
 the other's open panel.
 
+`GameShellTeardownTests` boots the real game, starts the chests minigame through the real start button
+and then unloads the game scene, because only a real scene unload proves that leaving the game scene
+with the chests minigame running disposes the shell, which ends the minigame and unregisters its
+`SaveScheduler` from the root `ISaveFlushRegistry`.
+
 ### The save suites never touch a real save
 
 Every fixture that exercises a file-backed store writes into a per-fixture temp directory named with a
@@ -94,15 +99,15 @@ when the test itself fails partway through. `PlayerPrefs.DeleteKey` on a key tha
 actually set is a no-op, so recording intent this way costs nothing on the keys a failed write
 never reached.
 
-This is a rule with a scar behind it. `GameBootstrapperTests` boots the real `Boot` scene, which runs
-the real `GameLifetimeScope.Configure()` — and `Configure` is Unity's own callback, so no test can pass
-it an argument. Before the static overrides existed, that fixture resolved the currency manager against
-a developer's actual save and deleted it. The seam that closed it is
-`GameLifetimeScope.CurrencySaveInputsOverride` and `LegacyCurrencyPlayerPrefsKeyOverride`, assigned on
-the line before `LoadSceneAsync` so the ordering rests on statement order rather than on how the
-framework sequences its setup attributes.
+This is a rule with a scar behind it. `GameBootstrapperTests` and `GameShellTeardownTests` boot the
+real `Boot` scene, which runs the real `GameLifetimeScope.Configure()` — and `Configure` is Unity's
+own callback, so no test can pass it an argument. Before the static overrides existed, that boot
+resolved the currency manager against a developer's actual save and deleted it. The seam that closed
+it is `GameLifetimeScope.CurrencySaveInputsOverride` and `LegacyCurrencyPlayerPrefsKeyOverride`,
+assigned on the line before `LoadSceneAsync` so the ordering rests on statement order rather than on
+how the framework sequences its setup attributes.
 
-`GameBootstrapperTests.RestoreTheCurrencySaveOverrides` clears both overrides unconditionally, in
+`RealGameBootFixture.RestoreTheCurrencySaveOverrides` clears both overrides unconditionally, in
 `[TearDown]` rather than only on success, because a failing test that left them set would otherwise
 leak its override into whichever fixture boots a scene next. The statement-order guarantee itself
 replaced an earlier attempt that relied on the framework's setup-attribute ordering instead; that
@@ -112,6 +117,9 @@ at the end of `[UnityTearDown]`, rather than from `[TearDown]`. The directory th
 delete moved to the end of `[UnityTearDown]` held a `meta.sav` rather than a `currency.sav`, because
 `GameMetaSaveDocument` is written on every boot while the currency document only writes when a
 balance actually changes.
+
+Both real-game fixtures derive from `RealGameBootFixture`, which owns the whole setup and teardown
+so the statement order lives in one place.
 
 Two consequences worth keeping. A teardown that deletes a save directory has to run *after* the
 container is disposed, because disposing a `SaveScheduler<T>` triggers its best-effort flush and

@@ -367,6 +367,59 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.IsFalse(minigame.Running);
         }
 
+        /// <remarks>
+        /// See docs/minigames.md, "Failure during a start".
+        /// </remarks>
+        [Test]
+        public void BeginAsync_WhenCancelledWhileADownloadThatIgnoresCancellationCompletes_NeverInjectsTheController()
+        {
+            ConfigurableMinigameSO definition = Definition();
+            definition.WithContent(CONTENT_LABEL, MinigameLoadPolicy.OnDemand);
+            _assets.WithDownloadSize(CONTENT_LABEL, 4096);
+            _assets.StallDownloads = true;
+            _assets.StalledDownloadsIgnoreCancellation = true;
+
+            MinigameContainer minigame = Build(definition);
+            ConfigurableController controller = (ConfigurableController)minigame.ControllerInstance;
+            using CancellationTokenSource caller = new();
+
+            UniTask starting = minigame.BeginAsync(_parent.transform, caller.Token);
+            caller.Cancel();
+            Assert.AreEqual(UniTaskStatus.Pending, starting.Status,
+                "guard: the download ignores cancellation, so the start must still be in flight");
+
+            _assets.CompleteStalledDownloads();
+
+            Assert.AreEqual(UniTaskStatus.Canceled, starting.Status);
+            Assert.AreEqual(0, controller.InjectCalls,
+                "injecting registers the controller's save scheduler, which a cancelled start must not do");
+            Assert.IsFalse(minigame.Running);
+            Assert.IsNull(minigame.ViewInstance);
+            CollectionAssert.Contains(_assets.ReleasedReferences, _viewRef);
+            CollectionAssert.Contains(_assets.ReleasedReferences, _configRef);
+        }
+
+        /// <remarks>
+        /// See docs/minigames.md, "Failure during a start".
+        /// </remarks>
+        [Test]
+        public void BeginAsync_WhenItFailsBeforeInjection_DoesNotDisposeTheController()
+        {
+            ConfigurableMinigameSO definition = Definition();
+            definition.WithContent(CONTENT_LABEL, MinigameLoadPolicy.OnDemand);
+            _assets.WithDownloadSize(CONTENT_LABEL, 4096);
+            _assets.FailDownloadWith = new AssetLoadException(CONTENT_LABEL, new System.Exception("offline"));
+
+            MinigameContainer minigame = Build(definition);
+            ConfigurableController controller = (ConfigurableController)minigame.ControllerInstance;
+
+            Assert.Throws<AssetLoadException>(() =>
+                SynchronousUniTask.Complete(minigame.BeginAsync(_parent.transform, CancellationToken.None)));
+
+            Assert.AreEqual(0, controller.DisposeCalls,
+                "a controller that was never injected registered nothing, so there is nothing to dispose");
+        }
+
         private ConfigurableMinigameSO Definition()
         {
             ConfigurableMinigameSO definition = Track(ScriptableObject.CreateInstance<ConfigurableMinigameSO>())
@@ -451,7 +504,9 @@ namespace Company.ChestGame.Tests.EditMode
 
             public override void NewGame() { }
 
-            public override void Dispose() { }
+            public int DisposeCalls { get; private set; }
+
+            public override void Dispose() => DisposeCalls++;
         }
     }
 }

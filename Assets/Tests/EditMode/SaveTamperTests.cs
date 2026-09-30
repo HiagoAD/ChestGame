@@ -1,5 +1,6 @@
 using System;
 using System.Threading;
+using Company.ChestGame.Common;
 using Company.ChestGame.Saving;
 using Company.ChestGame.Saving.Demo;
 using Company.ChestGame.Tests.Common;
@@ -95,6 +96,20 @@ namespace Company.ChestGame.Tests.EditMode
         {
             Assert.Throws<SaveInspectorException>(() => SynchronousUniTask.Result(SaveTamper.RunAsync(
                 SaveStorage.InMemory, SaveCodec.Json, SaveProtection.None, _inputs, _key, TamperedBalance, CancellationToken.None)));
+        }
+
+        /// <remarks>
+        /// See docs/architecture.md, "Exception hierarchy".
+        /// </remarks>
+        [Test]
+        public void SaveInspectorException_IsDeliberatelyNotUnderChestGameException()
+        {
+            SaveInspectorException failure = Assert.Throws<SaveInspectorException>(() => SynchronousUniTask.Result(SaveTamper.RunAsync(
+                SaveStorage.InMemory, SaveCodec.Json, SaveProtection.None, _inputs, _key, TamperedBalance, CancellationToken.None)));
+
+            Assert.IsNotInstanceOf<ChestGameException>(failure,
+                "or the shell would report a wiring bug to the player as a content download failure and carry on");
+            Assert.IsInstanceOf<InvalidOperationException>(failure);
         }
     }
 }

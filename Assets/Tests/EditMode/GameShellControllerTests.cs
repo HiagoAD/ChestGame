@@ -217,7 +217,7 @@ namespace Company.ChestGame.Tests.EditMode
         }
 
         [Test]
-        public void StartAsync_WhoseContentArrivesAfterDispose_EndsTheContainerInsteadOfKeepingIt()
+        public void StartAsync_WhoseContentArrivesAfterDispose_NeverBeginsTheContainer()
         {
             MinigameContainer container = BuildStalledContainer("id", downloadIgnoresCancellation: true);
             FakeMinigameController late = (FakeMinigameController)container.ControllerInstance;
@@ -229,25 +229,24 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.AreEqual(UniTaskStatus.Pending, starting.Status,
                 "guard: the download ignores cancellation, so the start must still be in flight after disposal");
 
-            ExpectDestroy();
             _assets.CompleteStalledDownloads();
 
             Assert.AreEqual(UniTaskStatus.Canceled, starting.Status,
                 "a start that finishes after disposal must surface as cancellation rather than completing");
-            Assert.IsFalse(container.Running,
-                "a container that began after disposal must be ended, or nothing ever will end it");
-            Assert.IsTrue(late.Disposed,
-                "ending the container must dispose its controller, which is what releases its save registration");
+            Assert.IsFalse(container.Running, "a container must not begin after disposal");
+            Assert.AreEqual(0, late.InjectCalls,
+                "injecting the controller registers its save scheduler, which nothing would ever unregister");
             Assert.AreEqual(0, late.NewGameCalls, "a game must not begin on a disposed shell");
+            Assert.IsNull(container.ViewInstance, "no view may be instantiated after disposal");
             CollectionAssert.Contains(_assets.ReleasedReferences, container.ViewRef,
-                "ending the container must release the content it had just loaded");
+                "the failed start must release the content it had just loaded");
             Assert.IsEmpty(_popups.SpawnCalls, "a start cancelled by disposal must not spawn a popup");
             CollectionAssert.AreEqual(new[] { true }, busyStates,
                 "the end of a start that outlived disposal must reach nobody, because disposal dropped the subscribers");
         }
 
         [Test]
-        public void StartAsync_WhoseContentArrivesAfterTheCallerCancelled_EndsTheContainerInsteadOfKeepingIt()
+        public void StartAsync_WhoseContentArrivesAfterTheCallerCancelled_NeverBeginsTheContainer()
         {
             MinigameContainer container = BuildStalledContainer("id", downloadIgnoresCancellation: true);
             FakeMinigameController late = (FakeMinigameController)container.ControllerInstance;
@@ -260,15 +259,16 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.AreEqual(UniTaskStatus.Pending, starting.Status,
                 "guard: the download ignores cancellation, so the start must still be in flight after the cancel");
 
-            ExpectDestroy();
             _assets.CompleteStalledDownloads();
 
             Assert.AreEqual(UniTaskStatus.Canceled, starting.Status,
                 "a start that finishes after its caller cancelled must surface as cancellation rather than completing");
-            Assert.IsFalse(container.Running,
-                "a container that began after its caller gave up must be ended, not kept running");
-            Assert.IsTrue(late.Disposed);
+            Assert.IsFalse(container.Running, "a container must not begin for a caller that gave up");
+            Assert.AreEqual(0, late.InjectCalls, "the controller must never be injected for a cancelled start");
             Assert.AreEqual(0, late.NewGameCalls, "a game must not begin for a caller that cancelled");
+            Assert.IsNull(container.ViewInstance);
+            CollectionAssert.Contains(_assets.ReleasedReferences, container.ViewRef,
+                "the failed start must release the content it had just loaded");
             Assert.IsEmpty(_popups.SpawnCalls);
             CollectionAssert.AreEqual(new[] { true, false }, busyStates,
                 "the busy flag must clear when a late-cancelled start unwinds, or the button stays dead");
@@ -313,6 +313,7 @@ namespace Company.ChestGame.Tests.EditMode
         public void Dispose_WhenACancellationCallbackThrows_StillDropsTheBusySubscribers()
         {
             MinigameContainer container = BuildStalledContainer("id", downloadIgnoresCancellation: true);
+            FakeMinigameController late = (FakeMinigameController)container.ControllerInstance;
             _assets.StalledDownloadsThrowOnCancellation = true;
             List<bool> busyStates = new();
             _controller.OnBusyChanged += busyStates.Add;
@@ -328,11 +329,15 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.AreEqual(UniTaskStatus.Pending, starting.Status,
                 "guard: the download ignores cancellation, so the start must still be in flight after disposal");
 
-            ExpectDestroy();
             _assets.CompleteStalledDownloads();
 
             Assert.AreEqual(UniTaskStatus.Canceled, starting.Status);
             Assert.IsFalse(container.Running);
+            Assert.AreEqual(0, late.InjectCalls);
+            Assert.AreEqual(0, late.NewGameCalls);
+            Assert.IsNull(container.ViewInstance);
+            CollectionAssert.Contains(_assets.ReleasedReferences, container.ViewRef);
+            Assert.IsEmpty(_popups.SpawnCalls);
             CollectionAssert.AreEqual(new[] { true }, busyStates,
                 "a Dispose whose cancellation threw must still have dropped the subscribers");
         }

@@ -54,7 +54,9 @@ namespace Company.ChestGame.Minigame.Core
         /// Everything content-shaped happens here: fetches this minigame's on-demand content if
         /// needed, loads the view, then runs the definition's configure hook and injects the
         /// controller before the view is instantiated. A controller builds state from its own
-        /// config and is injected on top of it.
+        /// config and is injected on top of it. When a step after injection fails, the injected
+        /// controller is disposed before the view is destroyed and the content released; a failure
+        /// before injection completes does not dispose it.
         /// </summary>
         /// <exception cref="MinigameAlreadyRunningException">The container is already running.</exception>
         /// <exception cref="ContentDownloadTimeoutException">
@@ -66,6 +68,11 @@ namespace Company.ChestGame.Minigame.Core
         /// <exception cref="MissingAssetException">
         /// The on-demand content label or the view reference names nothing in the shipped catalog.
         /// </exception>
+        /// <exception cref="OperationCanceledException">
+        /// <paramref name="ct"/> was cancelled before the controller was injected, including when
+        /// the last await completed after the cancel. Nothing is injected, instantiated or left
+        /// running, and the content is released.
+        /// </exception>
         /// <remarks>
         /// See docs/minigames.md, "Nothing loads while the container is built".
         /// See docs/minigames.md, "Starting twice is loud".
@@ -75,6 +82,8 @@ namespace Company.ChestGame.Minigame.Core
         {
             if (_running) throw new MinigameAlreadyRunningException(_definition != null ? _definition.Id : null);
 
+            bool injected = false;
+
             try
             {
                 await EnsureContentIsDownloadedAsync(ct);
@@ -82,7 +91,10 @@ namespace Company.ChestGame.Minigame.Core
                 GameObject prefab = await _assets.LoadAsync<GameObject>(ViewRef, ct);
 
                 await _definition.ConfigureControllerAsync(ControllerInstance, _assets, ct);
+                ct.ThrowIfCancellationRequested();
+
                 _resolver.Inject(ControllerInstance);
+                injected = true;
 
                 ViewInstance = _resolver.Instantiate(prefab.GetComponent<MinigameViewBase>(), parent);
                 ViewInstance.SetController(ControllerInstance);
@@ -90,6 +102,11 @@ namespace Company.ChestGame.Minigame.Core
             }
             catch
             {
+                if (injected)
+                {
+                    ControllerInstance.Dispose();
+                }
+
                 if (ViewInstance != null)
                 {
                     Object.Destroy(ViewInstance.gameObject);

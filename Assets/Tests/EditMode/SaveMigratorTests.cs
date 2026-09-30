@@ -1,3 +1,5 @@
+using System;
+using Company.ChestGame.Common;
 using Company.ChestGame.Saving;
 using Newtonsoft.Json.Linq;
 using NUnit.Framework;
@@ -76,6 +78,23 @@ namespace Company.ChestGame.Tests.EditMode
 
             Assert.Throws<SaveMigrationException>(
                 () => new SaveMigrator(new ISaveMigration[] { first, second }));
+        }
+
+        /// <remarks>
+        /// See docs/architecture.md, "Exception hierarchy".
+        /// </remarks>
+        [Test]
+        public void SaveMigrationException_IsDeliberatelyNotUnderChestGameException()
+        {
+            FakeSaveMigration first = new(1);
+            FakeSaveMigration second = new(1);
+
+            SaveMigrationException failure = Assert.Throws<SaveMigrationException>(
+                () => new SaveMigrator(new ISaveMigration[] { first, second }));
+
+            Assert.IsNotInstanceOf<ChestGameException>(failure,
+                "or the shell would report a wiring bug to the player as a content download failure and carry on");
+            Assert.IsInstanceOf<InvalidOperationException>(failure);
         }
 
         /// <summary>

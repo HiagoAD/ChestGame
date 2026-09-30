@@ -92,7 +92,25 @@ follows can only give one back.
 ## Failure during a start
 
 If anything in `BeginAsync` throws, the catch releases what was already taken and destroys the view
-instance if one exists, then rethrows.
+instance if one exists, then rethrows. If injection had already completed, it disposes the controller
+first, then destroys the view and releases the content, the order `End` uses.
+
+`BeginAsync` tracks whether `Inject` returned. A failure after that (view instantiation, or
+`SetController`, which throws `ArgumentException` on a controller type mismatch) disposes the
+controller, because injection may have registered something with the root scope, as the chests
+controller's `SaveScheduler` does. A failure before injection completes does not, and that includes a
+throw inside `Inject` itself. `Dispose`'s contract covers only a controller whose injection
+completed, so the container never calls it on a half-injected one. A controller that registers
+something during `Inject` must therefore register it last, as the chests controller does with its
+`SaveScheduler` (see [saving.md](saving.md), "A scheduler the composition root cannot name has to
+register itself", the "`Register` runs last" rule), so a throw inside `Inject`
+leaves nothing registered to undo.
+
+`BeginAsync` calls `ct.ThrowIfCancellationRequested()` after its last await, `ConfigureControllerAsync`,
+and before `Inject`. Without it, a cancel landing during that await, with a definition override or
+provider that did not observe the token, would still inject the controller and instantiate the view for
+a caller that had given up. With it, that start throws `OperationCanceledException` before any of that,
+and the catch releases the content like any other failure.
 
 Nothing else could ever let those go. `End` is a no-op until `_running` is true, which is the last
 line of the try block, so a load that threw or a start that was cancelled halfway would otherwise
@@ -228,10 +246,10 @@ support the number of chests changing between games.
 
 It is also where a pending run is resolved. The first call after `Inject` restores that run if it
 still fits (the saved chest count matches, no index is out of range or repeated, and the run had
-attempts left) and discards it otherwise, overwriting the save with an empty document. A restored
-run resumes its attempt count rather than starting at zero. Every later call discards first, so a
-restart is never itself resumable, and finishing a run overwrites the save in the same call that
-opens the prize chest, so a finished run never resumes.
+attempts left, and the saved index list is not null) and discards it otherwise, overwriting the save
+with an empty document. A restored run resumes its attempt count rather than starting at zero. Every
+later call discards first, so a restart is never itself resumable, and finishing a run overwrites
+the save in the same call that opens the prize chest, so a finished run never resumes.
 
 ### Prize odds
 

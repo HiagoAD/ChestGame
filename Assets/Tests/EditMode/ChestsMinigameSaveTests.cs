@@ -237,6 +237,26 @@ namespace Company.ChestGame.Tests.EditMode
         }
 
         [Test]
+        public void Discard_WhenOpenedChestIndicesIsNull()
+        {
+            ISaveService service = new SaveService(new JsonCodec(), new NoProtection(), new FakeSaveStore());
+            Seed(service, new ChestsRunSaveDocument { ChestCount = 4, OpenedChestIndices = null });
+            Assert.IsNull(LoadStored(service).OpenedChestIndices, "guard: the codec must keep the explicit null for this test to mean anything");
+
+            (ChestsMinigameController controller, _, ISaveFlushRegistry registry, _, _) = NewController(service, chestCount: 4, attemptsCount: 4);
+            controller.NewGame();
+
+            Assert.AreEqual(0, controller.Attempts);
+            Assert.IsTrue(controller.Chests.All(chest => chest.CurrentState == ChestsMinigameChestModel.State.Closed));
+
+            registry.FlushAll();
+            ChestsRunSaveDocument stored = LoadStored(service);
+            Assert.IsNotNull(stored.OpenedChestIndices, "a discard must overwrite the stored run with a fresh one");
+            Assert.IsEmpty(stored.OpenedChestIndices);
+            Assert.AreEqual(new ChestsRunSaveDocument().ChestCount, stored.ChestCount);
+        }
+
+        [Test]
         public void NewGame_OnARestart_DoesNotResumeTheJustSavedRun()
         {
             ISaveService service = new SaveService(new JsonCodec(), new NoProtection(), new FakeSaveStore());

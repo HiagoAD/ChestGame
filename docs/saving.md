@@ -1769,10 +1769,12 @@ Three ordering rules inside `Inject`, each closing a real failure rather than a 
   anything is built, because the restore load blocks the calling thread exactly the way
   `CurrencyResourceBankSaveHandle.Load()` does. The existing exception already describes "a caller
   that blocks on `LoadAsync`'s result" generically, so this reuses it rather than adding a twin.
-- **`Register` runs last.** `MinigameContainer.BeginAsync` destroys the view and releases content
-  when injection fails, but it does not `Dispose()` the controller — so a scheduler registered before
-  a throw would stay in the singleton registry for the life of the process, flushed at every
-  pause/quit, holding a dead controller's state, and accumulating one more per failed start.
+- **`Register` runs last.** `MinigameContainer.BeginAsync` disposes a controller whose injection
+  completed when a later step fails, but not one whose `Inject` threw, so `Register` running last is
+  still what keeps a half-injected controller out of the registry. A scheduler registered before a
+  throw would stay in the singleton registry for the life of the process, flushed at every
+  pause/quit and accumulating one more per failed start. `SaveScheduler` does not hold the
+  controller; the stale registration is a scheduler that nothing marks dirty.
 - **A corrupt run is discarded, not fatal.** A `SaveException` from the load is logged and answered
   with no pending restore. This is the same call-site policy `GameBootstrapper` applies to meta and it
   rests on the same test: a chests run holds nothing a player earned, because the win pays out through
@@ -1800,11 +1802,14 @@ was already built to re-derive its display from whatever the model holds, for th
 chest opening live. Restore runs after every chest is `SetClosed()`, because `SetOpen` returns early
 on an already-open chest.
 
-A saved run is discarded rather than restored under three conditions, each a state a save can
+A saved run is discarded rather than restored under four conditions, each a state a save can
 legitimately be in: `ChestCount` differs from the configured count (a server-side config change, which
 is the only thing that field exists to catch); an index is out of range or duplicated (a hand-edited
-or truncated save); or the opened count already reaches `TotalAttempts` (a run that had ended).
-Discarding also clears what is stored, so it is not re-read next launch. **A restart discards
+or truncated save); the opened count already reaches `TotalAttempts` (a run that had ended); or
+`OpenedChestIndices` is null. The last comes from a file that writes an explicit `"OpenedChestIndices":
+null`: Newtonsoft assigns it over the document's `= new()` initializer, while an absent key keeps the
+empty list, and restoring from a null list would throw. Discarding starts a fresh run and marks the
+fresh document dirty, which overwrites the bad file, so it is not re-read next launch. **A restart discards
 unconditionally too**, even when the saved run was perfectly valid: a player who restarts mid-run must
 not find that run resumable later.
 

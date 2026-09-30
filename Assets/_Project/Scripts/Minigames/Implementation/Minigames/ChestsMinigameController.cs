@@ -183,8 +183,9 @@ namespace Company.ChestGame.Minigame.Chests.Internal
         /// </remarks>
         private bool ShouldDiscardRestore(ChestsRunSaveDocument document)
         {
-            List<int> indices = document.OpenedChestIndices ?? new List<int>();
+            List<int> indices = document.OpenedChestIndices;
 
+            if (indices == null) return true;
             if (document.ChestCount != Chests.Count) return true;
             if (indices.Count >= TotalAttempts) return true;
 
@@ -199,7 +200,8 @@ namespace Company.ChestGame.Minigame.Chests.Internal
         }
 
         /// <summary>
-        /// Must run on a board whose chests are all closed.
+        /// Must run on a board whose chests are all closed. The document must be one
+        /// <c>ShouldDiscardRestore</c> accepted: this dereferences <c>OpenedChestIndices</c> without a null check.
         /// </summary>
         /// <remarks>
         /// See docs/saving.md, "Restore, discard, and why it lives in NewGame()".
