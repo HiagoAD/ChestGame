@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using Company.ChestGame.Currency;
+using Company.ChestGame.Saving;
 using Company.ChestGame.Tests.Common;
 using NUnit.Framework;
 using UnityEngine;
@@ -12,7 +13,7 @@ namespace Company.ChestGame.Tests.EditMode
     // default, hence the LogAssert.Expect calls on the negative paths.
     public class CurrencyManagerTests
     {
-        private InMemoryResourceBankSaveHandler _saveHandler;
+        private InMemoryCurrencySaveHandler _saveHandler;
         private CurrencyManager _currency;
 
         private List<(CurrencyType currency, long amount, long balance, string source)> _changed;
@@ -22,7 +23,7 @@ namespace Company.ChestGame.Tests.EditMode
         [SetUp]
         public void SetUp()
         {
-            _saveHandler = new InMemoryResourceBankSaveHandler();
+            _saveHandler = new InMemoryCurrencySaveHandler();
             _currency = new CurrencyManager(_saveHandler);
 
             _changed = new List<(CurrencyType, long, long, string)>();
@@ -229,8 +230,8 @@ namespace Company.ChestGame.Tests.EditMode
         [Test]
         public void Spending_ReportsAPositiveAmountOnSpent_AndANegativeOneOnChanged()
         {
-            // The asymmetry is documented on ResourceBankCallbacks: Changed always describes the
-            // delta applied to the balance, Spent describes the size of the withdrawal.
+            // The asymmetry is deliberate: Changed always describes the delta applied to the
+            // balance, Spent describes the size of the withdrawal.
             _currency.AddCurrency(CurrencyType.Coins, 100, "test");
             _changed.Clear();
             _collected.Clear();
@@ -302,7 +303,7 @@ namespace Company.ChestGame.Tests.EditMode
         [Test]
         public void SaveHandler_IsLoadedOnceAtConstruction_AndNeverAgain()
         {
-            InMemoryResourceBankSaveHandler handler = new();
+            InMemoryCurrencySaveHandler handler = new();
             Assert.AreEqual(0, handler.LoadCallCount, "guard: nothing has loaded before the manager exists");
 
             CurrencyManager manager = new(handler);
@@ -316,6 +317,44 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.AreEqual(70, manager.GetCurrencyAmount(CurrencyType.Coins));
             Assert.AreEqual(5, manager.GetCurrencyAmount(CurrencyType.Gems));
             Assert.AreEqual(1, handler.LoadCallCount);
+        }
+
+        [Test]
+        public void EverySave_HandsTheHandlerASnapshotNothingElseHolds()
+        {
+            _currency.AddCurrency(CurrencyType.Coins, 10, "test");
+            CurrencySaveDocument first = _saveHandler.Stored;
+
+            _currency.AddCurrency(CurrencyType.Coins, 5, "test");
+
+            Assert.AreEqual(10, first.ResourceAmount[CurrencyType.Coins], "the earlier document must not follow the balance");
+            Assert.AreEqual(15, _saveHandler.Stored.ResourceAmount[CurrencyType.Coins]);
+            Assert.AreNotSame(first, _saveHandler.Stored);
+        }
+
+        [Test]
+        public void Construction_CopiesTheLoadedDocument_RatherThanAdoptingIt()
+        {
+            InMemoryCurrencySaveHandler handler = new();
+            CurrencySaveDocument seeded = new() { ResourceAmount = { [CurrencyType.Coins] = 7 } };
+            handler.Save(seeded);
+
+            CurrencyManager manager = new(handler);
+            Assert.AreEqual(7, manager.GetCurrencyAmount(CurrencyType.Coins), "guard: the seeded balance has to reach the manager");
+
+            manager.AddCurrency(CurrencyType.Coins, 3, "test");
+
+            Assert.AreEqual(10, manager.GetCurrencyAmount(CurrencyType.Coins));
+            Assert.AreEqual(7, seeded.ResourceAmount[CurrencyType.Coins]);
+            Assert.AreEqual(1, seeded.ResourceAmount.Count, "starting a currency the save lacks must not write into the loaded document");
+        }
+
+        [Test]
+        public void Constructor_WithNoSaveHandler_ThrowsSaveException()
+        {
+            SaveException error = Assert.Throws<SaveException>(() => new CurrencyManager(null));
+
+            StringAssert.Contains("needs one to load and save through", error.Message);
         }
 
         // --- Debug helper ------------------------------------------------------------------
@@ -350,8 +389,9 @@ namespace Company.ChestGame.Tests.EditMode
         [Test]
         public void CheatResetCurrencyAmount_OnAZeroBalance_DoesNothing()
         {
-            // No LogAssert.Expect: the cheat calls the bank directly, so a zero balance is refused
-            // without CurrencyManager logging anything. An error here would fail the test.
+            // No LogAssert.Expect: the cheat does not go through TrySpendCurrency, so a zero
+            // balance is refused without CurrencyManager logging anything. An error here would fail
+            // the test.
             _currency.CHEAT_ResetCurrencyAmount(CurrencyType.Coins);
 
             Assert.AreEqual(0, _currency.GetCurrencyAmount(CurrencyType.Coins));

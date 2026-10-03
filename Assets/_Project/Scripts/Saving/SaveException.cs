@@ -48,6 +48,11 @@ namespace Company.ChestGame.Saving
         public static SaveException NoScheduler() =>
             new("A synchronous save handler needs a SaveScheduler<T> to write through without blocking, and was given none");
 
+        // Thrown rather than defaulted: a fallback handler would have to choose somewhere to
+        // persist, and a silent choice is how a player's existing save gets overwritten.
+        public static SaveException NoSaveHandler() =>
+            new("A manager that persists through a save handler needs one to load and save through, and was given none");
+
         // For a caller that blocks on LoadAsync's result rather than awaiting it, which is only
         // safe over a service that always finishes on the calling thread. Asserted at construction
         // rather than left to deadlock once.

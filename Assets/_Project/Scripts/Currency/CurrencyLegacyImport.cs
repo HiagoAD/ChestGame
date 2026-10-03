@@ -4,14 +4,16 @@ using UnityEngine;
 
 namespace Company.ChestGame.Currency
 {
-    // Reads exactly what DefaultResourceBankSaveHandle<CurrencyType> has always written: a bare
-    // {"ResourceAmount":{...}} under "ResourceBankSaveData_CurrencyType" in PlayerPrefs, with no
-    // envelope and no version field at all. See docs/saving.md, "The legacy import".
+    // Reads exactly what the Resource Bank library this project used to vendor wrote, through its
+    // DefaultResourceBankSaveHandle<CurrencyType>: a bare {"ResourceAmount":{...}} under
+    // "ResourceBankSaveData_CurrencyType" in PlayerPrefs, with no envelope and no version field at
+    // all. The library is out of the project, but the saves it wrote on players' devices are not.
+    // See docs/saving.md, "The legacy import".
     public class CurrencyLegacyImport : ILegacyImport
     {
-        // Exactly what DefaultResourceBankSaveHandle<T>.SAVE_KEY evaluates to for CurrencyType.
-        // Never change it: it is the only bridge back to an already-installed player's existing
-        // save.
+        // Exactly what that library's DefaultResourceBankSaveHandle<T>.SAVE_KEY evaluated to for
+        // CurrencyType. Never change it: it is the only bridge back to an already-installed
+        // player's existing save.
         public const string DefaultLegacyKey = "ResourceBankSaveData_CurrencyType";
 
         // Where the bytes land instead of being deleted - see Clear(). Suffixed onto whichever key
@@ -28,7 +30,7 @@ namespace Company.ChestGame.Currency
 
         // Where the data belongs once imported, as opposed to the legacy key above, where it lives
         // now. Not the literal, so the two can never drift.
-        public string TargetKey => CurrencyResourceBankSaveHandle.SaveKey;
+        public string TargetKey => CurrencySaveHandler.SaveKey;
 
         // Present means "there is a value here that behaves like data", not merely "the key
         // exists". An empty string and the literal "null" both count as absent, so LoadAsync takes

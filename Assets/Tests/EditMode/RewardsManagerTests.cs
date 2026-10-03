@@ -135,7 +135,7 @@ namespace Company.ChestGame.Tests.EditMode
                 return;
             }
 
-            CurrencyManager currency = new(new InMemoryResourceBankSaveHandler());
+            CurrencyManager currency = new(new InMemoryCurrencySaveHandler());
             FakePopupManager popups = new();
             FakeRandomProvider random = new() { NextRangeResult = (int)drawn };
             RewardsManager rewards = new(currency, config, popups, random);

@@ -7,16 +7,15 @@ using Company.ChestGame.Currency;
 using Company.ChestGame.Saving;
 using Company.ChestGame.Tests.Common;
 using NUnit.Framework;
-using TapNation.Modules.ResourceBank.Saving;
 
 namespace Company.ChestGame.Tests.EditMode
 {
-    // CurrencyResourceBankSaveHandle over a real, temp-rooted AtomicFile/Json/None ISaveService -
+    // CurrencySaveHandler over a real, temp-rooted AtomicFile/Json/None ISaveService -
     // the same shape GameLifetimeScope.RegisterCoreServices composes, built here by hand through
     // SaveComponentFactory directly so these tests never touch GameLifetimeScope, and therefore
     // never touch the developer's real Application.persistentDataPath or real PlayerPrefs entry.
     // See docs/saving.md, "Currency: the first real caller".
-    public class CurrencyResourceBankSaveHandleTests
+    public class CurrencySaveHandlerTests
     {
         private string _root;
 
@@ -43,26 +42,26 @@ namespace Company.ChestGame.Tests.EditMode
                 store);
         }
 
-        // Wraps a real CurrencyResourceBankSaveHandle only to record the moment Save() runs
-        // relative to whatever else a test appends to the same list, and the coin balance it was
-        // handed at that moment - never a replacement for the real handler's own logic, which every
-        // call here still reaches.
-        private class OrderRecordingHandler : IResourceBankSaveHandler<CurrencyType>
+        // Wraps a real CurrencySaveHandler only to record the moment Save() runs relative to
+        // whatever else a test appends to the same list, and the coin balance it was handed at that
+        // moment - never a replacement for the real handler's own logic, which every call here
+        // still reaches.
+        private class OrderRecordingHandler : ICurrencySaveHandler
         {
-            private readonly IResourceBankSaveHandler<CurrencyType> _inner;
+            private readonly ICurrencySaveHandler _inner;
             public readonly List<string> Events = new();
             public readonly List<long> SavedCoinBalances = new();
 
-            public OrderRecordingHandler(IResourceBankSaveHandler<CurrencyType> inner) => _inner = inner;
+            public OrderRecordingHandler(ICurrencySaveHandler inner) => _inner = inner;
 
-            public void Save(ResourceBankState<CurrencyType> data)
+            public void Save(CurrencySaveDocument document)
             {
                 Events.Add("Save");
-                SavedCoinBalances.Add(data.ResourceAmount[CurrencyType.Coins]);
-                _inner.Save(data);
+                SavedCoinBalances.Add(document.ResourceAmount[CurrencyType.Coins]);
+                _inner.Save(document);
             }
 
-            public ResourceBankState<CurrencyType> Load() => _inner.Load();
+            public CurrencySaveDocument Load() => _inner.Load();
         }
 
         // --- The structural guard (docs/saving.md, "Load() blocks") ----------------------------
@@ -78,7 +77,7 @@ namespace Company.ChestGame.Tests.EditMode
 
             using SaveScheduler<CurrencySaveDocument> scheduler = new(hoppingService, "currency-guard-test", new FakeGameClock());
 
-            SaveException error = Assert.Throws<SaveException>(() => new CurrencyResourceBankSaveHandle(hoppingService, scheduler));
+            SaveException error = Assert.Throws<SaveException>(() => new CurrencySaveHandler(hoppingService, scheduler));
             StringAssert.Contains("completes on the calling thread", error.Message);
         }
 
@@ -86,18 +85,18 @@ namespace Company.ChestGame.Tests.EditMode
         public void Constructor_OverANonHoppingComposition_DoesNotThrow()
         {
             ISaveService service = NewCurrencySaveService(_root);
-            using SaveScheduler<CurrencySaveDocument> scheduler = new(service, CurrencyResourceBankSaveHandle.SaveKey, new FakeGameClock());
+            using SaveScheduler<CurrencySaveDocument> scheduler = new(service, CurrencySaveHandler.SaveKey, new FakeGameClock());
 
-            Assert.DoesNotThrow(() => new CurrencyResourceBankSaveHandle(service, scheduler));
+            Assert.DoesNotThrow(() => new CurrencySaveHandler(service, scheduler));
         }
 
         [Test]
         public void Constructor_WithNoSaveService_Throws()
         {
             ISaveService service = NewCurrencySaveService(_root);
-            using SaveScheduler<CurrencySaveDocument> scheduler = new(service, CurrencyResourceBankSaveHandle.SaveKey, new FakeGameClock());
+            using SaveScheduler<CurrencySaveDocument> scheduler = new(service, CurrencySaveHandler.SaveKey, new FakeGameClock());
 
-            SaveException error = Assert.Throws<SaveException>(() => new CurrencyResourceBankSaveHandle(null, scheduler));
+            SaveException error = Assert.Throws<SaveException>(() => new CurrencySaveHandler(null, scheduler));
             StringAssert.Contains("ISaveService", error.Message);
         }
 
@@ -106,7 +105,7 @@ namespace Company.ChestGame.Tests.EditMode
         {
             ISaveService service = NewCurrencySaveService(_root);
 
-            SaveException error = Assert.Throws<SaveException>(() => new CurrencyResourceBankSaveHandle(service, null));
+            SaveException error = Assert.Throws<SaveException>(() => new CurrencySaveHandler(service, null));
             StringAssert.Contains("SaveScheduler", error.Message);
         }
 
@@ -120,12 +119,12 @@ namespace Company.ChestGame.Tests.EditMode
         public void RegisteringTheCurrencySchedulerOverAHoppingService_IsRefused_NamingTheKey()
         {
             ISaveService hoppingService = new SaveService(new FakeSaveCodec(), new NoProtection(), new ThreadHoppingStore(new FakeSaveStore()));
-            using SaveScheduler<CurrencySaveDocument> scheduler = new(hoppingService, CurrencyResourceBankSaveHandle.SaveKey, new FakeGameClock());
+            using SaveScheduler<CurrencySaveDocument> scheduler = new(hoppingService, CurrencySaveHandler.SaveKey, new FakeGameClock());
             SaveFlushRegistry registry = new();
 
             SaveException error = Assert.Throws<SaveException>(() => registry.Register(scheduler));
 
-            StringAssert.Contains($"'{CurrencyResourceBankSaveHandle.SaveKey}'", error.Message,
+            StringAssert.Contains($"'{CurrencySaveHandler.SaveKey}'", error.Message,
                 "the refusal has to name which save was wired wrong");
             StringAssert.Contains("FlushBlocking", error.Message);
             CollectionAssert.IsEmpty(registry.Registered, "a refused scheduler must not have been registered anyway");
@@ -137,8 +136,8 @@ namespace Company.ChestGame.Tests.EditMode
         public void AddSpendAndReload_RoundTripsThroughTheRealPipeline()
         {
             ISaveService service1 = NewCurrencySaveService(_root);
-            SaveScheduler<CurrencySaveDocument> scheduler1 = new(service1, CurrencyResourceBankSaveHandle.SaveKey, new FakeGameClock());
-            CurrencyManager manager1 = new(new CurrencyResourceBankSaveHandle(service1, scheduler1));
+            SaveScheduler<CurrencySaveDocument> scheduler1 = new(service1, CurrencySaveHandler.SaveKey, new FakeGameClock());
+            CurrencyManager manager1 = new(new CurrencySaveHandler(service1, scheduler1));
 
             manager1.AddCurrency(CurrencyType.Coins, 100, "test");
             manager1.AddCurrency(CurrencyType.Gems, 20, "test");
@@ -155,8 +154,8 @@ namespace Company.ChestGame.Tests.EditMode
             // A fresh manager, fresh scheduler, fresh ISaveService instance - over the same root -
             // standing in for a process restart reading back what the previous process wrote.
             ISaveService service2 = NewCurrencySaveService(_root);
-            SaveScheduler<CurrencySaveDocument> scheduler2 = new(service2, CurrencyResourceBankSaveHandle.SaveKey, new FakeGameClock());
-            CurrencyManager manager2 = new(new CurrencyResourceBankSaveHandle(service2, scheduler2));
+            SaveScheduler<CurrencySaveDocument> scheduler2 = new(service2, CurrencySaveHandler.SaveKey, new FakeGameClock());
+            CurrencyManager manager2 = new(new CurrencySaveHandler(service2, scheduler2));
 
             Assert.AreEqual(70, manager2.GetCurrencyAmount(CurrencyType.Coins));
             Assert.AreEqual(20, manager2.GetCurrencyAmount(CurrencyType.Gems));
@@ -174,10 +173,10 @@ namespace Company.ChestGame.Tests.EditMode
             {
                 ResourceAmount = new Dictionary<CurrencyType, long> { { CurrencyType.Coins, 42L } }
             };
-            SynchronousUniTask.Complete(service.SaveAsync(CurrencyResourceBankSaveHandle.SaveKey, olderSave, CancellationToken.None));
+            SynchronousUniTask.Complete(service.SaveAsync(CurrencySaveHandler.SaveKey, olderSave, CancellationToken.None));
 
-            using SaveScheduler<CurrencySaveDocument> scheduler = new(service, CurrencyResourceBankSaveHandle.SaveKey, new FakeGameClock());
-            CurrencyManager manager = new(new CurrencyResourceBankSaveHandle(service, scheduler));
+            using SaveScheduler<CurrencySaveDocument> scheduler = new(service, CurrencySaveHandler.SaveKey, new FakeGameClock());
+            CurrencyManager manager = new(new CurrencySaveHandler(service, scheduler));
 
             Assert.AreEqual(42, manager.GetCurrencyAmount(CurrencyType.Coins));
             Assert.AreEqual(0, manager.GetCurrencyAmount(CurrencyType.Gems));
@@ -193,14 +192,14 @@ namespace Company.ChestGame.Tests.EditMode
         {
             ISaveService service = NewCurrencySaveService(_root);
             CurrencySaveDocument nullSave = new() { ResourceAmount = null };
-            SynchronousUniTask.Complete(service.SaveAsync(CurrencyResourceBankSaveHandle.SaveKey, nullSave, CancellationToken.None));
+            SynchronousUniTask.Complete(service.SaveAsync(CurrencySaveHandler.SaveKey, nullSave, CancellationToken.None));
 
             CurrencySaveDocument stored = SynchronousUniTask.Result(
-                service.LoadAsync<CurrencySaveDocument>(CurrencyResourceBankSaveHandle.SaveKey, CancellationToken.None));
+                service.LoadAsync<CurrencySaveDocument>(CurrencySaveHandler.SaveKey, CancellationToken.None));
             Assert.IsNull(stored.ResourceAmount, "guard: the null has to survive the codec, or this test never reaches the null path");
 
-            using SaveScheduler<CurrencySaveDocument> scheduler = new(service, CurrencyResourceBankSaveHandle.SaveKey, new FakeGameClock());
-            CurrencyManager manager = new(new CurrencyResourceBankSaveHandle(service, scheduler));
+            using SaveScheduler<CurrencySaveDocument> scheduler = new(service, CurrencySaveHandler.SaveKey, new FakeGameClock());
+            CurrencyManager manager = new(new CurrencySaveHandler(service, scheduler));
 
             Assert.AreEqual(0, manager.GetCurrencyAmount(CurrencyType.Coins));
             Assert.AreEqual(0, manager.GetCurrencyAmount(CurrencyType.Gems));
@@ -218,8 +217,8 @@ namespace Company.ChestGame.Tests.EditMode
         public void ABurstOfAddsAndSpends_CoalescesWithoutChangingTheFinalBalance()
         {
             ISaveService service = NewCurrencySaveService(_root);
-            SaveScheduler<CurrencySaveDocument> scheduler = new(service, CurrencyResourceBankSaveHandle.SaveKey, new FakeGameClock());
-            CurrencyManager manager = new(new CurrencyResourceBankSaveHandle(service, scheduler));
+            SaveScheduler<CurrencySaveDocument> scheduler = new(service, CurrencySaveHandler.SaveKey, new FakeGameClock());
+            CurrencyManager manager = new(new CurrencySaveHandler(service, scheduler));
 
             for (int i = 0; i < 25; i++) manager.AddCurrency(CurrencyType.Coins, 10, "burst");
             for (int i = 0; i < 10; i++) manager.TrySpendCurrency(CurrencyType.Coins, 5, "burst");
@@ -227,7 +226,7 @@ namespace Company.ChestGame.Tests.EditMode
             long expected = 25 * 10 - 10 * 5;
 
             // The clock was never advanced, so the coalescing window has not elapsed and nothing
-            // has actually been written yet - proving the balance above came from ResourceBank's
+            // has actually been written yet - proving the balance above came from CurrencyManager's
             // own in-memory state, not from a write that already landed.
             Assert.IsTrue(scheduler.HasPendingWrite, "guard: the burst has to still be waiting on its coalescing window");
             Assert.IsFalse(scheduler.IsFlushing, "guard: nothing should be mid-write yet - every call above had to return immediately");
@@ -240,7 +239,7 @@ namespace Company.ChestGame.Tests.EditMode
 
             ISaveService reloadService = NewCurrencySaveService(_root);
             CurrencySaveDocument reloaded = SynchronousUniTask.Result(
-                reloadService.LoadAsync<CurrencySaveDocument>(CurrencyResourceBankSaveHandle.SaveKey, CancellationToken.None));
+                reloadService.LoadAsync<CurrencySaveDocument>(CurrencySaveHandler.SaveKey, CancellationToken.None));
 
             Assert.AreEqual(expected, reloaded.ResourceAmount[CurrencyType.Coins],
                 "the one coalesced write has to carry the final balance, not any intermediate one");
@@ -248,19 +247,18 @@ namespace Company.ChestGame.Tests.EditMode
             scheduler.Dispose();
         }
 
-        // --- Save before notify (docs/saving.md, "IResourceBankSaveHandler<T> is fully
-        // synchronous") - as vendored, ResourceBank<T> notifies before saving on add but saves
-        // before notifying on spend. The order matters because a listener is arbitrary game code:
-        // one that throws during an add-first-notify-later sequence takes the save down with it, and
-        // the balance the player was just shown is never persisted. One contract for both
-        // directions: the new state reaches the save handler before any callback runs. -----------
+        // --- Save before notify (docs/saving.md, "ICurrencySaveHandler is fully synchronous") -
+        // the new state reaches the save handler before any callback runs, in both directions. A
+        // listener is arbitrary game code: one that throws between an add's events and its save
+        // would take the save down with it, and the balance the player was just shown would never
+        // be persisted. -------------------------------------------------------------------------
 
         [Test]
         public void TryAddResourceAmount_HandsTheNewStateToTheSaveHandler_BeforeAnyCallbackFires()
         {
             ISaveService service = NewCurrencySaveService(_root);
-            using SaveScheduler<CurrencySaveDocument> scheduler = new(service, CurrencyResourceBankSaveHandle.SaveKey, new FakeGameClock());
-            OrderRecordingHandler handler = new(new CurrencyResourceBankSaveHandle(service, scheduler));
+            using SaveScheduler<CurrencySaveDocument> scheduler = new(service, CurrencySaveHandler.SaveKey, new FakeGameClock());
+            OrderRecordingHandler handler = new(new CurrencySaveHandler(service, scheduler));
             CurrencyManager manager = new(handler);
 
             manager.OnCurrencyCollected += (currency, amount, balance, source) => handler.Events.Add("Collected");
@@ -279,8 +277,8 @@ namespace Company.ChestGame.Tests.EditMode
         public void TryToSpendResource_HandsTheNewStateToTheSaveHandler_BeforeAnyCallbackFires()
         {
             ISaveService service = NewCurrencySaveService(_root);
-            using SaveScheduler<CurrencySaveDocument> scheduler = new(service, CurrencyResourceBankSaveHandle.SaveKey, new FakeGameClock());
-            OrderRecordingHandler handler = new(new CurrencyResourceBankSaveHandle(service, scheduler));
+            using SaveScheduler<CurrencySaveDocument> scheduler = new(service, CurrencySaveHandler.SaveKey, new FakeGameClock());
+            OrderRecordingHandler handler = new(new CurrencySaveHandler(service, scheduler));
             CurrencyManager manager = new(handler);
 
             manager.AddCurrency(CurrencyType.Coins, 10, "seed");
@@ -303,8 +301,8 @@ namespace Company.ChestGame.Tests.EditMode
         public void ACollectedListenerThatThrows_DoesNotStopTheNewBalanceBeingSaved()
         {
             ISaveService service = NewCurrencySaveService(_root);
-            using SaveScheduler<CurrencySaveDocument> scheduler = new(service, CurrencyResourceBankSaveHandle.SaveKey, new FakeGameClock());
-            OrderRecordingHandler handler = new(new CurrencyResourceBankSaveHandle(service, scheduler));
+            using SaveScheduler<CurrencySaveDocument> scheduler = new(service, CurrencySaveHandler.SaveKey, new FakeGameClock());
+            OrderRecordingHandler handler = new(new CurrencySaveHandler(service, scheduler));
             CurrencyManager manager = new(handler);
 
             manager.OnCurrencyCollected += (currency, amount, balance, source) =>
@@ -327,7 +325,7 @@ namespace Company.ChestGame.Tests.EditMode
 
             scheduler.FlushBlocking();
             CurrencySaveDocument reloaded = SynchronousUniTask.Result(
-                NewCurrencySaveService(_root).LoadAsync<CurrencySaveDocument>(CurrencyResourceBankSaveHandle.SaveKey, CancellationToken.None));
+                NewCurrencySaveService(_root).LoadAsync<CurrencySaveDocument>(CurrencySaveHandler.SaveKey, CancellationToken.None));
             Assert.AreEqual(25, reloaded.ResourceAmount[CurrencyType.Coins], "the next session has to see the coins the player was given");
         }
     }
