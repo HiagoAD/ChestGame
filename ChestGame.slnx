@@ -53,7 +53,6 @@
   <Project Path="UniTask.Linq.csproj" />
   <Project Path="Company.ChestGame.Pooling.Demo.csproj" />
   <Project Path="Unity.TextMeshPro.Editor.csproj" />
-  <Project Path="TapNation.Modules.csproj" />
   <Project Path="PsdPlugin.csproj" />
   <Project Path="Unity.2D.IK.Editor.csproj" />
   <Project Path="Unity.InternalAPIEngineBridge.001.csproj" />

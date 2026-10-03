@@ -254,7 +254,7 @@ namespace Company.ChestGame.Tests.EditMode
         // be persisted. -------------------------------------------------------------------------
 
         [Test]
-        public void TryAddResourceAmount_HandsTheNewStateToTheSaveHandler_BeforeAnyCallbackFires()
+        public void AddCurrency_HandsTheNewStateToTheSaveHandler_BeforeAnyCallbackFires()
         {
             ISaveService service = NewCurrencySaveService(_root);
             using SaveScheduler<CurrencySaveDocument> scheduler = new(service, CurrencySaveHandler.SaveKey, new FakeGameClock());
@@ -274,7 +274,7 @@ namespace Company.ChestGame.Tests.EditMode
         }
 
         [Test]
-        public void TryToSpendResource_HandsTheNewStateToTheSaveHandler_BeforeAnyCallbackFires()
+        public void TrySpendCurrency_HandsTheNewStateToTheSaveHandler_BeforeAnyCallbackFires()
         {
             ISaveService service = NewCurrencySaveService(_root);
             using SaveScheduler<CurrencySaveDocument> scheduler = new(service, CurrencySaveHandler.SaveKey, new FakeGameClock());
