@@ -2,11 +2,14 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text.RegularExpressions;
 using System.Threading;
 using Company.ChestGame.Currency;
 using Company.ChestGame.Saving;
 using Company.ChestGame.Tests.Common;
 using NUnit.Framework;
+using UnityEngine;
+using UnityEngine.TestTools;
 
 namespace Company.ChestGame.Tests.EditMode
 {
@@ -62,6 +65,39 @@ namespace Company.ChestGame.Tests.EditMode
             }
 
             public CurrencySaveDocument Load() => _inner.Load();
+        }
+
+        // What the next process would read: a fresh service, scheduler and manager over the same
+        // root. A currency the file does not list reads as 0, so a missing file fails as a wrong
+        // balance rather than as a missing key.
+        private long ReloadedBalance(CurrencyType currencyType)
+        {
+            ISaveService service = NewCurrencySaveService(_root);
+            using SaveScheduler<CurrencySaveDocument> scheduler = new(service, CurrencySaveHandler.SaveKey, new FakeGameClock());
+
+            return new CurrencyManager(new CurrencySaveHandler(service, scheduler)).GetCurrencyAmount(currencyType);
+        }
+
+        private static void SubscribeTo(CurrencyManager manager, string eventName, CurrencyChangedHandler listener)
+        {
+            switch (eventName)
+            {
+                case "Collected": manager.OnCurrencyCollected += listener; break;
+                case "Spent": manager.OnCurrencySpent += listener; break;
+                case "Changed": manager.OnCurrencyChanged += listener; break;
+                default: throw new ArgumentOutOfRangeException(nameof(eventName), eventName, null);
+            }
+        }
+
+        private static List<string> RecordEvents(CurrencyManager manager)
+        {
+            List<string> events = new();
+
+            manager.OnCurrencyCollected += (currency, amount, balance, source) => events.Add("Collected");
+            manager.OnCurrencySpent += (currency, amount, balance, source) => events.Add("Spent");
+            manager.OnCurrencyChanged += (currency, amount, balance, source) => events.Add("Changed");
+
+            return events;
         }
 
         // --- The structural guard (docs/saving.md, "Load() blocks") ----------------------------
@@ -308,15 +344,11 @@ namespace Company.ChestGame.Tests.EditMode
             manager.OnCurrencyCollected += (currency, amount, balance, source) =>
                 throw new InvalidOperationException("a listener failing for its own reasons");
 
-            try
-            {
-                manager.AddCurrency(CurrencyType.Coins, 25, "throwing-listener");
-            }
-            catch (InvalidOperationException)
-            {
-                // The listener's own failure. Whether it reaches this caller is not what this test
-                // is about; whether the balance it was told about got saved is.
-            }
+            // The listener's own failure is logged rather than thrown at this caller; whether the
+            // balance it was told about got saved is what this test is about.
+            LogAssert.Expect(LogType.Exception, new Regex("a listener failing for its own reasons"));
+
+            manager.AddCurrency(CurrencyType.Coins, 25, "throwing-listener");
 
             Assert.AreEqual(25, manager.GetCurrencyAmount(CurrencyType.Coins), "guard: the bank itself did take the coins");
             CollectionAssert.AreEqual(new[] { 25L }, handler.SavedCoinBalances,
@@ -327,6 +359,107 @@ namespace Company.ChestGame.Tests.EditMode
             CurrencySaveDocument reloaded = SynchronousUniTask.Result(
                 NewCurrencySaveService(_root).LoadAsync<CurrencySaveDocument>(CurrencySaveHandler.SaveKey, CancellationToken.None));
             Assert.AreEqual(25, reloaded.ResourceAmount[CurrencyType.Coins], "the next session has to see the coins the player was given");
+        }
+
+        // --- A listener can make its change durable ---------------------------------------------
+        //
+        // By the time a listener runs, the change it is told about has been handed to the save
+        // handler, so a listener that flushes the scheduler writes that change and no other. And a
+        // scheduler that has been disposed refuses a change without applying it.
+
+        [TestCase("Collected")]
+        [TestCase("Changed")]
+        public void AListenerOfAnAdd_CanFlushTheAddItWasToldAbout(string eventName)
+        {
+            ISaveService service = NewCurrencySaveService(_root);
+            using SaveScheduler<CurrencySaveDocument> scheduler = new(service, CurrencySaveHandler.SaveKey, new FakeGameClock());
+            CurrencyManager manager = new(new CurrencySaveHandler(service, scheduler));
+            SubscribeTo(manager, eventName, (currency, amount, balance, source) => scheduler.FlushBlocking());
+
+            manager.AddCurrency(CurrencyType.Coins, 5, "flush-test");
+
+            Assert.AreEqual(5, ReloadedBalance(CurrencyType.Coins));
+        }
+
+        [TestCase("Spent")]
+        [TestCase("Changed")]
+        public void AListenerOfASpend_CanFlushTheSpendItWasToldAbout(string eventName)
+        {
+            ISaveService service = NewCurrencySaveService(_root);
+            using SaveScheduler<CurrencySaveDocument> scheduler = new(service, CurrencySaveHandler.SaveKey, new FakeGameClock());
+            CurrencyManager manager = new(new CurrencySaveHandler(service, scheduler));
+
+            // Written before the listener exists, so the only thing left to flush is the spend.
+            manager.AddCurrency(CurrencyType.Coins, 10, "seed");
+            scheduler.FlushBlocking();
+            SubscribeTo(manager, eventName, (currency, amount, balance, source) => scheduler.FlushBlocking());
+
+            bool spent = manager.TrySpendCurrency(CurrencyType.Coins, 4, "flush-test");
+
+            Assert.IsTrue(spent);
+            Assert.AreEqual(6, ReloadedBalance(CurrencyType.Coins));
+        }
+
+        // The shape of a HUD label whose render throws on every change.
+        [Test]
+        public void AnAddWhoseChangedListenerAlwaysThrows_IsStillWrittenByTheBlockingFlush()
+        {
+            ISaveService service = NewCurrencySaveService(_root);
+            using SaveScheduler<CurrencySaveDocument> scheduler = new(service, CurrencySaveHandler.SaveKey, new FakeGameClock());
+            CurrencyManager manager = new(new CurrencySaveHandler(service, scheduler));
+            manager.OnCurrencyChanged += (currency, amount, balance, source) => throw new InvalidOperationException("label broken");
+
+            for (int i = 0; i < 3; i++) LogAssert.Expect(LogType.Exception, new Regex("label broken"));
+
+            Assert.DoesNotThrow(() =>
+            {
+                for (int i = 0; i < 3; i++) manager.AddCurrency(CurrencyType.Coins, 5, "label-test");
+            });
+            scheduler.FlushBlocking();
+
+            Assert.AreEqual(15, ReloadedBalance(CurrencyType.Coins));
+        }
+
+        [Test]
+        public void AddCurrency_AfterTheSchedulerIsDisposed_ThrowsSaveException_AndChangesNothing()
+        {
+            ISaveService service = NewCurrencySaveService(_root);
+            SaveScheduler<CurrencySaveDocument> scheduler = new(service, CurrencySaveHandler.SaveKey, new FakeGameClock());
+            CurrencyManager manager = new(new CurrencySaveHandler(service, scheduler));
+            List<string> events = RecordEvents(manager);
+
+            // Nothing is pending, so disposing logs nothing.
+            scheduler.Dispose();
+
+            SaveException error = Assert.Throws<SaveException>(() => manager.AddCurrency(CurrencyType.Coins, 5, "late"));
+
+            StringAssert.Contains("disposed", error.Message);
+            Assert.AreEqual(0, manager.GetCurrencyAmount(CurrencyType.Coins));
+            CollectionAssert.IsEmpty(events);
+        }
+
+        [Test]
+        public void TrySpendCurrency_AfterTheSchedulerIsDisposed_ThrowsSaveException_AndChangesNothing()
+        {
+            ISaveService service = NewCurrencySaveService(_root);
+            CurrencySaveDocument seeded = new()
+            {
+                ResourceAmount = new Dictionary<CurrencyType, long> { { CurrencyType.Coins, 10L } }
+            };
+            SynchronousUniTask.Complete(service.SaveAsync(CurrencySaveHandler.SaveKey, seeded, CancellationToken.None));
+
+            SaveScheduler<CurrencySaveDocument> scheduler = new(service, CurrencySaveHandler.SaveKey, new FakeGameClock());
+            CurrencyManager manager = new(new CurrencySaveHandler(service, scheduler));
+            Assert.AreEqual(10, manager.GetCurrencyAmount(CurrencyType.Coins), "guard: the seeded balance has to reach the manager");
+            List<string> events = RecordEvents(manager);
+
+            scheduler.Dispose();
+
+            SaveException error = Assert.Throws<SaveException>(() => manager.TrySpendCurrency(CurrencyType.Coins, 4, "late"));
+
+            StringAssert.Contains("disposed", error.Message);
+            Assert.AreEqual(10, manager.GetCurrencyAmount(CurrencyType.Coins), "a retry must not be able to deduct twice");
+            CollectionAssert.IsEmpty(events);
         }
     }
 }

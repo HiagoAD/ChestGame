@@ -2,10 +2,13 @@ using System;
 using System.Collections.Generic;
 using Company.ChestGame.Common;
 using Company.ChestGame.Config;
+using System.Text.RegularExpressions;
 using Company.ChestGame.Currency;
 using Company.ChestGame.Rewards;
 using Company.ChestGame.Tests.Common;
 using NUnit.Framework;
+using UnityEngine;
+using UnityEngine.TestTools;
 
 namespace Company.ChestGame.Tests.EditMode
 {
@@ -160,6 +163,29 @@ namespace Company.ChestGame.Tests.EditMode
             {
                 Assert.Greater(amount, 0, $"the config accepted a {drawn} reward of {amount}, and it was announced as given");
             }
+        }
+
+        // The fake currency manager lets a listener's exception escape, so this one is built on the
+        // real CurrencyManager: it logs a throwing listener and carries on, which is what keeps a
+        // broken HUD label from cancelling the reward it was told about.
+        [Test]
+        public void GiveRandomCurrencyReward_WhenACurrencyListenerThrows_StillCreditsShowsThePopupAndAnnounces()
+        {
+            InMemoryCurrencySaveHandler saveHandler = new();
+            CurrencyManager realCurrency = new(saveHandler);
+            RewardsManager rewards = new(realCurrency, _config, _popups, _random);
+            _random.NextRangeResult = (int)CurrencyType.Coins;
+            realCurrency.OnCurrencyChanged += (c, a, b, s) => throw new InvalidOperationException("label broken");
+            List<(CurrencyType currency, long amount, string source)> announced = new();
+            rewards.OnCurrencyRewardGiven += (c, a, s) => announced.Add((c, a, s));
+            LogAssert.Expect(LogType.Exception, new Regex("label broken"));
+
+            Assert.DoesNotThrow(() => rewards.GiveRandomCurrencyReward("ChestsMinigame"));
+
+            Assert.AreEqual(1, _popups.SpawnCalls.Count);
+            CollectionAssert.AreEqual(new[] { (CurrencyType.Coins, 50L, "ChestsMinigame") }, announced);
+            Assert.AreEqual(50, realCurrency.GetCurrencyAmount(CurrencyType.Coins));
+            Assert.AreEqual(50, saveHandler.Stored.ResourceAmount[CurrencyType.Coins]);
         }
     }
 }

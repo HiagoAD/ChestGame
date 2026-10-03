@@ -7,7 +7,8 @@ namespace Company.ChestGame.Currency
 {
     // Every currency in the game, with persistence. Add currencies by extending CurrencyType.
     //
-    // Balances live in memory, loaded once in the constructor and saved after every change.
+    // Balances live in memory, loaded once in the constructor and saved as part of every change,
+    // before its events.
     public class CurrencyManager : ICurrencyManager
     {
         public event CurrencyChangedHandler OnCurrencyChanged;
@@ -99,19 +100,22 @@ namespace Company.ChestGame.Currency
             return true;
         }
 
-        // Both cores save before they raise their events, so a listener that throws cannot stop the
-        // new balance being saved.
+        // Both cores follow one order: validate, save, commit, notify. A throwing Save changes
+        // nothing: no balance, no event, no success log. A throwing listener is logged and cannot
+        // stop the other listeners, the save, or the caller's result. Commit has to stay before
+        // Raise, because a listener may start another operation and must find the balance already
+        // in place.
         private Rejection TryAddAmount(CurrencyType currencyType, long amount, string source)
         {
             Rejection rejection = ValidateAmount(amount);
             if (rejection != Rejection.None) return rejection;
 
-            _balances[currencyType] += amount;
-            long balance = _balances[currencyType];
-            Save();
+            long balance = _balances[currencyType] + amount;
 
-            OnCurrencyCollected?.Invoke(currencyType, amount, balance, source);
-            OnCurrencyChanged?.Invoke(currencyType, amount, balance, source);
+            Commit(currencyType, balance);
+
+            Raise(OnCurrencyCollected, currencyType, amount, balance, source);
+            Raise(OnCurrencyChanged, currencyType, amount, balance, source);
             return Rejection.None;
         }
 
@@ -123,12 +127,12 @@ namespace Company.ChestGame.Currency
             // is then a whole operation: it saves and raises both events, with 0.
             if (rejection != Rejection.None && !(rejection == Rejection.ZeroAmount && acceptZeroAmount)) return rejection;
 
-            _balances[currencyType] -= amount;
-            Save();
+            long balance = _balances[currencyType] - amount;
 
-            long balance = _balances[currencyType];
-            OnCurrencySpent?.Invoke(currencyType, amount, balance, source);
-            OnCurrencyChanged?.Invoke(currencyType, -amount, balance, source);
+            Commit(currencyType, balance);
+
+            Raise(OnCurrencySpent, currencyType, amount, balance, source);
+            Raise(OnCurrencyChanged, currencyType, -amount, balance, source);
             return Rejection.None;
         }
 
@@ -152,7 +156,36 @@ namespace Company.ChestGame.Currency
         }
 
         // A fresh copy every time: the handler may keep what it is handed, and this manager keeps
-        // mutating _balances.
-        private void Save() => _saveHandler.Save(CurrencySaveDocument.From(_balances));
+        // mutating _balances. The snapshot already holds the new balance and is saved before the
+        // in-memory assignment, so a throwing Save leaves nothing changed.
+        private void Commit(CurrencyType currencyType, long balance)
+        {
+            CurrencySaveDocument document = CurrencySaveDocument.From(_balances);
+            document.ResourceAmount[currencyType] = balance;
+
+            _saveHandler.Save(document);
+            _balances[currencyType] = balance;
+        }
+
+        // Each listener is isolated, and the event field is read again for every call, so Changed
+        // is raised even when a Collected or Spent listener threw. Exception rather than a narrower
+        // type: a publisher has to tolerate whatever its subscribers throw. LogException keeps the
+        // stack trace that names the faulty listener.
+        private static void Raise(CurrencyChangedHandler handler, CurrencyType currency, long amount, long balance, string source)
+        {
+            if (handler == null) return;
+
+            foreach (Delegate listener in handler.GetInvocationList())
+            {
+                try
+                {
+                    ((CurrencyChangedHandler)listener)(currency, amount, balance, source);
+                }
+                catch (Exception exception)
+                {
+                    Debug.LogException(exception);
+                }
+            }
+        }
     }
 }
