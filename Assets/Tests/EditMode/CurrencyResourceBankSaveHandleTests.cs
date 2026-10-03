@@ -164,6 +164,54 @@ namespace Company.ChestGame.Tests.EditMode
             scheduler2.Dispose();
         }
 
+        // --- A save that does not list every currency ------------------------------------------
+
+        [Test]
+        public void Load_OfASaveWrittenBeforeACurrencyExisted_KeepsItsBalances_AndStartsTheNewOneAtZero()
+        {
+            ISaveService service = NewCurrencySaveService(_root);
+            CurrencySaveDocument olderSave = new()
+            {
+                ResourceAmount = new Dictionary<CurrencyType, long> { { CurrencyType.Coins, 42L } }
+            };
+            SynchronousUniTask.Complete(service.SaveAsync(CurrencyResourceBankSaveHandle.SaveKey, olderSave, CancellationToken.None));
+
+            using SaveScheduler<CurrencySaveDocument> scheduler = new(service, CurrencyResourceBankSaveHandle.SaveKey, new FakeGameClock());
+            CurrencyManager manager = new(new CurrencyResourceBankSaveHandle(service, scheduler));
+
+            Assert.AreEqual(42, manager.GetCurrencyAmount(CurrencyType.Coins));
+            Assert.AreEqual(0, manager.GetCurrencyAmount(CurrencyType.Gems));
+
+            Assert.DoesNotThrow(() => manager.AddCurrency(CurrencyType.Gems, 3, "test"));
+
+            Assert.AreEqual(3, manager.GetCurrencyAmount(CurrencyType.Gems));
+            Assert.AreEqual(42, manager.GetCurrencyAmount(CurrencyType.Coins));
+        }
+
+        [Test]
+        public void Load_OfASaveWhoseResourceAmountIsNull_StartsEveryCurrencyAtZero()
+        {
+            ISaveService service = NewCurrencySaveService(_root);
+            CurrencySaveDocument nullSave = new() { ResourceAmount = null };
+            SynchronousUniTask.Complete(service.SaveAsync(CurrencyResourceBankSaveHandle.SaveKey, nullSave, CancellationToken.None));
+
+            CurrencySaveDocument stored = SynchronousUniTask.Result(
+                service.LoadAsync<CurrencySaveDocument>(CurrencyResourceBankSaveHandle.SaveKey, CancellationToken.None));
+            Assert.IsNull(stored.ResourceAmount, "guard: the null has to survive the codec, or this test never reaches the null path");
+
+            using SaveScheduler<CurrencySaveDocument> scheduler = new(service, CurrencyResourceBankSaveHandle.SaveKey, new FakeGameClock());
+            CurrencyManager manager = new(new CurrencyResourceBankSaveHandle(service, scheduler));
+
+            Assert.AreEqual(0, manager.GetCurrencyAmount(CurrencyType.Coins));
+            Assert.AreEqual(0, manager.GetCurrencyAmount(CurrencyType.Gems));
+
+            Assert.DoesNotThrow(() => manager.AddCurrency(CurrencyType.Coins, 5, "test"));
+            Assert.DoesNotThrow(() => manager.AddCurrency(CurrencyType.Gems, 3, "test"));
+
+            Assert.AreEqual(5, manager.GetCurrencyAmount(CurrencyType.Coins));
+            Assert.AreEqual(3, manager.GetCurrencyAmount(CurrencyType.Gems));
+        }
+
         // --- Coalescing does not change the balance (docs/saving.md, "Write coalescing") -------
 
         [Test]

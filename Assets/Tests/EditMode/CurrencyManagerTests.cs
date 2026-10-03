@@ -166,6 +166,51 @@ namespace Company.ChestGame.Tests.EditMode
         }
 
         [Test]
+        public void TrySpendCurrency_WithZeroAmountWhenOptedIn_SavesOnceAndRaisesSpentAndChanged()
+        {
+            _currency.TrySpendCurrency(CurrencyType.Coins, 0, "free_item", acceptZeroAmount: true);
+
+            Assert.AreEqual(1, _saveHandler.SaveCallCount);
+            CollectionAssert.AreEqual(new[] { (CurrencyType.Coins, 0L, 0L, "free_item") }, _spent);
+            CollectionAssert.AreEqual(new[] { (CurrencyType.Coins, 0L, 0L, "free_item") }, _changed);
+            CollectionAssert.IsEmpty(_collected);
+        }
+
+        [Test]
+        public void TrySpendCurrency_WithNegativeAmountEvenWhenOptedIn_IsRejectedWithoutEventsOrSave()
+        {
+            LogAssert.Expect(LogType.Error, "Failed to spend -5 Coins from the bank");
+
+            bool spent = _currency.TrySpendCurrency(CurrencyType.Coins, -5, "exploit", acceptZeroAmount: true);
+
+            Assert.IsFalse(spent);
+            Assert.AreEqual(0, _currency.GetCurrencyAmount(CurrencyType.Coins));
+            CollectionAssert.IsEmpty(_changed);
+            CollectionAssert.IsEmpty(_collected);
+            CollectionAssert.IsEmpty(_spent);
+            Assert.AreEqual(0, _saveHandler.SaveCallCount);
+        }
+
+        [Test]
+        public void TrySpendCurrency_BeyondTheBalanceEvenWhenOptedIn_IsRejectedWithoutEventsOrSave()
+        {
+            _currency.AddCurrency(CurrencyType.Coins, 10, "test");
+            _changed.Clear();
+            _collected.Clear();
+            int savesBefore = _saveHandler.SaveCallCount;
+            LogAssert.Expect(LogType.Error, "Failed to spend 25 Coins from the bank");
+
+            bool spent = _currency.TrySpendCurrency(CurrencyType.Coins, 25, "shop", acceptZeroAmount: true);
+
+            Assert.IsFalse(spent);
+            Assert.AreEqual(10, _currency.GetCurrencyAmount(CurrencyType.Coins));
+            CollectionAssert.IsEmpty(_changed);
+            CollectionAssert.IsEmpty(_collected);
+            CollectionAssert.IsEmpty(_spent);
+            Assert.AreEqual(savesBefore, _saveHandler.SaveCallCount);
+        }
+
+        [Test]
         public void RejectedOperations_RaiseNoEvents()
         {
             LogAssert.Expect(LogType.Error, "Failed to add -1 Coins to the bank");
@@ -197,6 +242,40 @@ namespace Company.ChestGame.Tests.EditMode
             CollectionAssert.IsEmpty(_collected);
         }
 
+        // Collected and Spent fire first, Changed right after them; a listener on both sees them in
+        // that order.
+        [Test]
+        public void AddCurrency_RaisesCollectedBeforeChanged()
+        {
+            List<string> order = RecordEventOrder();
+
+            _currency.AddCurrency(CurrencyType.Coins, 10, "test");
+
+            CollectionAssert.AreEqual(new[] { "Collected", "Changed" }, order);
+        }
+
+        [Test]
+        public void TrySpendCurrency_RaisesSpentBeforeChanged()
+        {
+            _currency.AddCurrency(CurrencyType.Coins, 10, "test");
+            List<string> order = RecordEventOrder();
+
+            _currency.TrySpendCurrency(CurrencyType.Coins, 4, "shop");
+
+            CollectionAssert.AreEqual(new[] { "Spent", "Changed" }, order);
+        }
+
+        private List<string> RecordEventOrder()
+        {
+            List<string> order = new();
+
+            _currency.OnCurrencyCollected += (c, a, b, s) => order.Add("Collected");
+            _currency.OnCurrencyChanged += (c, a, b, s) => order.Add("Changed");
+            _currency.OnCurrencySpent += (c, a, b, s) => order.Add("Spent");
+
+            return order;
+        }
+
         // --- Persistence -------------------------------------------------------------------
 
         [Test]
@@ -220,6 +299,25 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.AreEqual(2, _saveHandler.SaveCallCount);
         }
 
+        [Test]
+        public void SaveHandler_IsLoadedOnceAtConstruction_AndNeverAgain()
+        {
+            InMemoryResourceBankSaveHandler handler = new();
+            Assert.AreEqual(0, handler.LoadCallCount, "guard: nothing has loaded before the manager exists");
+
+            CurrencyManager manager = new(handler);
+
+            Assert.AreEqual(1, handler.LoadCallCount);
+
+            manager.AddCurrency(CurrencyType.Coins, 100, "test");
+            manager.AddCurrency(CurrencyType.Gems, 5, "test");
+            manager.TrySpendCurrency(CurrencyType.Coins, 30, "shop");
+
+            Assert.AreEqual(70, manager.GetCurrencyAmount(CurrencyType.Coins));
+            Assert.AreEqual(5, manager.GetCurrencyAmount(CurrencyType.Gems));
+            Assert.AreEqual(1, handler.LoadCallCount);
+        }
+
         // --- Debug helper ------------------------------------------------------------------
 
         [Test]
@@ -230,6 +328,37 @@ namespace Company.ChestGame.Tests.EditMode
             _currency.CHEAT_ResetCurrencyAmount(CurrencyType.Coins);
 
             Assert.AreEqual(0, _currency.GetCurrencyAmount(CurrencyType.Coins));
+        }
+
+        [Test]
+        public void CheatResetCurrencyAmount_OnANonZeroBalance_RaisesSpentAndChangedAndSaves()
+        {
+            _currency.AddCurrency(CurrencyType.Coins, 500, "test");
+            _changed.Clear();
+            _collected.Clear();
+            _spent.Clear();
+            int savesBefore = _saveHandler.SaveCallCount;
+
+            _currency.CHEAT_ResetCurrencyAmount(CurrencyType.Coins);
+
+            CollectionAssert.AreEqual(new[] { (CurrencyType.Coins, 500L, 0L, "CHEAT") }, _spent);
+            CollectionAssert.AreEqual(new[] { (CurrencyType.Coins, -500L, 0L, "CHEAT") }, _changed);
+            CollectionAssert.IsEmpty(_collected);
+            Assert.AreEqual(1, _saveHandler.SaveCallCount - savesBefore);
+        }
+
+        [Test]
+        public void CheatResetCurrencyAmount_OnAZeroBalance_DoesNothing()
+        {
+            // No LogAssert.Expect: the cheat calls the bank directly, so a zero balance is refused
+            // without CurrencyManager logging anything. An error here would fail the test.
+            _currency.CHEAT_ResetCurrencyAmount(CurrencyType.Coins);
+
+            Assert.AreEqual(0, _currency.GetCurrencyAmount(CurrencyType.Coins));
+            CollectionAssert.IsEmpty(_changed);
+            CollectionAssert.IsEmpty(_collected);
+            CollectionAssert.IsEmpty(_spent);
+            Assert.AreEqual(0, _saveHandler.SaveCallCount);
         }
     }
 }

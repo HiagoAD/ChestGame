@@ -21,13 +21,19 @@ namespace Company.ChestGame.Tests.Common
 
         public int SaveCallCount { get; private set; }
 
+        public int LoadCallCount { get; private set; }
+
         public void Save(ResourceBankState<CurrencyType> data)
         {
             SaveCallCount++;
             _stored = Copy(data);
         }
 
-        public ResourceBankState<CurrencyType> Load() => Copy(_stored);
+        public ResourceBankState<CurrencyType> Load()
+        {
+            LoadCallCount++;
+            return Copy(_stored);
+        }
 
         private static ResourceBankState<CurrencyType> Copy(ResourceBankState<CurrencyType> data) =>
             data == null
