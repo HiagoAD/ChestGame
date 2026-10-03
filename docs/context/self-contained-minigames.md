@@ -64,8 +64,8 @@ at once.
 
 ## 2. How this work was run, and how to continue it
 
-Hiago set a specific working protocol. **It is still in force** — anyone continuing this should
-follow it rather than inventing their own.
+The project owner set a specific working protocol. **It is still in force** — anyone continuing
+this should follow it rather than inventing their own.
 
 1. **Subagents write the code**, one per phase, briefed with that phase's plan section plus the
    working agreements it has to honour. The lead session does not write production code itself.
@@ -79,8 +79,8 @@ follow it rather than inventing their own.
    anything depend on a concrete loader or path where a seam already exists?). Report every
    deviation with its severity, including ones inherited rather than introduced.
 4. **Agents never commit.** Work stays in the tree for review.
-5. **Stop at the end of every phase** until Hiago explicitly says to proceed. Silence is not
-   approval; a follow-up question is not approval.
+5. **Stop at the end of every phase** until the project owner explicitly says to proceed. Silence
+   is not approval; a follow-up question is not approval.
 
 This is not ceremony. It caught defects that green suites did not: two silent-leak bugs, an entirely
 untested exception-translation path, and a false claim that had been written into both a code comment
@@ -535,7 +535,7 @@ server is exactly the flakiness the project's testing agreements argue against.
 
 ---
 
-## 12. Open decisions, awaiting Hiago
+## 12. Open decisions, awaiting the project owner
 
 Raised during review, none ruled on. **Do not act on these without asking.**
 
