@@ -400,11 +400,13 @@ a subscriber needs nothing outside `Company.ChestGame.Currency`. Add currencies 
 
 It takes an `ICurrencySaveHandler` as its only constructor argument, registered in the scope, so a
 test can hand it an in-memory save instead of the real one. There is no default handler: a null one
-throws `SaveException.NoSaveHandler()`. The manager loads once, from its constructor, and saves after
-every change, handing the handler a fresh `CurrencySaveDocument` each time and copying whatever
-`Load` returns. Both an add and a spend save before they raise their events, so a listener that
-throws cannot stop the new balance being saved; see [saving.md](saving.md), "The save-then-notify
-ordering no longer means what it used to".
+throws `SaveException.NoSaveHandler()`. The manager loads once, from its constructor, and saves as
+part of every change, handing the handler a fresh `CurrencySaveDocument` each time and copying
+whatever `Load` returns. An add and a spend follow one order: validate, save, assign the balance in
+memory, then raise `OnCurrencyCollected` or `OnCurrencySpent` and after it `OnCurrencyChanged`. A
+listener that throws is logged and stops nothing: not the other listeners, the save or the caller's
+result. A `Save` that throws changes nothing, so no balance moves and no event fires. See
+[saving.md](saving.md), "Save, then notify, for both operations".
 
 The balance lives in a file, not in PlayerPrefs: `CurrencySaveHandler` writes through
 `ISaveService` to `<persistentDataPath>/Saves/currency.sav`, as readable, unprotected JSON swapped

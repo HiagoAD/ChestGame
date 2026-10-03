@@ -268,12 +268,13 @@ Fakes live in `Tests/Common/` and are shared by both suites.
 |---|---|
 | `ChestsMinigameControllerTests` | The whole chest flow through `OnChestClicked`, including both UniTasks, cancellation, attempt accounting, prize odds, end-of-game |
 | `ChestsMinigameChestModelTests` | Per-chest state machine and its guards |
-| `CurrencyManagerTests` | Add/spend guards including the opt-in zero spend, the spent-vs-changed sign asymmetry, event order within one operation, the cheat reset, persistence through `ICurrencySaveHandler` (load once, a fresh snapshot per save, the loaded document copied rather than adopted), and a null handler throwing `SaveException` |
+| `CurrencyManagerTests` | Add/spend guards including the opt-in zero spend, the spent-vs-changed sign asymmetry, event order within one operation, the cheat reset, persistence through `ICurrencySaveHandler` (load once, a fresh snapshot per save, the loaded document copied rather than adopted), a throwing listener being logged and stopping nothing, listeners seeing the change already saved and in memory, and a null handler throwing `SaveException` |
+| `CurrencySaveHandlerTests` | `CurrencyManager` over the real `CurrencySaveHandler` and scheduler: saves that miss a currency or carry a null `ResourceAmount`, the new state handed to the handler before any callback fires, a throwing listener not stopping the save, what a listener can flush, and a disposed scheduler failing the call with nothing changed |
 | `LocalJsonGameConfigTests` | Missing, empty, malformed, non-object, and out-of-range game config documents |
 | `CatalogTests` | Empty slots and duplicate types in both catalogs, and for minigames the id lookup: indexing by authored id, a duplicate id throwing, a blank id skipped with a warning |
 | `MinigameManagerTests` | Container construction by type and by id, fresh instance per request, all three throw paths, and that `Get` neither configures nor injects the controller — both of which belong to `BeginAsync` now |
 | `PopupManagerTests` | Catalog lookup, parent selection, data hand-off, unregistered popup |
-| `RewardsManagerTests` | Currency draw, amount from config, popup and event agreement |
+| `RewardsManagerTests` | Currency draw, amount from config, popup and event agreement, and that a throwing currency listener does not stop the reward |
 | `PrefabPoolTests` | All four pool strategies against one shared contract: reuse, bounds, disposal, and that only `DirectSpawner` instantiates on a second get |
 | `FrameBudgetedLoopTests` | That work is spread by elapsed time rather than by item count, and that every frame places at least one unit |
 | `PoolRaceTests` | The race orchestration against a fake clock: per-lane timing, solo vs all-four, the three fill modes |

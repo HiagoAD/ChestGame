@@ -1193,8 +1193,8 @@ there rather than here because it is the one place allowed to know both `Currenc
 The Resource Bank library, which the rest of this section was written against, is no longer in the
 project. It was vendored under `Assets/AssetLibrary` as the assembly `TapNation.Modules`, and
 `CurrencyManager` wrapped it. `CurrencyManager` now holds the balances, the add and spend validation
-and the three events itself. It loads once from its constructor and saves after every change, in the
-order the library used.
+and the three events itself. It loads once from its constructor and saves as part of every change,
+before raising its events; see "Save, then notify, for both operations" below.
 
 The save seam is the project's own `ICurrencySaveHandler`, with `CurrencySaveDocument` as its only
 state type. The library's `IResourceBankSaveHandler<T>` and `ResourceBankState<T>` went with it, and
@@ -1234,6 +1234,10 @@ exactly the two points mobile and desktop each guarantee the process is still wi
 all. Between those two, the only genuinely open loss window is a hard kill (an OS out-of-memory kill,
 a crash, a pulled battery) inside one second of a save that has not yet flushed — the same bound this
 assembly's own docs already accept for `SaveScheduler<T>` in general, not a new one currency invented.
+`CurrencyManager` calls `Save()` once per change, before the balance is assigned in memory and before
+any event. It can fail synchronously: `MarkDirty` throws `SaveException.SchedulerDisposed` once the
+scheduler is disposed. "Save, then notify, for both operations" below says what `CurrencyManager`
+does then.
 
 **`Load()` blocks, once, on the calling thread — the harder direction, because there is no honest way
 to return a `CurrencySaveDocument` from a method with that exact signature without either already
@@ -1264,40 +1268,85 @@ handler is constructed.** A future phase wanting the frame-cost relief `ThreadHo
 currency specifically would have to move to the second resolution (pre-load at boot) instead, not add
 the wrapper to this composition.
 
-### The save-then-notify ordering no longer means what it used to
+### Save, then notify, for both operations
 
-`CurrencyManager` calls `Save()` before raising its events in both operations: an add and a spend
-each hand the new state to the save handler first and only then raise `OnCurrencyCollected` or
-`OnCurrencySpent` and `OnCurrencyChanged`. The order came from the Resource Bank library, which owned
-this logic when 6b was written. As vendored, its add notified *before* saving, so a listener that
-threw took the save down with it; the library was edited to save first before it was removed, and
-`CurrencyManager` kept that. The one contract is pinned by `CurrencySaveHandlerTests`. What changed
-with write coalescing is what being on either side of that order *means*.
+`AddCurrency`, `TrySpendCurrency` and the cheat reset (a spend of the whole balance) follow one
+order. Validate, compute the new balance, hand a snapshot holding it to `ICurrencySaveHandler.Save`,
+and only after `Save` returns assign the balance in memory. Then raise `OnCurrencyCollected` or
+`OnCurrencySpent`, and after it `OnCurrencyChanged`.
 
-Before this phase, `Save()` was `DefaultResourceBankSaveHandle.Save`, synchronous `PlayerPrefs.SetString`
-I/O that had already happened by the time the call returned. That made the two operations genuinely
-asymmetric to an observer: an `OnCurrencySpent` handler could assume the new balance was already
-durable, because a spend only raised it after `Save()` returned; an `OnCurrencyCollected` handler could
-not, because the vendored add raised it first. Now `Save()` is `CurrencySaveHandler.Save`,
-which calls `SaveScheduler<CurrencySaveDocument>.MarkDirty` and returns immediately having persisted
-nothing at all — see "`Save()` never blocks" above. Being called before or after a callback no longer
-correlates with durability, because neither position was ever durable to begin with: `MarkDirty` only
-guarantees a write will happen within the current coalescing window, or at the next pause/quit flush,
-not that one already has.
+The Resource Bank library, as vendored, ordered the two operations differently. An add changed
+memory, raised `OnCurrencyCollected` and `OnCurrencyChanged`, then saved. A spend changed memory,
+saved, then raised `OnCurrencySpent` and `OnCurrencyChanged`. A listener that threw escaped the call.
+No reason for the difference was ever recorded. The save-system work pinned both orders with two
+characterization tests, which record what the code does and never judge it. The test-suite revamp on
+main then replaced them with specification tests and edited the library so an add saved before
+notifying, as a spend already did. This branch kept that order in `CurrencyManager`, which replaced
+the library, and then dealt with what save-then-notify still left open:
 
-**What an observer can still conclude from either callback, and what it never could:** the in-memory
-balance `GetCurrencyAmount` reports is already the new one, in both operations, because `CurrencyManager`
-mutates its balances before calling either `Save()` or raising an event — that part was never in question
-and is not what changed. **What it can no longer distinguish, and only appeared to be able to before:**
-whether that balance has reached disk yet. It never actually could reach that conclusion safely even
-under the old ordering — a crash between a spend's `Save()` and its events was already a
-narrow enough window nothing exercised it — but the appearance of a guarantee is itself worth retracting
-in writing rather than leaving an observer to infer one from call order that no longer supports it. This
-is a deliberate, intentional consequence of write coalescing existing at all: restoring the old ordering
-would mean making `Save()` synchronous again, which is the entire property this phase exists to remove.
-Nothing about `CurrencyManager`'s own public events changed - what changed is what a subscriber is
-entitled to assume from them, and this paragraph is that retraction made explicit rather than left to be
-discovered by whoever eventually needs the guarantee that no longer holds.
+- A listener that threw escaped a completed, saved operation. A spend whose listener threw never
+  returned `true`, so `if (TrySpendCurrency(...)) Grant()` took the currency and granted nothing.
+  An add whose listener threw skipped `RewardsManager`'s popup and announcement.
+- A throwing listener also stopped the listeners after it, `OnCurrencyChanged` included.
+- A `Save` that threw left the balance already changed in memory, so a retry applied the change
+  twice.
+
+Isolating each listener closes the first two. Handing the snapshot to `Save` before assigning the
+balance closes the third.
+
+Durability was never the difference between the two orders. The library's
+`DefaultResourceBankSaveHandle.Save` was only `PlayerPrefs.SetString`. That updates the in-memory
+prefs and reaches disk on `PlayerPrefs.Save()` or at a clean quit, and the handler never called
+`PlayerPrefs.Save()`, so no `OnCurrencySpent` listener could assume its balance was on disk.
+`CurrencySaveHandler.Save` calls `SaveScheduler<CurrencySaveDocument>.MarkDirty` and returns
+having written nothing (see "`Save()` never blocks" above). The write happens within the current
+coalescing window or at the next pause or quit flush, so neither position relative to `Save` is
+durable. Making `Save` synchronous again is the property write-behind exists to remove, so the order
+is not where durability can come from.
+
+What a listener can rely on, on any of the three events: `GetCurrencyAmount` already reports the new
+balance, the change has been handed to the save handler but is not durable yet, and a listener that
+needs it durable can call `FlushBlocking` on the currency scheduler, which writes that change.
+`Collected` or `Spent` fires before `Changed`, and each fires in subscription order. Saving before
+notifying gives all of that, whether memory is assigned before the save or after it. Saving the
+snapshot first adds one property: a throwing `Save` changes nothing, so a retry cannot apply a change
+twice. It also sets a rule for handlers: the snapshot already holds the new balance while
+`GetCurrencyAmount` still reports the old one, so `Save` must not call back into `CurrencyManager`.
+A listener that starts another operation finds the first change already in memory and handed to
+`Save`, which is why the assignment stays ahead of the events. The `balance` argument is then stale
+for every listener after it in the first operation, the following `Changed` raise included, because
+both raises pass the same value, and the nested operation's own events arrive before the rest of the
+first one's. `GetCurrencyAmount` is the authority.
+
+A listener that throws is isolated. `CurrencyManager` invokes each listener separately, through
+`GetInvocationList`, inside its own `try`/`catch`, and passes the exception to `Debug.LogException`,
+which keeps the stack trace that names the listener. The other listeners still run, the save has
+already been handed over, and the caller gets its result: `AddCurrency` returns normally,
+`TrySpendCurrency` returns `true`, and `OnCurrencyChanged` is still raised after a throwing
+`Collected` or `Spent` listener. The catch is on `Exception` because a publisher has to tolerate
+whatever its subscribers throw. The cost is one log entry per throw, so a HUD label whose render
+fails on every change logs on every change and breaks neither saves nor rewards. In
+Unity tests an unexpected `LogException` fails the test, so a test with a throwing listener has to
+declare it with `LogAssert.Expect`. `FakeCurrencyManager` does not isolate listeners, so a test of
+this behaviour has to use the real `CurrencyManager` over `InMemoryCurrencySaveHandler`.
+
+A `Save` that throws is not isolated. The exception reaches the caller unchanged and nothing has
+happened: no balance change, no events, no success log. In production the only synchronous `Save`
+failure is `SaveException.SchedulerDisposed`, thrown by `SaveScheduler<T>.MarkDirty` once the
+scheduler is disposed, which is expected at root-scope teardown. That comes from reading the code and
+has not run in Unity. A write that fails after `MarkDirty` returned is not a `Save` failure and never
+reaches `CurrencyManager`; see "A failed write now says so".
+
+These are pinned by specification tests named after what a caller needs. In `CurrencyManagerTests`:
+six listener-failure tests, `AnAddsListeners_SeeTheNewBalanceAlreadySavedAndInMemory` and its spend
+twin, and `AListenerThatAddsReentrantly_LeavesTheSumInMemoryAndInTheLastSave`. In
+`CurrencySaveHandlerTests`: `AddCurrency_HandsTheNewStateToTheSaveHandler_BeforeAnyCallbackFires`,
+its `TrySpendCurrency_` twin and `ACollectedListenerThatThrows_DoesNotStopTheNewBalanceBeingSaved`,
+which came from the revamp on main and were renamed when the library went;
+`AListenerOfAnAdd_CanFlushTheAddItWasToldAbout`, `AListenerOfASpend_CanFlushTheSpendItWasToldAbout`,
+`AnAddWhoseChangedListenerAlwaysThrows_IsStillWrittenByTheBlockingFlush`, and the two
+`..._AfterTheSchedulerIsDisposed_ThrowsSaveException_AndChangesNothing` tests. `RewardsManagerTests`
+has `GiveRandomCurrencyReward_WhenACurrencyListenerThrows_StillCreditsShowsThePopupAndAnnounces`.
 
 ### `CurrencySaveDocument`, and a `new()` constraint the library's model could not satisfy
 
