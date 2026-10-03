@@ -1,22 +1,29 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using System.Text;
 using Company.ChestGame.Saving;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using NUnit.Framework;
 
 namespace Company.ChestGame.Tests.EditMode
 {
     // The corrected claim (docs/saving.md, "Value-exactness, and where the formatting stops"):
     // every VALUE in a text-safe body survives GetBody(Wrap(x)) exactly - the date-shaped string,
-    // the fractional seconds and the trailing-zero decimal all unchanged - but the BYTES do not,
-    // because JRaw.Create(reader) re-serialises the captured body through a fresh, default-formatted
-    // writer on read. That normalisation is invisible for JsonCodec, whose own output is already
-    // compact, and is pinned explicitly for PrettyJsonCodec below rather than left untested.
-    // Enumerated with Enum.GetValues so a fourth codec is picked up here automatically; CodecFor's
-    // default arm throws rather than silently skipping it, the same reasoning SaveServiceFactory's
-    // own switches use for why a missing arm has to be visible rather than quietly wrong.
+    // the fractional seconds and the trailing-zero decimal all unchanged - but the BYTES are only
+    // promised for a body that was compact to begin with. Whitespace inside an indented body is
+    // formatting, not data, so for PrettyJsonCodec the body is held to being the same JSON document
+    // its codec wrote, token for token, and nothing either way about its indentation: the envelope
+    // may normalise it or keep it. Enumerated with Enum.GetValues so a fourth codec is picked up
+    // here automatically; CodecFor's default arm throws rather than silently skipping it, the same
+    // reasoning SaveServiceFactory's own switches use for why a missing arm has to be visible
+    // rather than quietly wrong.
     public class SaveCodecEnvelopeValueExactnessTests
     {
+        private static readonly UTF8Encoding Utf8 = new(false);
+
         private class DatedState { public string LastPlayed; }
         private class TimestampState { public string At; }
         private class MultiplierState { public decimal Multiplier; }
@@ -33,13 +40,15 @@ namespace Company.ChestGame.Tests.EditMode
             };
 
         // Every codec: the value itself survives, regardless of what happens to formatting.
-        // Then, per codec, the one further thing that is actually true and worth pinning:
-        //  - Json: already compact, so Parse has nothing to normalise - the bytes come back
+        // Then, per codec, the one further thing that is actually promised:
+        //  - Json: already compact, so there is nothing to normalise - the bytes come back
         //    unchanged, the same guarantee SaveEnvelopeTests pins with a fake codec.
-        //  - JsonPretty: Parse normalises its indentation to compact on read. Asserting the
-        //    resulting bytes equal what JsonCodec would have written for the same value pins that
-        //    normalisation explicitly, so it cannot quietly regress into "no normalisation" or into
-        //    "reformats the value too" without a test noticing either way.
+        //  - JsonPretty: the body read back is the same JSON document the codec encoded - every
+        //    token, every value, in the same shape - compared as parsed documents, so stripping the
+        //    indentation and keeping it both pass, and dropping a field or changing a value both
+        //    fail. DeepEquals compares numbers by value, so 1.50 and 1.5 would agree; each document
+        //    is also re-written compact by the same writer and compared as text, which keeps that
+        //    trailing zero honest without caring how the original was indented.
         //  - JsonGzip: not text-safe, so its body only ever travels as base64, already proven exact
         //    on its own in SaveEnvelopeTests. Nothing further to pin about formatting here.
         private static void AssertSurvives<T>(SaveCodec codecKind, T state, Func<T, object> select, object expected)
@@ -60,10 +69,29 @@ namespace Company.ChestGame.Tests.EditMode
             }
             else if (codecKind == SaveCodec.JsonPretty)
             {
-                byte[] compactEquivalent = new JsonCodec().Encode(state);
-                CollectionAssert.AreEqual(compactEquivalent, body,
-                    "PrettyJsonCodec's indentation has to be normalised to compact on read, matching byte for byte what JsonCodec would have written for the same value");
+                JToken written = ParseExactly(encoded);
+                JToken readBack = ParseExactly(body);
+                Assert.IsTrue(JToken.DeepEquals(written, readBack),
+                    $"PrettyJsonCodec's body has to come back as the same JSON document it encoded, whitespace aside; wrote {written.ToString(Formatting.None)}, read back {readBack.ToString(Formatting.None)}");
+                Assert.AreEqual(written.ToString(Formatting.None), readBack.ToString(Formatting.None),
+                    "and every value has to be written exactly as it was encoded, not merely to something numerically equal");
             }
+        }
+
+        // DateParseHandling.None and FloatParseHandling.Decimal for the same reason SaveEnvelope.Parse
+        // uses them: the default reader would turn "2026-09-01" into a DateTime and 1.50 into a
+        // double on the way in, and two documents could then compare equal while their text did not
+        // say the same thing.
+        private static JToken ParseExactly(byte[] json)
+        {
+            using StringReader text = new(Utf8.GetString(json));
+            using JsonTextReader reader = new(text)
+            {
+                DateParseHandling = DateParseHandling.None,
+                FloatParseHandling = FloatParseHandling.Decimal
+            };
+
+            return JToken.ReadFrom(reader);
         }
 
         [TestCaseSource(nameof(EveryCodec))]

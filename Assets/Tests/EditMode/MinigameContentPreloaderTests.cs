@@ -85,7 +85,11 @@ namespace Company.ChestGame.Tests.EditMode
         public void ProgressIsAggregateAcrossEveryLabel_NotPerLabel()
         {
             // Thirty bytes of a hundred is 0.3 of the whole wait, whichever label they belong to.
+            // Each label also reports halfway through its own fetch: the preloader reports
+            // fetched/total itself after every label, so only a value from inside a label shows
+            // whether that label's own 0..1 was mapped onto its slice of the whole.
             _assets.WithDownloadSize(PRELOAD_LABEL, 30).WithDownloadSize(OTHER_PRELOAD_LABEL, 70);
+            _assets.DownloadProgressSteps = new[] { 0.5f, 1f };
 
             Preload(
                 Definition<FirstMinigame>(MinigameLoadPolicy.Preload, PRELOAD_LABEL),
@@ -94,8 +98,14 @@ namespace Company.ChestGame.Tests.EditMode
             CollectionAssert.IsNotEmpty(_progress.Reported, "nothing reported progress at all");
             Assert.AreEqual(1f, _progress.Reported[_progress.Reported.Count - 1], 0.001f,
                 "the whole download has to finish at 1");
+            Assert.IsTrue(_progress.Reported.Exists(value => Mathf.Abs(value - 0.15f) < 0.001f),
+                $"halfway through the 30-byte label is 0.15 overall, not 0.5; reported {string.Join(", ", _progress.Reported)}");
             Assert.IsTrue(_progress.Reported.Exists(value => Mathf.Abs(value - 0.3f) < 0.001f),
                 "finishing the 30-byte label of 100 total is 0.3 overall, not 1");
+            Assert.IsTrue(_progress.Reported.Exists(value => Mathf.Abs(value - 0.65f) < 0.001f),
+                $"halfway through the 70-byte label, after the first 30, is 0.65 overall, not 0.5; reported {string.Join(", ", _progress.Reported)}");
+            Assert.IsFalse(_progress.Reported.Exists(value => Mathf.Abs(value - 0.5f) < 0.001f),
+                "a raw per-label 0.5 must never reach the aggregate bar");
             Assert.IsFalse(_progress.Reported.Exists(value => value > 1.001f),
                 "aggregate progress cannot exceed 1");
 

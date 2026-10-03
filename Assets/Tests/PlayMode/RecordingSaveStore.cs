@@ -24,12 +24,14 @@ namespace Company.ChestGame.Tests.PlayMode
 
         // The gate whatever write is currently parked is actually awaiting - what ReleaseWrite()
         // signals. Without this as its own field, ReleaseWrite() would read _armedGate after
-        // WriteAsync has already cleared it to claim it, and release nothing.
-        private UniTaskCompletionSource _activeGate;
+        // WriteAsync has already cleared it to claim it, and release nothing. Volatile because a
+        // hopped write publishes it from a worker thread and the test releases it from the main one.
+        private volatile UniTaskCompletionSource _activeGate;
 
         public int WriteCount { get; private set; }
         public byte[] LastWrittenBytes { get; private set; }
         public List<int> WriteThreadIds { get; } = new();
+        public List<int> ReadThreadIds { get; } = new();
 
         public void ArmBlockingWrite() => _armedGate = new UniTaskCompletionSource();
 
@@ -38,15 +40,17 @@ namespace Company.ChestGame.Tests.PlayMode
         public async UniTask WriteAsync(string key, byte[] bytes, CancellationToken ct)
         {
             ct.ThrowIfCancellationRequested();
-            WriteThreadIds.Add(Thread.CurrentThread.ManagedThreadId);
 
+            // The gate is published before the thread id is recorded, so a test that waits for
+            // WriteThreadIds to grow and then calls ReleaseWrite() can never get there before the
+            // write it means to release is actually holding the gate.
             UniTaskCompletionSource gate = _armedGate;
             _armedGate = null;
-            if (gate != null)
-            {
-                _activeGate = gate;
-                await gate.Task;
-            }
+            if (gate != null) _activeGate = gate;
+
+            WriteThreadIds.Add(Thread.CurrentThread.ManagedThreadId);
+
+            if (gate != null) await gate.Task;
 
             WriteCount++;
             LastWrittenBytes = bytes;
@@ -55,6 +59,7 @@ namespace Company.ChestGame.Tests.PlayMode
         public UniTask<byte[]> ReadAsync(string key, CancellationToken ct)
         {
             ct.ThrowIfCancellationRequested();
+            ReadThreadIds.Add(Thread.CurrentThread.ManagedThreadId);
             return UniTask.FromResult(LastWrittenBytes);
         }
 

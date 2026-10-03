@@ -177,6 +177,20 @@ namespace Company.ChestGame.Tests.EditMode
         }
 
         [TestCaseSource(nameof(EveryFileBackedStore))]
+        public void WriteAsync_WithANullArray_ReadsBackAnEmptyArray(StoreCase implementation)
+        {
+            // ISaveStore: "a null array is stored as empty" - present, and empty, never absent.
+            ISaveStore store = implementation.Create(_root);
+
+            SynchronousUniTask.Complete(store.WriteAsync("save", null, CancellationToken.None));
+            byte[] readBack = SynchronousUniTask.Result(store.ReadAsync("save", CancellationToken.None));
+
+            Assert.IsNotNull(readBack, "a null write is stored as empty; it must read back as an empty array, not as absent");
+            CollectionAssert.IsEmpty(readBack);
+            Assert.IsTrue(SynchronousUniTask.Result(store.ExistsAsync("save", CancellationToken.None)));
+        }
+
+        [TestCaseSource(nameof(EveryFileBackedStore))]
         public void ExistsAsync_IsFalseBeforeAWrite_AndTrueAfter(StoreCase implementation)
         {
             ISaveStore store = implementation.Create(_root);

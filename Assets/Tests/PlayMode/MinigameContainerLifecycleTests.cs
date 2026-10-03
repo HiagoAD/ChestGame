@@ -94,7 +94,10 @@ namespace Company.ChestGame.Tests.PlayMode
             // The view is instantiated before SetController runs and _running is set after it, so a
             // throw from SetController lands in the catch with a live GameObject already in the
             // scene. End returns early while _running is false, so if the catch does not destroy
-            // it, nothing does.
+            // it, nothing does. The same goes for the controller: by the time the view exists it has
+            // already been injected, and injection is where a controller takes on what only Dispose
+            // gives back (ChestsMinigameController registers with the process-wide flush registry
+            // there). If the catch does not dispose it, nothing ever will.
             TestMinigameView rejecting = new GameObject("RejectingViewPrefab").AddComponent<RejectingView>();
             AssetReferenceGameObject rejectingRef = new(REJECTING_GUID);
             _assets.With(rejectingRef, rejecting.gameObject);
@@ -115,6 +118,13 @@ namespace Company.ChestGame.Tests.PlayMode
 
             Assert.IsFalse(minigame.Running, "a start that threw did not start anything");
             Assert.IsNull(minigame.ViewInstance, "the container must not still be holding the instance");
+            Assert.AreEqual(1, _controller.InjectCalls, "guard: the controller has to have been injected before the view rejected it");
+            Assert.AreEqual(1, _controller.DisposeCalls,
+                "a controller injected for a start that then failed has to be disposed by that failure, since End never will be");
+
+            // End is a no-op on a start that never completed; calling it must not dispose twice.
+            minigame.End();
+            Assert.AreEqual(1, _controller.DisposeCalls, "the failed start's own cleanup and a later End must not both dispose it");
 
             await UniTask.Yield();
 

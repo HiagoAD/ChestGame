@@ -89,15 +89,11 @@ namespace Company.ChestGame.Tests.EditMode
             StringAssert.Contains(nameof(GameConfigData.GemsReward), error.Message);
         }
 
-        [Test]
-        public void AZeroReward_IsAccepted()
-        {
-            // Zero is a legitimate tuning value: a currency the game currently gives none of.
-            LocalJsonGameConfig config = new(DocumentWith(gemsReward: 0, coinsReward: 0));
-
-            Assert.AreEqual(0, config.GemsReward);
-            Assert.AreEqual(0, config.CoinsReward);
-        }
+        // Zero is deliberately not pinned either way here. Accepted, it reaches AddCurrency, which
+        // rejects 0 and logs an error on every win while the popup shows "+0"; whether the fix is
+        // to refuse it here or to handle it downstream, what has to hold is the cross-component
+        // invariant in RewardsManagerTests: a config this class accepts never yields a reward the
+        // real CurrencyManager rejects.
 
         private static string DocumentWith(long gemsReward = 10, long coinsReward = 50) =>
             $@"{{

@@ -38,6 +38,10 @@ namespace Company.ChestGame.Tests.EditMode
                 PlayerPrefs.DeleteKey(prefix + key);
             }
             _touched.Clear();
+
+            // A DeleteKey that is never saved does not persist in batch mode, which is how a leaked
+            // key was first noticed - see docs/testing.md.
+            PlayerPrefs.Save();
         }
 
         private void Track(string prefix, string key) => _touched.Add((prefix, key));
@@ -55,6 +59,21 @@ namespace Company.ChestGame.Tests.EditMode
             byte[] readBack = SynchronousUniTask.Result(_store.ReadAsync(key, CancellationToken.None));
 
             CollectionAssert.AreEqual(payload, readBack);
+        }
+
+        [Test]
+        public void WriteAsync_WithANullArray_ReadsBackAnEmptyArray()
+        {
+            // ISaveStore: "a null array is stored as empty" - present, and empty, never absent.
+            const string key = "profile";
+            Track(_prefix, key);
+
+            SynchronousUniTask.Complete(_store.WriteAsync(key, null, CancellationToken.None));
+            byte[] readBack = SynchronousUniTask.Result(_store.ReadAsync(key, CancellationToken.None));
+
+            Assert.IsNotNull(readBack, "a null write is stored as empty; it must read back as an empty array, not as absent");
+            CollectionAssert.IsEmpty(readBack);
+            Assert.IsTrue(SynchronousUniTask.Result(_store.ExistsAsync(key, CancellationToken.None)));
         }
 
         [Test]

@@ -60,32 +60,29 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.AreEqual(Utf8.GetString(plainEncoded), json);
         }
 
-        // --- GzipJsonCodec.ToJson on bad input fails the same way Decode<T> does -------------------
+        // --- GzipJsonCodec on bad input: both entry points throw -----------------------------
         //
-        // "The same way" is read from what Decode<T> actually does on this runtime, not from a
-        // hardcoded .NET exception type - GzipJsonCodecTests already shows Decode<T> on 5 truncated
-        // bytes degrades quietly (Decompress produces zero bytes, JsonConvert.DeserializeObject of
-        // an empty string returns null, no exception at all - exactly the case SaveService's own
-        // LoadAsync comment calls out and null-guards against), while genuinely non-gzip bytes do
-        // throw. ToJson shares Decode<T>'s Decompress step for both, so it has to match Decode<T>'s
-        // own behaviour on each input - not "throws InvalidDataException" as a fixed assumption.
+        // ISaveCodec's contract is two outcomes: the value, or a throw. A truncated gzip stream can
+        // decompress to zero bytes without the stream itself complaining, and then Decode<T> hands
+        // back null and ToJson hands back "" - a third outcome, silent corruption, that every caller
+        // would have to know to check for. SaveService happens to null-guard Decode<T>, but a
+        // migration fed "" fails somewhere else entirely, and nothing else that holds a codec is
+        // protected at all. So truncation has to be refused where it is detected, by the codec,
+        // through either entry point. The exception type is deliberately not pinned: what matters
+        // is that something is thrown, not which layer noticed first.
 
         [Test]
-        public void GzipJsonCodec_ToJson_OnTruncatedBytes_DegradesQuietly_TheSameWayDecodeDoes()
+        public void GzipJsonCodec_ToJson_OnTruncatedBytes_Throws_AndSoDoesDecode()
         {
             GzipJsonCodec codec = new();
             byte[] valid = codec.Encode(new TestState { Value = 1 });
             byte[] truncated = valid.Take(5).ToArray();
 
-            TestState decoded = null;
-            Assert.DoesNotThrow(() => decoded = codec.Decode<TestState>(truncated),
-                "pins Decode<T>'s own behaviour on this input before comparing ToJson against it");
-            Assert.IsNull(decoded, "this truncation decompresses to zero bytes, which DeserializeObject reads as null rather than failing");
+            Assert.Catch<Exception>(() => codec.Decode<TestState>(truncated),
+                "Decode<T> on a truncated stream has to throw, never quietly hand back null");
 
-            string json = null;
-            Assert.DoesNotThrow(() => json = codec.ToJson(truncated),
-                "ToJson shares the same Decompress step, so it must degrade the same way Decode<T> just did, not throw where Decode<T> did not");
-            Assert.AreEqual(string.Empty, json);
+            Assert.Catch<Exception>(() => codec.ToJson(truncated),
+                "ToJson shares Decode<T>'s Decompress step and the same contract: a truncated stream throws rather than reading as an empty document");
         }
 
         [Test]
