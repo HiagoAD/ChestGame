@@ -43,7 +43,8 @@ after each, and the branch is reviewed as a whole at the end. Sonnet subagents w
 and never committed. The lead session reviewed every diff and committed each phase only after that
 review.
 
-0. **Harness**, ahead of the code changes.
+0. **Harness.** No Unity Editor was available, so a .NET harness outside the repo compiled and ran
+   the affected code instead. See section 7.
 1. **Characterization tests**, written against the old, library-backed `CurrencyManager`, so each one
    pins what the library did and not what the replacement happened to do.
 2. **Replace.** `CurrencyManager` and its seams rewritten, and `TapNation.Modules` removed from every
@@ -183,6 +184,71 @@ No test covers these, and the pass did not change them.
 
 ---
 
-## What is verified, and what is not
+## 7. What is verified, and what is not
 
-TODO(lead): verification results.
+**Nothing here ran in Unity.** The session that did this work had no Unity Editor. Everything below
+was checked with a .NET harness built for this pass, which lived in that session's scratch space and
+is not in the repo.
+
+### What the harness is
+
+One project per asmdef, generated from the asmdef files on every run, so each assembly sees only what
+its `references` list. `Company.ChestGame.Common`, `Saving` and `Currency` compile in full, and
+`TapNation.Modules` did while it existed. `Company.ChestGame.UI` compiles `CurrencyWatcher.cs` only.
+The test projects compile the doubles from `Tests/Common` that the currency tests need, the three
+currency fixtures, and 28 Saving and Common fixtures. Production assemblies target netstandard2.1 at
+C# 9, the tests run on NUnit 3.5, UniTask is built from the commit `packages-lock.json` pins, and the
+UnityEngine surface these assemblies use is stubbed. That includes a reimplementation of `LogAssert`,
+so an unexpected `Debug.LogError` fails a test the way it does in Unity.
+
+It enforces asmdef boundaries. On a copy of `main`, removing `TapNation.Modules` from the UI asmdef
+made `CurrencyWatcher.cs` fail with CS0012.
+
+### Results, each on a `git archive` snapshot of the commit
+
+| Snapshot | `CurrencyManagerTests` | Save handler fixture | `CurrencyLegacyImportIntegrationTests` | Whole harness |
+|---|---|---|---|---|
+| `main` | 17/17 | 9/9 | 4/4 | 306/306 |
+| `508fa22`: the characterization tests against the library | 25/25 | 11/11 | 4/4 | 316/316 |
+| `5dcbc5c`: the replacement, library still on disk but unreferenced | 28/28 | 11/11 | 4/4 | 319/319 |
+| After `7d5ee19`: library deleted | 28/28 | 11/11 | 4/4 | 319/319 |
+
+The `508fa22` row is the point of phase 1. Every new characterization test passed against the
+library's own code before any of it was replaced.
+
+### Mutation
+
+Each new test was checked by breaking the code it guards and confirming that test fails.
+
+- **On `508fa22`, against the library (10, all caught):**
+  - a zero spend with opt-in returning early without saving;
+  - a negative spend, or one beyond the balance, let through by the opt-in;
+  - the cheat's source changed;
+  - the cheat accepting a zero balance;
+  - Collected and Changed swapped, and Spent and Changed swapped;
+  - a reload on every read;
+  - missing currencies filled only when the save is empty;
+  - a null `ResourceAmount` dereferenced.
+- **On HEAD, against `CurrencyManager` and `CurrencySaveDocument` (15, all caught):** the same ten,
+  plus:
+  - `From` aliasing the live dictionary;
+  - the zero-fill writing into the loaded document;
+  - the null-handler guard removed;
+  - an add saving before its events, and a spend raising its events before it saves.
+
+In every case the targeted test failed. Most failed alone.
+
+### Not verified
+
+- **Unity's own compile and test run.** Neither has happened. `GameLifetimeScope.cs` and
+  `GameLifetimeScopeTests.cs` changed and are outside the harness, because they need VContainer,
+  Addressables and the rest of the scope. They were checked by reading only. The PlayMode suite was
+  not run.
+- **Harness fidelity.** It runs on CoreCLR, not Mono. Its `LogAssert` is a reimplementation, not
+  Unity's. `PlayerPrefs` is in memory, and UniTask has no PlayerLoop.
+- **No playtest:** booting, the Coins and Gems labels, a chest reward landing, a relaunch keeping the
+  balance, and an old `ResourceBankSaveData_CurrencyType` entry importing once. No Android build
+  either.
+
+To close these, run `rm -rf ci-results && ci/run-tests.sh` with the editor closed, then the playtest
+above.
