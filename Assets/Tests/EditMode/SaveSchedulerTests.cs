@@ -331,5 +331,39 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.AreEqual(1, store.WriteCount, "a second FlushBlocking has to still have something to write");
             Assert.AreEqual(8, StoredValue(service));
         }
+
+        [Test]
+        public void FlushBlocking_WhenTheWriteFails_LeavesAWindowCountingDown_AndTheRetryLandsWithoutAnotherCall()
+        {
+            // FlushBlocking interrupts the window MarkDirty opened, so when its write fails the
+            // state is pending with nothing counting down. The catch has to open a fresh window, or
+            // the state sits stranded until something else happens to call in. Nothing else does
+            // here: no second flush and no MarkDirty, only the clock. No log is expected, because
+            // FlushBlocking reports through its exception and the retry's write succeeds.
+            FakeSaveStore store = new() { FailNextWrites = 1 };
+            ISaveService service = NewReadableSaveService(store);
+            FakeGameClock clock = new() { DeltaTime = 0.05f };
+            using SaveScheduler<DummyState> scheduler = new(service, Key, clock, WindowMilliseconds);
+
+            scheduler.MarkDirty(new DummyState { Value = 9 });
+
+            Assert.Catch<SaveException>(() => scheduler.FlushBlocking(), "a failed write cannot return as if it were durable");
+            Assert.AreEqual(0, store.WriteCount, "guard: the attempt has to have failed");
+            Assert.IsTrue(scheduler.HasPendingWrite, "guard: the state has to still be waiting to be written");
+
+            clock.AdvanceFrames(FramesPerWindow - 1);
+
+            Assert.AreEqual(0, store.WriteCount, "the retry has to wait out its window, not fire immediately");
+
+            clock.AdvanceFrame();
+
+            Assert.AreEqual(1, store.WriteCount, "the window opened by the failed FlushBlocking has to retry and land the write on its own");
+            Assert.AreEqual(9, StoredValue(service));
+            Assert.IsFalse(scheduler.HasPendingWrite);
+
+            clock.AdvanceFrames(FramesPerWindow * 3);
+
+            Assert.AreEqual(1, store.WriteCount, "once landed, nothing is left to write again");
+        }
     }
 }

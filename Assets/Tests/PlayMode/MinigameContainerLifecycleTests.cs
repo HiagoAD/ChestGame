@@ -1,5 +1,6 @@
 using System;
 using System.Collections;
+using System.Text.RegularExpressions;
 using System.Threading;
 using Company.ChestGame.Assets;
 using Company.ChestGame.Minigame.Core;
@@ -24,6 +25,7 @@ namespace Company.ChestGame.Tests.PlayMode
         private const string VIEW_GUID = "33333333333333333333333333333333";
         private const string CONTENT_GUID = "44444444444444444444444444444444";
         private const string REJECTING_GUID = "55555555555555555555555555555555";
+        private const string DISPOSE_FAILURE = "this controller cannot be disposed";
 
         private IObjectResolver _container;
         private FakeAssetProvider _assets;
@@ -135,6 +137,48 @@ namespace Company.ChestGame.Tests.PlayMode
         });
 
         [UnityTest]
+        public IEnumerator BeginAsync_WhenCleaningUpTheControllerAlsoThrows_RethrowsTheOriginalFailure() =>
+            UniTask.ToCoroutine(async () =>
+        {
+            // The catch disposes the controller after the view is gone and the content released. If
+            // that Dispose throws and nothing contains it, the caller is handed the cleanup's
+            // exception and never learns why the start actually failed.
+            TestMinigameView rejecting = new GameObject("RejectingViewPrefab").AddComponent<RejectingView>();
+            AssetReferenceGameObject rejectingRef = new(REJECTING_GUID);
+            _assets.With(rejectingRef, rejecting.gameObject);
+
+            ThrowingDisposeController controller = new();
+            MinigameContainer minigame = new();
+            _container.Inject(minigame);
+            minigame.Set(controller, rejectingRef, _definition);
+
+            LogAssert.Expect(LogType.Error, new Regex("failed to dispose.*" + Regex.Escape(DISPOSE_FAILURE)));
+
+            try
+            {
+                await minigame.BeginAsync(_parent.transform, CancellationToken.None);
+                Assert.Fail("SetController threw, so BeginAsync had to rethrow");
+            }
+            catch (InvalidOperationException exception)
+            {
+                Assert.That(exception.Message, Does.Contain("refuses its controller"),
+                    "the caller must see the view's rejection, not the exception from the cleanup");
+            }
+
+            Assert.AreEqual(1, controller.DisposeCalls, "guard: the failed start did try to dispose the controller");
+            Assert.IsFalse(minigame.Running, "a start that threw did not start anything");
+            Assert.IsNull(minigame.ViewInstance, "the container must not still be holding the instance");
+            Assert.AreEqual(1, _definition.ReleaseContentCalls, "the content release runs before the dispose and is not skipped");
+
+            await UniTask.Yield();
+
+            Assert.AreEqual(0, _parent.transform.childCount,
+                "the instance the failed start created has to be destroyed even though the dispose threw");
+
+            Object.Destroy(rejecting.gameObject);
+        });
+
+        [UnityTest]
         public IEnumerator End_DisposesTheControllerAndDestroysTheView() => UniTask.ToCoroutine(async () =>
         {
             await _minigame.BeginAsync(_parent.transform, CancellationToken.None);
@@ -191,6 +235,23 @@ namespace Company.ChestGame.Tests.PlayMode
         {
             public override void SetController(MinigameControllerBase controller) =>
                 throw new InvalidOperationException("this view refuses its controller");
+        }
+
+        // A different exception type from the view's, so a test can tell which of the two reached it.
+        private class DisposeFailedException : Exception
+        {
+            public DisposeFailedException(string message) : base(message) { }
+        }
+
+        // Counts the call like the shared fake does, then fails the way a controller whose
+        // teardown hits something it cannot let go of would.
+        private class ThrowingDisposeController : FakeMinigameController
+        {
+            public override void Dispose()
+            {
+                base.Dispose();
+                throw new DisposeFailedException(DISPOSE_FAILURE);
+            }
         }
 
         private class TestMinigameView : MinigameViewBase

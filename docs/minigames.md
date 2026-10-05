@@ -92,6 +92,9 @@ behind with nothing left to call `Dispose`. A failure before injection (the down
 `ConfigureControllerAsync`) disposes nothing, because nothing has been taken on. `End` stays a no-op
 afterwards, so the controller is disposed exactly once.
 
+If that `Dispose` throws, the failure is logged and swallowed, so the exception `BeginAsync` rethrows is
+always the one that made the start fail rather than one from its cleanup.
+
 ## Teardown
 
 `End` disposes the controller, destroys the view, and releases the handles `BeginAsync` took. It is

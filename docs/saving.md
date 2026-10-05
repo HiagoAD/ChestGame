@@ -366,6 +366,14 @@ the reason the flag exists at all: `PrettyJsonCodec`'s output is still JSON, so 
 `GzipJsonCodec`'s is gzip's own magic bytes, which would corrupt the envelope if embedded raw the same
 way a bare unquoted string would.
 
+On the way back, `GzipJsonCodec` checks the gzip trailer — the CRC32 and length of the uncompressed
+bytes — against what it decompressed, and throws `InvalidDataException` on a mismatch. Unity's Mono
+`GZipStream` does not reliably throw on a stream cut short: it can return nothing, or part of the
+document, which would decode to `null` or hand a migration an empty string. The trailer is read from
+the last 8 bytes, which holds because `Encode` writes exactly one gzip member. So a multi-member stream,
+or one with bytes appended, is refused even though another gzip reader would accept it. Nothing but
+this codec writes these saves, so that costs nothing today.
+
 ### Why there is no binary codec
 
 The original plan for this phase listed one. It cannot be built against this seam without weakening

@@ -4,12 +4,12 @@ Two suites, split by what only a real engine can prove.
 
 | Suite | Ours | Wall time |
 |---|---|---|
-| EditMode | 660 | ~1 s |
-| PlayMode | 70 | ~26 s |
+| EditMode | 687 | ~1 s |
+| PlayMode | 74 | ~26 s |
 
 Reproduce them with `ci/run-tests.sh`; the wall times move a little run to run. The numbers are
 written here rather than linked because `ci-results/` is gitignored, so a fresh clone has none until
-it runs the suites itself. The EditMode runner reports 661: the
+it runs the suites itself. The EditMode runner reports 688: the
 Addressables package ships one editor test of its own
 (`AddressableAssets.DocExampleCode.TestStub.RequiredTest`) and Unity picks it up. It is not ours and
 is not counted above.

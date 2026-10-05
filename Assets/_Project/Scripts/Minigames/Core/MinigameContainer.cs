@@ -91,8 +91,22 @@ namespace Company.ChestGame.Minigame.Core
                 ReleaseContent();
 
                 // Same reason, for the controller: injection is where it registers for flushing,
-                // and End, which would dispose it, is a no-op until _running is true.
-                if (controllerInjected) ControllerInstance.Dispose();
+                // and End, which would dispose it, is a no-op until _running is true. Last, and
+                // logged rather than thrown, so a failing Dispose cannot replace the failure the
+                // caller needs to see. The nested catch ends before the bare throw below, which is
+                // what keeps that throw pointing at the original.
+                if (controllerInjected)
+                {
+                    try
+                    {
+                        ControllerInstance.Dispose();
+                    }
+                    catch (Exception disposeException)
+                    {
+                        Debug.LogError($"The controller of minigame '{_definition.Id}' failed to dispose after its start failed: {disposeException.Message}");
+                    }
+                }
+
                 throw;
             }
         }
