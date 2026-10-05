@@ -71,9 +71,6 @@ namespace Company.ChestGame.Tests.EditMode
         [Test]
         public void LoadAsync_WhenVersionIsBelowCurrent_AndAMigratorIsConfigured_WalksTheChainAndMaterialisesTheMigratedDocument()
         {
-            // Every link in the chain depends on the one before it: the stored body reaches
-            // ToJson, ToJson's text reaches the migration, and the migration builds on the value it
-            // was handed rather than overwriting it. A wrong input at any link changes the result.
             int storedVersion = SaveService.CurrentSchemaVersion - 1;
             int? valueTheMigrationSaw = null;
             FakeSaveMigration migration = new(storedVersion, doc =>

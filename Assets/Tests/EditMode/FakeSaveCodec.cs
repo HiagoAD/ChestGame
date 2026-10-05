@@ -42,18 +42,34 @@ namespace Company.ChestGame.Tests.EditMode
         /// </remarks>
         public bool ToJsonWasCalled { get; private set; }
 
-        // Exactly what each call was handed, copied on the way in. A canned DecodeResult or
-        // ToJsonResult answers the same whatever arrives, so without these a round trip through
-        // this fake proves nothing about which bytes SaveService actually passed along.
+        /// <summary>
+        /// Exactly the bytes the last <c>Decode</c> call was handed, copied on the way in; null
+        /// before any call or when it was handed null.
+        /// </summary>
         public byte[] LastDecodeInput { get; private set; }
+
+        /// <summary>
+        /// Exactly the bytes the last <see cref="ToJson"/> call was handed, copied on the way in;
+        /// null before any call or when it was handed null.
+        /// </summary>
         public byte[] LastToJsonInput { get; private set; }
 
+        /// <summary>The bytes every <c>Encode</c> call returns, whatever value it is given.</summary>
         public byte[] EncodeResult { get; set; } = Array.Empty<byte>();
+
+        /// <summary>
+        /// Computes what <c>Decode</c> returns from the bytes it was handed. When null,
+        /// <c>Decode</c> returns <c>default</c>.
+        /// </summary>
         public Func<byte[], object> DecodeResult { get; set; }
+
+        /// <summary>The string every <see cref="ToJson"/> call returns unless <see cref="ToJsonFromInput"/> is set.</summary>
         public string ToJsonResult { get; set; } = "{}";
 
-        // When set, wins over ToJsonResult, so a test can make the JSON a migration sees depend on
-        // the bytes that reached this codec rather than on a fixed string.
+        /// <summary>
+        /// When set, wins over <see cref="ToJsonResult"/>, so the JSON a migration sees can depend
+        /// on the bytes that reached this codec.
+        /// </summary>
         public Func<byte[], string> ToJsonFromInput { get; set; }
 
         public byte[] Encode<T>(T value)

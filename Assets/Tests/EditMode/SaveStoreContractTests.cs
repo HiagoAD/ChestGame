@@ -173,7 +173,6 @@ namespace Company.ChestGame.Tests.EditMode
         [TestCaseSource(nameof(EveryFileBackedStore))]
         public void WriteAsync_WithANullArray_ReadsBackAnEmptyArray(StoreCase implementation)
         {
-            // ISaveStore: "a null array is stored as empty" - present, and empty, never absent.
             ISaveStore store = implementation.Create(_root);
 
             SynchronousUniTask.Complete(store.WriteAsync("save", null, CancellationToken.None));

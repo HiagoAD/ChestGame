@@ -10,9 +10,11 @@ namespace Company.ChestGame.Minigame.Core
         public abstract void NewGame();
 
         /// <summary>
-        /// Releases what the controller acquired, including anything its injection registered. Must not throw.
-        /// <c>MinigameContainer</c> calls it from <c>End</c>, and from <c>BeginAsync</c> when a step after
-        /// injection fails; it is never called on a controller whose injection did not complete.
+        /// Releases what the controller acquired, including anything its injection registered.
+        /// <c>MinigameContainer</c> calls it from <c>End</c>, and from <c>BeginAsync</c> when a step
+        /// fails once injection has begun, including a throw inside the resolver's <c>Inject</c>
+        /// itself. It must therefore be safe on a controller that was only partly injected, and it
+        /// must not throw.
         /// </summary>
         /// <remarks>See docs/minigames.md, "Failure during a start".</remarks>
         public abstract void Dispose();

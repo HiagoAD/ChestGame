@@ -3,23 +3,35 @@ using Company.ChestGame.Currency;
 
 namespace Company.ChestGame.Tests.Common
 {
-    // Keeps the saved document in a field instead of PlayerPrefs, so tests neither read nor clobber
-    // the real editor save. Sharing one instance across two CurrencyManagers exercises persistence.
-    //
-    // Stored holds the exact document it was handed and Load hands it back, copying nothing.
-    // Copying is CurrencyManager's job in both directions, and a double that copied would hide a
-    // manager that stopped doing it: EverySave_HandsTheHandlerASnapshotNothingElseHolds and
-    // Construction_CopiesTheLoadedDocument_RatherThanAdoptingIt rely on seeing the same instance.
-    // LastSavedBalances is the copy, taken as Save ran, for a test that needs what was saved at that
-    // moment rather than a document the manager might have changed since.
+    /// <summary>
+    /// Keeps the saved document in a field instead of PlayerPrefs, so tests neither read nor clobber
+    /// the real editor save. Sharing one instance across two CurrencyManagers exercises persistence.
+    /// </summary>
+    /// <remarks>
+    /// Stored holds the exact document it was handed and Load hands it back, copying nothing.
+    /// See docs/testing.md, "The in-memory currency save handler".
+    /// </remarks>
     public class InMemoryCurrencySaveHandler : ICurrencySaveHandler
     {
+        /// <summary>
+        /// The exact document the last Save was handed, not a copy.
+        /// </summary>
         public CurrencySaveDocument Stored { get; private set; }
 
+        /// <summary>
+        /// A copy of the balances, taken as Save ran. Null when the document or its ResourceAmount
+        /// was null.
+        /// </summary>
         public IReadOnlyDictionary<CurrencyType, long> LastSavedBalances { get; private set; }
 
+        /// <summary>
+        /// How many times Save has been called.
+        /// </summary>
         public int SaveCallCount { get; private set; }
 
+        /// <summary>
+        /// How many times Load has been called.
+        /// </summary>
         public int LoadCallCount { get; private set; }
 
         public void Save(CurrencySaveDocument document)

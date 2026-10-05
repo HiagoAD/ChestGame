@@ -6,10 +6,13 @@ using NUnit.Framework;
 
 namespace Company.ChestGame.Tests.EditMode
 {
-    // The failure surface is the point: a real remote config can hand back nothing, a truncated
-    // payload, or a document whose fields have moved. The config takes the document rather than a
-    // source, so parsing stays a synchronous constructor. This document carries only what the whole
-    // game shares; the chests values live in ChestsMinigameConfigTests.
+    /// <summary>
+    /// Covers <c>LocalJsonGameConfig</c> parsing and validation. This document carries only what the
+    /// whole game shares; the chests values live in ChestsMinigameConfigTests.
+    /// </summary>
+    /// <remarks>
+    /// See docs/architecture.md, "Config pipeline".
+    /// </remarks>
     public class LocalJsonGameConfigTests
     {
         [Test]
@@ -40,7 +43,6 @@ namespace Company.ChestGame.Tests.EditMode
         [Test]
         public void AMalformedDocument_FailsWithATargetedMessage()
         {
-            // A truncated payload, the shape a half-finished download takes.
             Exception error = Assert.Throws<GameConfigException>(
                 () => new LocalJsonGameConfig(@"{ ""GemsReward"": 10, ""CoinsReward"":"));
 
@@ -57,8 +59,6 @@ namespace Company.ChestGame.Tests.EditMode
         [Test]
         public void UnknownFields_AreIgnoredSoTheConfigCanGrowServerSide()
         {
-            // A server rolling out a new field must not break clients that predate it. The chests
-            // minigame's own fields are one such case: this document no longer knows them.
             LocalJsonGameConfig config = new(@"{
                 ""GemsReward"": 10,
                 ""CoinsReward"": 50,
@@ -73,7 +73,6 @@ namespace Company.ChestGame.Tests.EditMode
         [Test]
         public void ANegativeReward_IsRejected()
         {
-            // A negative reward reaches AddCurrency, which rejects and logs an error on every win.
             GameConfigException error = Assert.Throws<GameConfigException>(
                 () => new LocalJsonGameConfig(DocumentWith(coinsReward: -50)));
 
@@ -88,12 +87,6 @@ namespace Company.ChestGame.Tests.EditMode
 
             StringAssert.Contains(nameof(GameConfigData.GemsReward), error.Message);
         }
-
-        // Zero is deliberately not pinned either way here. Accepted, it reaches AddCurrency, which
-        // rejects 0 and logs an error on every win while the popup shows "+0"; whether the fix is
-        // to refuse it here or to handle it downstream, what has to hold is the cross-component
-        // invariant in RewardsManagerTests: a config this class accepts never yields a reward the
-        // real CurrencyManager rejects.
 
         private static string DocumentWith(long gemsReward = 10, long coinsReward = 50) =>
             $@"{{

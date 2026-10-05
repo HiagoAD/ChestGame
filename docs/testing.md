@@ -58,6 +58,13 @@ really does wait, unlike the edit-mode suite's fake clock. Its `[TearDown]` dest
 `PopupParent` it finds because `PopupParentProvider` parents popups under a `DontDestroyOnLoad`
 canvas it builds on first use, which would otherwise survive from one test into the next.
 
+`GameBootstrapperTests.TheShippedChestsMinigame_NamesContentThatActuallyResolves` pins the two fields the
+delivery paths read, the load policy and the content label, against the Addressables group they
+describe (see [minigames.md](minigames.md), "What adding a minigame actually takes"). The label is asked
+of Addressables itself rather than compared to a string copied out of the asset: a literal moves with
+the descriptor, so it could never notice the label drifting away from the one the group's entries
+actually carry.
+
 Two fixtures test authored assets rather than code: the pooling demo's panel and the save inspector's.
 A third pair, `DemoOverlayTests` and `DemoOverlaysPlayModeTests`, covers the two demos sharing the Game
 scene, since placing a prefab in a scene and choosing its sort order are asset edits no compiler sees.
@@ -162,10 +169,31 @@ component checks, and exactly when `SaveAsync` touches the codec - can be proven
 file system or `JsonCodec`'s real serialization standing in the way. `FileStoreTests` covers what
 only a real file system can prove.
 
+`FakeSaveStore.HoldNextWrite` is what makes "state marked dirty while a write is in flight" reachable
+without a thread. The test settles the held write from its own thread, so nothing in the fake ever
+leaves the calling thread and `CompletesOnCallingThread` stays honestly `true`, matching every real
+`ISaveStore` the assembly ships except `ThreadHoppingStore`. `FakeSaveCodec.LastDecodeInput` and
+`LastToJsonInput` record exactly what each call was handed. A canned `DecodeResult` or `ToJsonResult`
+answers the same whatever arrives, so without these a round trip through the fake proves nothing about
+which bytes `SaveService` actually passed along. `ToJsonFromInput` exists so a test can make the JSON a
+migration sees depend on the bytes that reached the codec rather than on a fixed string (see
+`SaveServiceMigrationTests`).
+
+`SaveStoreCompletesOnCallingThreadTests` exists because every concrete `ISaveStore` the assembly ships
+answers `CompletesOnCallingThread` with `true`, and callers block on the result on the strength of
+that answer (see [saving.md](saving.md), "The thread hop, and why it is not inside `SaveService`").
+Restating the constant proves nothing, so the fixture drives each store through Write, Read, Exists
+and Delete and requires every returned task to be finished the instant the call returns; a store that
+genuinely suspended anywhere would be caught `Pending`, which is exactly the state a blocking caller
+would deadlock on. `AssertEveryCallFinishesBeforeReturning` reads each task's status before anything
+else touches it, so "finished" means finished by the time the call itself returned, not by the time
+something later waited on it. `PlayerPrefsStore` alone also carries `IMainThreadOnlyStore`, which is
+pinned alongside.
+
 `PrettyJsonCodecTests` and `SaveCodecEnvelopeValueExactnessTests` split
 [saving.md](saving.md)'s "Value-exactness, and where the formatting stops" between them:
-`SaveCodecEnvelopeValueExactnessTests` covers that every value in a text-safe body survives even
-though `PrettyJsonCodec`'s own whitespace normalises away on a `Parse`; `PrettyJsonCodecTests` covers
+`SaveCodecEnvelopeValueExactnessTests` covers that every value in a text-safe body survives whether or not
+`PrettyJsonCodec`'s own whitespace does, comparing parsed documents rather than bytes; `PrettyJsonCodecTests` covers
 the other half, that the file on disk, before anything ever re-`Parse`s it, still carries the codec's
 own indentation verbatim. `SaveCodecEnvelopeValueExactnessTests` enumerates `SaveCodec` with
 `Enum.GetValues` rather than listing its three members by hand, so a fourth codec is picked up here
@@ -184,7 +212,14 @@ ever sees.
 `SaveServiceTests` isolates `SaveService`'s own logic from a real file system and from `JsonCodec`'s
 real serialization with `FakeSaveCodec`, `FakePayloadProtector` and `FakeSaveStore`; `FileStoreTests`
 covers what only a real file system can prove, and `SaveEnvelopeTests` covers the byte-exact round
-trip that this fixture's fakes do not exercise. Both real components this fixture composes by
+trip that this fixture's fakes do not exercise. The round-trip test,
+`SaveAsync_ThenLoadAsync_RoundTripsThroughTheConfiguredCodecAndProtector`, sets
+`FakeSaveCodec.DecodeResult` to a function that reads the value out of whatever bytes reach `Decode`,
+rather than a canned object, so a `LoadAsync` that passed the codec anything other than what `Encode`
+produced (the whole envelope, a re-serialised body, nothing) changes the answer. In the
+non-text-safe protector test below, the decoded value is the sum of the bytes, derived from the
+content and not just the length, so five wrong bytes cannot read back the same as the right five.
+Both real components this fixture composes by
 default, `JsonCodec` and `NoProtection`, are text-safe, so nothing real ever drives `SaveService`
 into computing `IsTextSafe` false;
 `SaveAsync_WhenTheProtectorIsNotTextSafe_StoresABase64BodyThatLoadAsyncCanStillRead` sets
@@ -229,13 +264,17 @@ both are files under the same root.
 `CreateFrom_AtomicFile_IsBackedByAtomicFileStore_WhichKeepsABackupAfterASecondSave` prove which
 backend actually landed by checking for the `.bak` generation only `AtomicFileStore` ever writes.
 
-`SaveSchedulerTests` proves everything provable without a real thread hop or a real clock: the
+`SaveSchedulerTests` proves everything provable without a real thread hop or a real player loop: the
 constructor's own guards, `CanFlushBlocking` reading straight from the `ISaveService` it was given,
-and `MarkDirty`/`FlushAsync`/`FlushBlocking` all throwing `SchedulerDisposed` once `Dispose` has run.
-`FakeGameClock` stands in for `IGameClock` here because none of these cases call `MarkDirty` and wait
-for the coalescing window to actually elapse. Coalescing, one write in flight, `FlushBlocking`'s throw
-over a genuinely hopping composition, and `Dispose`'s own best-effort flush and logged loss all need a
-player loop or a real hop, so those live in `SaveSchedulerPlayModeTests` instead.
+`MarkDirty`/`FlushAsync`/`FlushBlocking` all throwing `SchedulerDisposed` once `Dispose` has run, and
+the timing-dependent paths: coalescing, `FlushAsync`, and the retry after a failed write.
+`FakeGameClock` stands in for `IGameClock` because the fixture does call `MarkDirty` and let the
+coalescing window elapse, frame by frame. It uses a 100ms window (`WindowMilliseconds`) against the
+fake clock's 50ms frame, so a window elapses on exactly the second `AdvanceFrame`
+(`FramesPerWindow`), and every continuation resumes inside `AdvanceFrame`. What needs a real player
+loop or a real hop lives in `SaveSchedulerPlayModeTests` instead: one write in flight over a parked
+write, `FlushBlocking`'s throw over a genuinely hopping composition, and `Dispose`'s own best-effort
+flush and logged loss.
 
 Every `ISaveService` in `ChestsMinigameSaveTests` is a real `SaveService` over a `FakeSaveStore`,
 the same shape `GameLifetimeScopePauseQuitFlushTests` already uses for the currency scheduler, so
@@ -267,7 +306,13 @@ both release the write they armed and then wait for it to land before finishing,
 background write settles instead of leaking a live continuation into whatever test runs next.
 
 Both checks in `ThreadHoppingStorePlayModeTests` are deterministic identity comparisons - which
-thread a write ran on - never timing; nothing in this fixture asserts on how long anything took.
+thread a write ran on - never timing; nothing in this fixture asserts on how long anything took. The
+one cancellation check, `Write_CancelledAfterTheWrappedWriteHasStarted_IsNotReportedAsCancelled`, waits
+on a counter (`WriteThreadIds.Count == 1`, polled with a 10-second cancellation timeout) rather than a
+clock. The edit-mode half of the reason this fixture exists is in [saving.md](saving.md), "The thread
+hop, and why it is not inside `SaveService`": the hop cannot be proven in edit mode because
+`SynchronousUniTask` fails loudly the instant anything really suspends (see "SynchronousUniTask, and
+the signal a pending task sends").
 
 `SaveInspectorPanelPlayModeTests.BuildPanel` yields two frames after instantiating the prefab:
 `SaveInspectorPanel` binds its controls in `Start`, not on the frame `Object.Instantiate` runs, so
@@ -294,6 +339,19 @@ at that point it would find `null` and release nothing. `_activeGate` holds the 
 from the moment a write claims it until that write finishes, so `ReleaseWrite()` always has something
 live to signal regardless of when it is called relative to `WriteAsync` taking over.
 
+The park is cooperative, an awaited `UniTaskCompletionSource` and not a real thread block, which is
+what lets the same fake drive both a non-hopping composition, where `WriteAsync` runs on the same main
+thread the test keeps running on, and a `ThreadHoppingStore`-wrapped one, without deadlocking either.
+It is also what makes "a write genuinely mid-flight" a deterministic state to assert against rather
+than a race against how fast a worker thread happens to run. See also [saving.md](saving.md), "The
+thread hop, and why it is not inside `SaveService`" and "One write in flight".
+
+`_activeGate` is `volatile` because a hopped write publishes it from a worker thread while the test
+releases it from the main thread. In `WriteAsync` the gate is published before the thread id is added
+to `WriteThreadIds`, so a test that waits for `WriteThreadIds` to grow and then calls `ReleaseWrite()`
+can never get there before the write it means to release is actually holding the gate; moving the
+`Add` above the publish reintroduces that race.
+
 ### Simulating a click in a PlayMode UI test
 
 A `PointerDown`/`PointerUp` pair does not reliably click a `Button` in these fixtures: `Clickable`
@@ -318,6 +376,31 @@ process-lifetime store (see `SaveServiceFactoryCrossProductTests`, above), so te
 `SavePipelineProbeTests` cannot isolate by using a fresh store per case the way a file-backed fixture
 would. Isolation instead comes from a unique save key per test; a new test added to this fixture must
 not share a key with an existing one, or the two will read and write the same in-memory state.
+
+`SaveProbeResult.RawBytes` is documented as what actually landed, read back through the store rather
+than re-encoded. The shared `InMemory` store is the one `SaveComponentFactory` hands back again, so
+reading the probe's own key from it is an independent look at what landed. `AesProtector` draws a
+fresh IV per save, so a probe that re-encoded instead would differ from the store even for the same
+document, which is why `RunAsync_EveryCombination_ReportsExactlyTheBytesThatLandedInTheStore` compares
+against the store.
+
+### The in-memory currency save handler
+
+`InMemoryCurrencySaveHandler.Stored` holds the exact document it was handed and `Load` hands it back,
+copying nothing. Copying is `CurrencyManager`'s job in both directions, and a double that copied would
+hide a manager that stopped doing it: `EverySave_HandsTheHandlerASnapshotNothingElseHolds` and
+`Construction_CopiesTheLoadedDocument_RatherThanAdoptingIt` rely on seeing the same instance.
+`LastSavedBalances` is the copy, taken as `Save` ran, for a test that needs what was saved at that
+moment rather than a document the manager might have changed since.
+
+Keeping the document in a field is also what keeps a test from reading or clobbering the real editor
+save, which is why [saving.md](saving.md), "Redirecting this composition away from a developer's real
+save", points here. `CurrencySaveHandlerTests` and `CurrencyLegacyImportIntegrationTests` compose their
+service by hand over a temp root, never through `GameLifetimeScope`. `OrderRecordingHandler` wraps a
+real `CurrencySaveHandler` and is never a replacement for its logic. The legacy-import fixture's
+`TearDown` deletes both the legacy PlayerPrefs key and `<key>.migrated`, because
+`CurrencyLegacyImport.Clear` renames rather than deletes and a successful import leaves the second key
+behind.
 
 ### FakeLegacyImport, and how OnClear proves write-before-clear directly
 
@@ -462,6 +545,29 @@ needs `Inject` to succeed the way it always has.
 `FakeMinigameSO` reaches its content through that provider: a resolver with nothing registered for it
 could not inject the container at all.
 
+### ChestsMinigameControllerTests, and what its cases are shaped around
+
+Every test goes through the real entry point, `OnChestClicked`, including the two concurrent UniTasks
+it spawns (the progress loop and the open timer); `FakeGameClock` is what lets edit mode drive them.
+The progress loop and the open timer come due in the same frame and nothing promises which resumes
+first, so `OpeningIsUnaffectedByScheduling` runs the flow under both orderings through
+`FakeGameClock.FrameWaitersResumeFirst`.
+
+`PrizeChance_IsOneOverTheChestsStillUnopened` draws just above each threshold (1/4, 1/3, 1/2) so each
+of the first three chests reads empty, and the final chest holds the prize by elimination at 1/1. That
+proves the odds are no better than 1/(N - k). The `PrizeChance_ADrawJustBelow...` cases are the other
+side of each threshold: only a draw just below reading as a win proves the odds are no worse, since a
+divisor that drifted upward would pass the first test alone.
+`WithTheUnluckiestDraws_ThePrizeWaitsInTheFinalChest` is the regression guard for the `+ 1` in
+`TryGiveChestPrize` (drop it and the win lands on chest N-1), and `EveryChest_CanHoldThePrize` is its
+counterpart: no position is excluded from winning. See [minigames.md](minigames.md), "Prize odds".
+
+A chest that is Opening rather than Closed must ignore a second click, so an impatient double-tap
+neither restarts the timer nor queues a second open nor costs a second attempt. Cancelling an opening
+chest (a new game while it opens) must unwind both of its tasks rather than leave them to fire later.
+`RunningOutOfAttempts_EndsTheGameWithoutAReward` uses 10 chests and 2 attempts because attempts must be
+scarcer than chests for a loss to be reachable at all.
+
 ### MinigameContainerContentTests, and its fixture choices
 
 `MinigameContainerContentTests` runs against `FakeAssetProvider`, which hands back already-completed
@@ -490,6 +596,27 @@ fixture's job.
 `MinigameBase<TController, TView, TMinigame>` rather than the non-generic `MinigameBaseSO`, so the
 `ConfigureControllerAsync` hook and its ordering run through the real `GetMinigameContainer` and the
 real `BeginAsync` rather than a stand-in for either.
+
+### MinigameContentPreloaderTests, and its fixture choices
+
+The fixture runs in edit mode against `FakeAssetProvider`, with no scene and no scope, using the real
+`MinigameCatalog` because it takes a plain list. `FakeAssetProvider.DownloadProgressSteps` is just the
+final 1 unless a test asks for the steps in between. A lone 1 carries nothing a caller could not
+report for itself once the fetch returned, so only a step from inside the fetch shows whether a caller
+mapping one label's progress onto a larger whole forwards and maps it at all; the progress test
+therefore has each label report halfway through its own fetch (the preloader reports fetched/total
+itself after every label) and expects thirty bytes of a hundred to read 0.3 of the whole wait,
+whichever label they belong to. `FakeAssetProvider.DownloadAsync` reports 1 on completion for the same
+reason: a caller aggregating several labels would look correct while never having been driven. The
+test for per-label progress looks for a bar that reaches full and then goes back. See
+[content-delivery.md](content-delivery.md), "Progress reporting".
+
+The download-failure test lets the size query succeed on purpose, so the typed failure has to survive
+the code between measuring and fetching. The cancellation test asserts by behaviour rather than
+identity because the provider is handed a linked token, and cancels while the fetch is in flight, the
+only moment the linkage is observable. The `DeadlinedPreloader` subclass overrides the protected
+`LabelDownloadTimeout`, the same shape `MinigameContainer` uses, so production keeps no tuning knob a
+test can reach into. See [content-delivery.md](content-delivery.md), "Timeouts".
 
 ### ChestElementViewLifetimeTests, and its fixture choices
 

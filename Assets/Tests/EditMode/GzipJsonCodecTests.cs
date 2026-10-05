@@ -9,7 +9,12 @@ using NUnit.Framework;
 
 namespace Company.ChestGame.Tests.EditMode
 {
-    // GzipJsonCodec composes JsonCodec and gzips its output. See docs/saving.md, "The codecs".
+    /// <summary>
+    /// Covers <c>GzipJsonCodec</c>, which composes <c>JsonCodec</c> and gzips its output.
+    /// </summary>
+    /// <remarks>
+    /// See docs/saving.md, "The codecs".
+    /// </remarks>
     public class GzipJsonCodecTests
     {
         private class EmptyState { }
@@ -56,12 +61,6 @@ namespace Company.ChestGame.Tests.EditMode
                 "5000 repeats of the same short string is exactly the shape gzip exists to shrink");
         }
 
-        // --- Truncated input, directly: two outcomes, never a third ------------------------------
-        //
-        // ISaveCodec promises the value or a throw. A truncated stream that decompresses to nothing
-        // and reads back as null (Decode<T>) or "" (ToJson) is neither, and leaves every caller
-        // to notice for itself. The exception type is not pinned; that one is thrown is.
-
         private static byte[] TruncatedTo(int keep)
         {
             byte[] valid = new GzipJsonCodec().Encode(new RepetitiveState { Items = Enumerable.Repeat("chest", 50).ToList() });
@@ -92,8 +91,6 @@ namespace Company.ChestGame.Tests.EditMode
                 "a truncated stream has to be refused, not handed to a migration as an empty or partial document");
         }
 
-        // --- Property 8: truncated or non-gzip bytes surface typed, through SaveService ----------
-
         [Test]
         public void LoadAsync_WithTruncatedGzipBytes_ThrowsPayloadUnreadable_NotARawInvalidDataException()
         {
@@ -117,9 +114,6 @@ namespace Company.ChestGame.Tests.EditMode
             StringAssert.Contains("could not be read back", error.Message);
         }
 
-        // Assert.Throws<SaveException> already fails the test if anything else - a raw
-        // InvalidDataException included - escapes LoadAsync instead, so no separate negative
-        // assertion is needed for "not a raw InvalidDataException".
         private static SaveException LoadThroughSeededEnvelope(GzipJsonCodec codec, byte[] corruptBody)
         {
             FakeSaveStore store = new();

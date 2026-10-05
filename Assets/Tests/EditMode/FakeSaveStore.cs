@@ -6,33 +6,48 @@ using Cysharp.Threading.Tasks;
 
 namespace Company.ChestGame.Tests.EditMode
 {
-    // An in-memory ISaveStore, so SaveService's own logic - the first-run/corrupt distinction, the
-    // version and component checks - can be tested without a real file system underneath it.
-    // FileStore gets its own fixture in FileStoreTests for what only a real file system can prove.
+    /// <summary>
+    /// An in-memory <see cref="ISaveStore"/>, so <c>SaveService</c>'s own logic (the
+    /// first-run/corrupt distinction, the version and component checks) can be tested without a
+    /// real file system underneath it. Every operation completes on the calling thread.
+    /// </summary>
+    /// <remarks>
+    /// <c>FileStore</c> has its own fixture in <c>FileStoreTests</c> for what only a real file
+    /// system can prove.
+    /// See docs/testing.md, "The save fixtures".
+    /// </remarks>
     public class FakeSaveStore : ISaveStore
     {
         private readonly Dictionary<string, byte[]> _files = new();
 
         private (string key, byte[] bytes, UniTaskCompletionSource completion)? _held;
 
-        // Writes that actually landed. A write that failed, or is still held, has not.
+        /// <summary>Writes that actually landed. A write that failed, or is still held, has not.</summary>
         public int WriteCount { get; private set; }
 
-        // The next this-many writes throw SaveException.Io and store nothing - the way FileStore
-        // reports a full disk or a revoked permission - each one counting itself down.
+        /// <summary>
+        /// The next this-many writes throw <c>SaveException.Io</c> and store nothing, the way
+        /// <c>FileStore</c> reports a full disk or a revoked permission. Each failure counts this
+        /// down by one.
+        /// </summary>
         public int FailNextWrites { get; set; }
 
-        // One shot: the next write parks, storing nothing, until the test settles it with
-        // CompleteHeldWrite or FailHeldWrite. That is what makes "state marked dirty while a write
-        // is in flight" reachable without a thread. The test settles it from its own thread, so
-        // nothing here ever leaves the calling thread and CompletesOnCallingThread stays honest.
+        /// <summary>
+        /// One shot: the next write parks, storing nothing, until the test settles it with
+        /// <see cref="CompleteHeldWrite"/> or <see cref="FailHeldWrite"/>. The test settles it from
+        /// its own thread, so nothing here leaves the calling thread.
+        /// </summary>
         public bool HoldNextWrite { get; set; }
 
+        /// <summary>True while a write is parked by <see cref="HoldNextWrite"/>.</summary>
         public bool HasHeldWrite => _held.HasValue;
 
-        // Bypasses SaveAsync, for tests that need an envelope on "disk" that SaveService's own
-        // codec and protector could never have produced - a corrupt one, one from a different
-        // schema version, one naming a different codec or protector.
+        /// <summary>
+        /// Puts <paramref name="bytes"/> under <paramref name="key"/> without going through
+        /// <c>SaveAsync</c>, for envelopes <c>SaveService</c>'s own codec and protector could never
+        /// have produced: a corrupt one, one from a different schema version, one naming a
+        /// different codec or protector.
+        /// </summary>
         public void Seed(string key, byte[] bytes) => _files[key] = bytes;
 
         public UniTask WriteAsync(string key, byte[] bytes, CancellationToken ct)
@@ -58,7 +73,8 @@ namespace Company.ChestGame.Tests.EditMode
             return UniTask.CompletedTask;
         }
 
-        // Lands the held write, then lets whatever awaited it carry on.
+        /// <summary>Lands the held write, then lets whatever awaited it carry on.</summary>
+        /// <exception cref="System.InvalidOperationException">When no write is held.</exception>
         public void CompleteHeldWrite()
         {
             (string key, byte[] bytes, UniTaskCompletionSource completion) = TakeHeldWrite();
@@ -67,7 +83,8 @@ namespace Company.ChestGame.Tests.EditMode
             completion.TrySetResult();
         }
 
-        // Fails the held write the same way FailNextWrites does, storing nothing.
+        /// <summary>Fails the held write the same way <see cref="FailNextWrites"/> does, storing nothing.</summary>
+        /// <exception cref="System.InvalidOperationException">When no write is held.</exception>
         public void FailHeldWrite()
         {
             (string key, _, UniTaskCompletionSource completion) = TakeHeldWrite();
@@ -102,9 +119,7 @@ namespace Company.ChestGame.Tests.EditMode
             return UniTask.CompletedTask;
         }
 
-        // Every member above is a plain dictionary operation wrapped in an already-completed
-        // UniTask - nothing here ever suspends onto another thread, so this is always true,
-        // matching every real ISaveStore this assembly ships except ThreadHoppingStore.
+        /// <summary>Always true: no member ever suspends onto another thread.</summary>
         public bool CompletesOnCallingThread => true;
     }
 }

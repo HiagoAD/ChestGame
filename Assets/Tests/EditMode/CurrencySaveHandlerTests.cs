@@ -13,11 +13,16 @@ using UnityEngine.TestTools;
 
 namespace Company.ChestGame.Tests.EditMode
 {
-    // CurrencySaveHandler over a real, temp-rooted AtomicFile/Json/None ISaveService -
-    // the same shape GameLifetimeScope.RegisterCoreServices composes, built here by hand through
-    // SaveComponentFactory directly so these tests never touch GameLifetimeScope, and therefore
-    // never touch the developer's real Application.persistentDataPath or real PlayerPrefs entry.
-    // See docs/saving.md, "Currency: the first real caller".
+    /// <summary>
+    /// <c>CurrencySaveHandler</c> over a real, temp-rooted AtomicFile/Json/None
+    /// <c>ISaveService</c>: the same shape <c>GameLifetimeScope.RegisterCoreServices</c> composes,
+    /// built by hand through <c>SaveComponentFactory</c> directly. Touches neither
+    /// <c>GameLifetimeScope</c>, the real <c>Application.persistentDataPath</c> nor the real
+    /// PlayerPrefs entry.
+    /// </summary>
+    /// <remarks>
+    /// See docs/saving.md, "Currency: the first real caller".
+    /// </remarks>
     public class CurrencySaveHandlerTests
     {
         private string _root;
@@ -45,10 +50,11 @@ namespace Company.ChestGame.Tests.EditMode
                 store);
         }
 
-        // Wraps a real CurrencySaveHandler only to record the moment Save() runs relative to
-        // whatever else a test appends to the same list, and the coin balance it was handed at that
-        // moment - never a replacement for the real handler's own logic, which every call here
-        // still reaches.
+        /// <summary>
+        /// Wraps a real <c>CurrencySaveHandler</c> to record when <c>Save()</c> runs relative to
+        /// whatever else a test appends to <c>Events</c>, and the coin balance it was handed at that
+        /// moment. Every call still reaches the wrapped handler.
+        /// </summary>
         private class OrderRecordingHandler : ICurrencySaveHandler
         {
             private readonly ICurrencySaveHandler _inner;
@@ -67,9 +73,11 @@ namespace Company.ChestGame.Tests.EditMode
             public CurrencySaveDocument Load() => _inner.Load();
         }
 
-        // What the next process would read: a fresh service, scheduler and manager over the same
-        // root. A currency the file does not list reads as 0, so a missing file fails as a wrong
-        // balance rather than as a missing key.
+        /// <summary>
+        /// What the next process would read: a fresh service, scheduler and manager over the same
+        /// root. A currency the file does not list reads as 0, so a missing file fails as a wrong
+        /// balance rather than as a missing key.
+        /// </summary>
         private long ReloadedBalance(CurrencyType currencyType)
         {
             ISaveService service = NewCurrencySaveService(_root);
@@ -100,14 +108,12 @@ namespace Company.ChestGame.Tests.EditMode
             return events;
         }
 
-        // --- The structural guard (docs/saving.md, "Load() blocks") ----------------------------
-
+        /// <remarks>
+        /// See docs/saving.md, "ICurrencySaveHandler is fully synchronous; ISaveService is not".
+        /// </remarks>
         [Test]
         public void Constructor_OverAThreadHoppingComposition_ThrowsSynchronousLoadNeedsNonHoppingStore()
         {
-            // ThreadHoppingStore wrapping a plain FakeSaveStore always hops (FakeSaveStore is not
-            // IMainThreadOnlyStore), so CompletesOnCallingThread answers false without this test
-            // ever needing a real thread hop to actually happen.
             ISaveService hoppingService = new SaveService(new FakeSaveCodec(), new NoProtection(), new ThreadHoppingStore(new FakeSaveStore()));
             Assert.IsFalse(hoppingService.CompletesOnCallingThread, "guard: this composition has to be the hopping one this test means to drive");
 
@@ -145,12 +151,9 @@ namespace Company.ChestGame.Tests.EditMode
             StringAssert.Contains("SaveScheduler", error.Message);
         }
 
-        // The composition-root guard, through the real throw site rather than the message factory
-        // behind it. GameLifetimeScope.RegisterCoreServices hardcodes SaveStorage.AtomicFile for the
-        // currency store, so nothing reachable through its own public parameters can make its
-        // registration throw; what can be reached is the same SaveFlushRegistry.Register call over
-        // the same scheduler type and key, composed over a store that hops - the wiring mistake the
-        // guard exists to refuse before the one moment a pause flush would need it.
+        /// <remarks>
+        /// See docs/saving.md, "What ships, and where the composition asserts its own constraints".
+        /// </remarks>
         [Test]
         public void RegisteringTheCurrencySchedulerOverAHoppingService_IsRefused_NamingTheKey()
         {
@@ -166,8 +169,6 @@ namespace Company.ChestGame.Tests.EditMode
             CollectionAssert.IsEmpty(registry.Registered, "a refused scheduler must not have been registered anyway");
         }
 
-        // --- Round trip (docs/saving.md, "Currency: the first real caller") --------------------
-
         [Test]
         public void AddSpendAndReload_RoundTripsThroughTheRealPipeline()
         {
@@ -179,16 +180,12 @@ namespace Company.ChestGame.Tests.EditMode
             manager1.AddCurrency(CurrencyType.Gems, 20, "test");
             Assert.IsTrue(manager1.TrySpendCurrency(CurrencyType.Coins, 30, "test"));
 
-            // Forces the coalesced write durably to disk before the next manager reads it back -
-            // safe here because this composition never hops (CompletesOnCallingThread == true).
             scheduler1.FlushBlocking();
             scheduler1.Dispose();
 
             Assert.AreEqual(70, manager1.GetCurrencyAmount(CurrencyType.Coins));
             Assert.AreEqual(20, manager1.GetCurrencyAmount(CurrencyType.Gems));
 
-            // A fresh manager, fresh scheduler, fresh ISaveService instance - over the same root -
-            // standing in for a process restart reading back what the previous process wrote.
             ISaveService service2 = NewCurrencySaveService(_root);
             SaveScheduler<CurrencySaveDocument> scheduler2 = new(service2, CurrencySaveHandler.SaveKey, new FakeGameClock());
             CurrencyManager manager2 = new(new CurrencySaveHandler(service2, scheduler2));
@@ -198,8 +195,6 @@ namespace Company.ChestGame.Tests.EditMode
 
             scheduler2.Dispose();
         }
-
-        // --- A save that does not list every currency ------------------------------------------
 
         [Test]
         public void Load_OfASaveWrittenBeforeACurrencyExisted_KeepsItsBalances_AndStartsTheNewOneAtZero()
@@ -247,8 +242,9 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.AreEqual(3, manager.GetCurrencyAmount(CurrencyType.Gems));
         }
 
-        // --- Coalescing does not change the balance (docs/saving.md, "Write coalescing") -------
-
+        /// <remarks>
+        /// See docs/saving.md, "Write coalescing, and why it cannot live inside SaveAsync".
+        /// </remarks>
         [Test]
         public void ABurstOfAddsAndSpends_CoalescesWithoutChangingTheFinalBalance()
         {
@@ -261,15 +257,10 @@ namespace Company.ChestGame.Tests.EditMode
 
             long expected = 25 * 10 - 10 * 5;
 
-            // The clock was never advanced, so the coalescing window has not elapsed and nothing
-            // has actually been written yet - proving the balance above came from CurrencyManager's
-            // own in-memory state, not from a write that already landed.
             Assert.IsTrue(scheduler.HasPendingWrite, "guard: the burst has to still be waiting on its coalescing window");
             Assert.IsFalse(scheduler.IsFlushing, "guard: nothing should be mid-write yet - every call above had to return immediately");
             Assert.AreEqual(expected, manager.GetCurrencyAmount(CurrencyType.Coins));
 
-            // Save() never blocks: every one of the 35 calls above already returned by the time this
-            // line runs, and forcing the one coalesced write through now must not change the value.
             Assert.DoesNotThrow(() => scheduler.FlushBlocking());
             Assert.AreEqual(expected, manager.GetCurrencyAmount(CurrencyType.Coins));
 
@@ -283,12 +274,9 @@ namespace Company.ChestGame.Tests.EditMode
             scheduler.Dispose();
         }
 
-        // --- Save before notify (docs/saving.md, "ICurrencySaveHandler is fully synchronous") -
-        // the new state reaches the save handler before any callback runs, in both directions. A
-        // listener is arbitrary game code: one that throws between an add's events and its save
-        // would take the save down with it, and the balance the player was just shown would never
-        // be persisted. -------------------------------------------------------------------------
-
+        /// <remarks>
+        /// See docs/saving.md, "Save, then notify, for both operations".
+        /// </remarks>
         [Test]
         public void AddCurrency_HandsTheNewStateToTheSaveHandler_BeforeAnyCallbackFires()
         {
@@ -344,8 +332,6 @@ namespace Company.ChestGame.Tests.EditMode
             manager.OnCurrencyCollected += (currency, amount, balance, source) =>
                 throw new InvalidOperationException("a listener failing for its own reasons");
 
-            // The listener's own failure is logged rather than thrown at this caller; whether the
-            // balance it was told about got saved is what this test is about.
             LogAssert.Expect(LogType.Exception, new Regex("a listener failing for its own reasons"));
 
             manager.AddCurrency(CurrencyType.Coins, 25, "throwing-listener");
@@ -361,12 +347,9 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.AreEqual(25, reloaded.ResourceAmount[CurrencyType.Coins], "the next session has to see the coins the player was given");
         }
 
-        // --- A listener can make its change durable ---------------------------------------------
-        //
-        // By the time a listener runs, the change it is told about has been handed to the save
-        // handler, so a listener that flushes the scheduler writes that change and no other. And a
-        // scheduler that has been disposed refuses a change without applying it.
-
+        /// <remarks>
+        /// See docs/saving.md, "Save, then notify, for both operations".
+        /// </remarks>
         [TestCase("Collected")]
         [TestCase("Changed")]
         public void AListenerOfAnAdd_CanFlushTheAddItWasToldAbout(string eventName)
@@ -389,7 +372,6 @@ namespace Company.ChestGame.Tests.EditMode
             using SaveScheduler<CurrencySaveDocument> scheduler = new(service, CurrencySaveHandler.SaveKey, new FakeGameClock());
             CurrencyManager manager = new(new CurrencySaveHandler(service, scheduler));
 
-            // Written before the listener exists, so the only thing left to flush is the spend.
             manager.AddCurrency(CurrencyType.Coins, 10, "seed");
             scheduler.FlushBlocking();
             SubscribeTo(manager, eventName, (currency, amount, balance, source) => scheduler.FlushBlocking());
@@ -400,7 +382,9 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.AreEqual(6, ReloadedBalance(CurrencyType.Coins));
         }
 
-        // The shape of a HUD label whose render throws on every change.
+        /// <remarks>
+        /// See docs/saving.md, "Save, then notify, for both operations".
+        /// </remarks>
         [Test]
         public void AnAddWhoseChangedListenerAlwaysThrows_IsStillWrittenByTheBlockingFlush()
         {
@@ -428,7 +412,6 @@ namespace Company.ChestGame.Tests.EditMode
             CurrencyManager manager = new(new CurrencySaveHandler(service, scheduler));
             List<string> events = RecordEvents(manager);
 
-            // Nothing is pending, so disposing logs nothing.
             scheduler.Dispose();
 
             SaveException error = Assert.Throws<SaveException>(() => manager.AddCurrency(CurrencyType.Coins, 5, "late"));

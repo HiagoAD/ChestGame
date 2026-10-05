@@ -5,17 +5,24 @@ using UnityEngine;
 
 namespace Company.ChestGame.Currency
 {
-    // Every currency in the game, with persistence. Add currencies by extending CurrencyType.
-    //
-    // Balances live in memory, loaded once in the constructor and saved as part of every change,
-    // before its events.
+    /// <summary>
+    /// Every currency in the game, with persistence. Add currencies by extending
+    /// <see cref="CurrencyType"/>.
+    /// </summary>
+    /// <remarks>
+    /// Balances live in memory, loaded once in the constructor and saved as part of every change,
+    /// before its events.
+    /// See docs/architecture.md, "Currency and rewards".
+    /// </remarks>
     public class CurrencyManager : ICurrencyManager
     {
         public event CurrencyChangedHandler OnCurrencyChanged;
         public event CurrencyChangedHandler OnCurrencyCollected;
         public event CurrencyChangedHandler OnCurrencySpent;
 
-        // Why an add or a spend was refused. Not public: callers only ever learn that it failed.
+        /// <summary>
+        /// Why an add or a spend was refused. Not public: callers only ever learn that it failed.
+        /// </summary>
         private enum Rejection
         {
             None,
@@ -27,16 +34,21 @@ namespace Company.ChestGame.Currency
         private readonly Dictionary<CurrencyType, long> _balances = new();
         private readonly ICurrencySaveHandler _saveHandler;
 
+        /// <summary>
+        /// Loads the balances once, synchronously, from <paramref name="saveHandler"/>.
+        /// </summary>
+        /// <param name="saveHandler">Where balances are kept between runs.</param>
+        /// <exception cref="SaveException">When <paramref name="saveHandler"/> is null.</exception>
+        /// <remarks>
+        /// There is no fallback handler. A currency the loaded save does not list starts at 0.
+        /// See docs/saving.md, "Currency: the first real caller".
+        /// </remarks>
         public CurrencyManager(ICurrencySaveHandler saveHandler)
         {
-            // No fallback handler, deliberately: a default that wrote to PlayerPrefs would write
-            // under the very key CurrencyLegacyImport reads.
             if (saveHandler == null) throw SaveException.NoSaveHandler();
 
             _saveHandler = saveHandler;
 
-            // Copied entry by entry rather than adopted: the handler may still hold the document it
-            // returned, and these balances are mutated for the rest of this manager's life.
             CurrencySaveDocument loaded = _saveHandler.Load();
             if (loaded != null && loaded.ResourceAmount != null)
             {
@@ -46,39 +58,53 @@ namespace Company.ChestGame.Currency
                 }
             }
 
-            // A save written before a currency existed does not list it.
             foreach (CurrencyType currencyType in Enum.GetValues(typeof(CurrencyType)))
             {
                 _balances.TryAdd(currencyType, 0);
             }
         }
 
+        /// <inheritdoc/>
         public long GetCurrencyAmount(CurrencyType currencyType) => _balances[currencyType];
 
+        /// <summary>
+        /// Adds <paramref name="amount"/> to the balance. Zero is rejected as well as a negative,
+        /// and both log an error, so a caller whose amount can legitimately be 0 has to skip the
+        /// call itself.
+        /// </summary>
+        /// <remarks>
+        /// See docs/saving.md, "Save, then notify, for both operations".
+        /// </remarks>
         public void AddCurrency(CurrencyType currencyType, long amount, string source, string GAItemType = "")
         {
-            // Zero is rejected as well as a negative, and both log this error, so a caller whose
-            // amount can legitimately be 0 has to skip the call itself.
             if (TryAddAmount(currencyType, amount, source) != Rejection.None)
             {
                 Debug.LogError($"Failed to add {amount} {currencyType} to the bank");
                 return;
             }
 
-            // Analytics hook, example:
-            // GameAnalytics.NewResourceEvent(GAResourceFlowType.Source, currencyType.ToString(), amount, GAItemType,
-            //     source);
             Debug.Log($"Added {amount} {currencyType} to the bank");
         }
 
-        // For a debugging system: reset one or all currencies for testing.
+        /// <summary>
+        /// For a debugging system: spends the whole balance of one currency as source "CHEAT". A
+        /// balance of 0 is refused without a log, an event or a save.
+        /// </summary>
         public void CHEAT_ResetCurrencyAmount(CurrencyType currencyType)
         {
-            // The result is ignored on purpose: a zero balance is refused here without a log.
             TrySpendAmount(currencyType, _balances[currencyType], "CHEAT", acceptZeroAmount: false);
         }
 
-        // A good place to offer the player a purchase for the remaining currency.
+        /// <summary>
+        /// Spends <paramref name="amount"/> and returns whether it did. A spend of 0 is rejected
+        /// unless <paramref name="acceptZeroAmount"/> is set, in which case it is a whole operation
+        /// that saves and raises both events with 0. A negative amount or one beyond the balance is
+        /// rejected whatever the flag, with an error logged, no event and no save.
+        /// </summary>
+        /// <remarks>
+        /// <paramref name="spawnCurrencyPurchasePopup"/> currently has no effect.
+        /// See docs/saving.md, "Save, then notify, for both operations".
+        /// </remarks>
         public bool TrySpendCurrency(CurrencyType currencyType, long amount, string source, bool spawnCurrencyPurchasePopup = false, bool acceptZeroAmount = false)
         {
             Rejection rejection = TrySpendAmount(currencyType, amount, source, acceptZeroAmount);
@@ -86,25 +112,24 @@ namespace Company.ChestGame.Currency
             {
                 if (rejection == Rejection.InsufficientAmount && spawnCurrencyPurchasePopup)
                 {
-                    // TODO: Open shop to complete the resource amount
                 }
 
                 Debug.LogError($"Failed to spend {amount} {currencyType} from the bank");
                 return false;
             }
 
-            // Analytics hook, example:
-            // GameAnalytics.NewResourceEvent(GAResourceFlowType.Sink, currencyType.ToString(), amount, nameof(ConsumableAddedType.Coin),
-            //     source);
             Debug.Log($"Spend {amount} {currencyType} from the bank");
             return true;
         }
 
-        // Both cores follow one order: validate, save, commit, notify. A throwing Save changes
-        // nothing: no balance, no event, no success log. A throwing listener is logged and cannot
-        // stop the other listeners, the save, or the caller's result. Commit has to stay before
-        // Raise, because a listener may start another operation and must find the balance already
-        // in place.
+        /// <summary>
+        /// Validates, saves, commits, then raises. A throwing Save changes nothing: no balance, no
+        /// event, no success log.
+        /// </summary>
+        /// <remarks>
+        /// Commit has to stay before Raise.
+        /// See docs/saving.md, "Save, then notify, for both operations".
+        /// </remarks>
         private Rejection TryAddAmount(CurrencyType currencyType, long amount, string source)
         {
             Rejection rejection = ValidateAmount(amount);
@@ -119,12 +144,17 @@ namespace Company.ChestGame.Currency
             return Rejection.None;
         }
 
+        /// <summary>
+        /// The spend counterpart of <see cref="TryAddAmount"/>, with the same order. Only a zero
+        /// amount can be let through, and only when the caller opted in.
+        /// </summary>
+        /// <remarks>
+        /// See docs/saving.md, "Save, then notify, for both operations".
+        /// </remarks>
         private Rejection TrySpendAmount(CurrencyType currencyType, long amount, string source, bool acceptZeroAmount)
         {
             Rejection rejection = CanSpend(currencyType, amount);
 
-            // Only a zero amount can be let through, and only when the caller opted in. A spend of 0
-            // is then a whole operation: it saves and raises both events, with 0.
             if (rejection != Rejection.None && !(rejection == Rejection.ZeroAmount && acceptZeroAmount)) return rejection;
 
             long balance = _balances[currencyType] - amount;
@@ -136,7 +166,9 @@ namespace Company.ChestGame.Currency
             return Rejection.None;
         }
 
-        // The amount is checked before the balance, so a zero amount is ZeroAmount whatever is held.
+        /// <summary>
+        /// The amount is checked before the balance, so a zero amount is ZeroAmount whatever is held.
+        /// </summary>
         private Rejection CanSpend(CurrencyType currencyType, long amount)
         {
             Rejection rejection = ValidateAmount(amount);
@@ -155,9 +187,13 @@ namespace Company.ChestGame.Currency
             };
         }
 
-        // A fresh copy every time: the handler may keep what it is handed, and this manager keeps
-        // mutating _balances. The snapshot already holds the new balance and is saved before the
-        // in-memory assignment, so a throwing Save leaves nothing changed.
+        /// <summary>
+        /// Hands the save handler a fresh snapshot already holding the new balance, then assigns
+        /// the balance in memory. A throwing Save leaves nothing changed.
+        /// </summary>
+        /// <remarks>
+        /// See docs/saving.md, "Save, then notify, for both operations".
+        /// </remarks>
         private void Commit(CurrencyType currencyType, long balance)
         {
             CurrencySaveDocument document = CurrencySaveDocument.From(_balances);
@@ -167,10 +203,12 @@ namespace Company.ChestGame.Currency
             _balances[currencyType] = balance;
         }
 
-        // Each listener is isolated, and the event field is read again for every call, so Changed
-        // is raised even when a Collected or Spent listener threw. Exception rather than a narrower
-        // type: a publisher has to tolerate whatever its subscribers throw. LogException keeps the
-        // stack trace that names the faulty listener.
+        /// <summary>
+        /// Invokes each listener separately. A listener that throws is logged and stops nothing.
+        /// </summary>
+        /// <remarks>
+        /// See docs/saving.md, "Save, then notify, for both operations".
+        /// </remarks>
         private static void Raise(CurrencyChangedHandler handler, CurrencyType currency, long amount, long balance, string source)
         {
             if (handler == null) return;

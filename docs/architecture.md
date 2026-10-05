@@ -388,9 +388,18 @@ predates, deserializes to 0. Rewards must be positive, because a zero or negativ
 An unrecognized field in the document is ignored rather than rejected, so a server rolling out a new
 field does not break clients that predate it; `UnknownFields_AreIgnoredSoTheConfigCanGrowServerSide`
 feeds a document carrying the chests minigame's own fields, which `LocalJsonGameConfig` no longer
-knows about, alongside the two it does. Zero is accepted as distinct from negative: it is a legitimate
-tuning value, a currency the game currently gives none of, and `ConfigValidation` only rejects a
-reward going negative.
+knows about, alongside the two it does.
+
+Every fake in `RewardsManagerTests` agrees with whatever it is handed, so none can notice two real
+components disagreeing. `AConfigLocalJsonGameConfigAccepts_NeverYieldsARewardTheRealCurrencyManagerRejects`
+therefore runs a document through the real `LocalJsonGameConfig`, `RewardsManager` and
+`CurrencyManager`. Two outcomes pass: the config refuses the document up front (the test returns when
+`GameConfigException` is thrown at load, since nothing the document describes can reach the bank), or
+the reward it describes is one the bank takes. The failing middle is a config that accepts a value the
+bank then rejects, logging an error on every win while the popup tells the player "+0". That error
+log fails the test by itself, and the assertion messages say why in plain words.
+`LogAssert.NoUnexpectedReceived` is deliberately not used: it rejects every log, and a bank that
+accepts the reward logs an ordinary "Added" line.
 
 ## Catalogs
 
@@ -527,6 +536,21 @@ every add and spend, and three events (`OnCurrencyChanged`, `OnCurrencyCollected
 `OnCurrencySpent`). The events are typed with the project's own `CurrencyChangedHandler` delegate, so
 a subscriber needs nothing outside `Company.ChestGame.Currency`. Add currencies by extending the
 `CurrencyType` enum; a save written before a currency existed starts it at 0.
+
+The amount argument is signed differently on the events by design. `OnCurrencyChanged` always carries
+the delta applied to the balance, so a spend of 30 raises it with -30. `OnCurrencySpent` carries the
+size of the withdrawal, so the same spend raises it with +30. `OnCurrencyCollected` and
+`OnCurrencySpent` fire first and `OnCurrencyChanged` right after, so a listener subscribed to both sees
+them in that order.
+
+`AddCurrency` rejects a zero amount as well as a negative one, and both log an error, so a caller
+whose amount can legitimately be 0 has to skip the call itself. `TrySpendCurrency` rejects a zero
+amount unless the caller passes `acceptZeroAmount`; with it, the spend is a whole operation that
+saves and raises both events with 0. A negative amount, or one beyond the balance, is rejected even
+with the flag, with an error logged, no event and no save. The amount is checked before the balance,
+so a spend of 0 is a zero-amount rejection whatever is held, and only that rejection can be opted
+past. `CHEAT_ResetCurrencyAmount` spends the whole balance as source "CHEAT" and ignores the result:
+on a balance of 0 it is refused without a log, an event or a save.
 
 It takes an `ICurrencySaveHandler` as its only constructor argument, registered in the scope, so a
 test can hand it an in-memory save instead of the real one. There is no default handler: a null one

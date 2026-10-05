@@ -9,14 +9,13 @@ using UnityEngine.TestTools;
 
 namespace Company.ChestGame.Tests.EditMode
 {
-    // The parts of SaveScheduler<T> provable without a real thread hop: its own constructor guards,
-    // CanFlushBlocking answering from the ISaveService it was given, SchedulerDisposed once Dispose
-    // has run, and - because FakeGameClock drives the coalescing window frame by frame, with every
-    // continuation resuming inside AdvanceFrame - coalescing, FlushAsync, and what a failed write
-    // must and must not do. A 100ms window at FakeGameClock's 50ms frame elapses on exactly the
-    // second AdvanceFrame. What still needs a player loop or a real hop - one write in flight over a
-    // hopping composition, FlushBlocking's throw mid-hop, and Dispose's logged loss over a hopping
-    // store - is in SaveSchedulerPlayModeTests.
+    /// <summary>
+    /// The parts of <c>SaveScheduler&lt;T&gt;</c> provable without a real thread hop: its own
+    /// constructor guards, <c>CanFlushBlocking</c> answering from the <c>ISaveService</c> it was
+    /// given, <c>SchedulerDisposed</c> once <c>Dispose</c> has run, and coalescing, <c>FlushAsync</c>
+    /// and what a failed write must and must not do. What still needs a player loop or a real hop
+    /// is in <c>SaveSchedulerPlayModeTests</c>.
+    /// </summary>
     public class SaveSchedulerTests
     {
         private const string Key = "scheduled";
@@ -31,14 +30,18 @@ namespace Company.ChestGame.Tests.EditMode
         private static ISaveService NewSaveService(ISaveStore store) =>
             new SaveService(new FakeSaveCodec(), new NoProtection(), store);
 
-        // A real codec, so what landed can be read back and told apart by its Value.
+        /// <summary>
+        /// A service over a real codec, so what landed can be read back and told apart by its Value.
+        /// </summary>
         private static ISaveService NewReadableSaveService(ISaveStore store) =>
             new SaveService(new JsonCodec(), new NoProtection(), store);
 
         private static int StoredValue(ISaveService service) =>
             SynchronousUniTask.Result(service.LoadAsync<DummyState>(Key, CancellationToken.None)).Value;
 
-        // The documented failure log: once per failed write, naming the key.
+        /// <summary>
+        /// Expects the documented failure log: once per failed write, naming the key.
+        /// </summary>
         private static void ExpectOneFailedWriteLog() =>
             LogAssert.Expect(LogType.Error, new Regex(Regex.Escape($"SaveScheduler for '{Key}' failed to save and will retry")));
 
@@ -146,8 +149,6 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.IsFalse(SynchronousUniTask.Result(store.ExistsAsync("key", default)));
         }
 
-        // --- Coalescing (docs/saving.md, "Write coalescing") ---------------------------------
-
         [Test]
         public void MarkDirty_SeveralTimesInsideOneWindow_WritesOnceWhenItElapses_CarryingTheLastState()
         {
@@ -192,8 +193,6 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.AreEqual(2, StoredValue(service));
         }
 
-        // --- FlushAsync ---------------------------------------------------------------------
-
         [Test]
         public void FlushAsync_WritesWhatIsPending_WithoutWaitingForTheWindow()
         {
@@ -225,15 +224,12 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.AreEqual(0, store.WriteCount);
         }
 
-        // --- A failed write (SaveScheduler's own contract: "A failed write is neither reported as
-        // success nor dropped", logged once naming the key, retried at the next window) ----------
-
+        /// <remarks>
+        /// See docs/saving.md, "A failed write now says so".
+        /// </remarks>
         [Test]
         public void AWindowWriteThatFails_IsLoggedOnceNamingTheKey_StaysPending_AndTheNextWindowLandsIt()
         {
-            // Through the window, the path nobody awaits: the log line is the only report a failure
-            // here gets, so it has to happen - exactly once - and nothing else may be reported in
-            // its place or alongside it.
             FakeSaveStore store = new() { FailNextWrites = 1 };
             ISaveService service = NewReadableSaveService(store);
             FakeGameClock clock = new() { DeltaTime = 0.05f };
@@ -279,11 +275,12 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.IsFalse(scheduler.HasPendingWrite);
         }
 
+        /// <remarks>
+        /// See docs/saving.md, "One write in flight".
+        /// </remarks>
         [Test]
         public void StateMarkedDirtyWhileAWriteIsInFlight_IsWhatLands_WhenThatWriteFails()
         {
-            // The failed write carried 1; 2 arrived while it was in flight. Restoring 1 over 2 on
-            // failure would retry stale state and lose the newer one - fresher state always wins.
             FakeSaveStore store = new() { HoldNextWrite = true };
             ISaveService service = NewReadableSaveService(store);
             FakeGameClock clock = new() { DeltaTime = 0.05f };
@@ -310,12 +307,12 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.IsFalse(scheduler.HasPendingWrite);
         }
 
+        /// <remarks>
+        /// See docs/saving.md, "FlushBlocking, and why it cannot deadlock".
+        /// </remarks>
         [Test]
         public void FlushBlocking_WhenTheWriteFails_ThrowsAndKeepsTheStatePending()
         {
-            // HasPendingWrite is defined as state neither durably saved nor currently being saved.
-            // After a FlushBlocking that threw, that is exactly what the state is - so it has to
-            // still be pending, for the next flush or window to try again, not silently discarded.
             FakeSaveStore store = new() { FailNextWrites = 1 };
             ISaveService service = NewReadableSaveService(store);
             using SaveScheduler<DummyState> scheduler = new(service, Key, new FakeGameClock(), WindowMilliseconds);
@@ -332,14 +329,12 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.AreEqual(8, StoredValue(service));
         }
 
+        /// <remarks>
+        /// See docs/saving.md, "FlushBlocking, and why it cannot deadlock".
+        /// </remarks>
         [Test]
         public void FlushBlocking_WhenTheWriteFails_LeavesAWindowCountingDown_AndTheRetryLandsWithoutAnotherCall()
         {
-            // FlushBlocking interrupts the window MarkDirty opened, so when its write fails the
-            // state is pending with nothing counting down. The catch has to open a fresh window, or
-            // the state sits stranded until something else happens to call in. Nothing else does
-            // here: no second flush and no MarkDirty, only the clock. No log is expected, because
-            // FlushBlocking reports through its exception and the retry's write succeeds.
             FakeSaveStore store = new() { FailNextWrites = 1 };
             ISaveService service = NewReadableSaveService(store);
             FakeGameClock clock = new() { DeltaTime = 0.05f };

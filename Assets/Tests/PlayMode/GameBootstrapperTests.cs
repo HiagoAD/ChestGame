@@ -141,10 +141,6 @@ namespace Company.ChestGame.Tests.PlayMode
         [UnityTest]
         public IEnumerator TheShippedChestsMinigame_NamesContentThatActuallyResolves()
         {
-            // The two fields the delivery paths read, pinned against the group they describe. The
-            // label is asked of Addressables itself rather than compared to a string copied out of
-            // the asset: a literal moves with the descriptor, so it could never notice the label
-            // drifting away from the one the group's entries actually carry.
             IMinigameCatalog catalog = Resolve<IMinigameCatalog>();
             MinigameBaseSO definition = catalog.Minigames[typeof(ChestsMinigame)];
 

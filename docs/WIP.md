@@ -93,6 +93,12 @@ gain, so the names stay for now and their declarations say what they actually go
   currency credit, which land on two schedulers; and `TrySpendCurrency` logging `Debug.LogError` for
   insufficient funds, which a future shop's tests would have to `LogAssert.Expect`. Reasoning in
   [context/dropping-resource-bank.md](context/dropping-resource-bank.md), "What is not pinned".
+- **No `LocalJsonGameConfigTests` case pins that a zero reward is refused.** `ConfigValidation` requires
+  both rewards to be positive, but only negatives are pinned directly (`ANegativeReward_IsRejected`,
+  `ANegativeGemsReward_IsRejected`). Zero is caught only indirectly, by
+  `RewardsManagerTests.AConfigLocalJsonGameConfigAccepts_NeverYieldsARewardTheRealCurrencyManagerRejects`,
+  which fails if the config lets through a reward `CurrencyManager` rejects. See
+  [architecture.md](architecture.md), "Config pipeline".
 - **Part of `GameShellView`'s behaviour is untested.** The shell's rules are asserted by
   `GameShellControllerTests`, and `GameShellTeardownTests` presses the real start button, waits for
   the start to settle with the button interactable again, and asserts the minigame starts. Still

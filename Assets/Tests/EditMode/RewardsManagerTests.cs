@@ -117,17 +117,14 @@ namespace Company.ChestGame.Tests.EditMode
             }
         }
 
-        // --- Across the config, the rewards and the bank -------------------------------------
-
-        // Every fake above agrees with whatever it is handed, so none of them can notice two real
-        // components disagreeing. This one runs a document through the real LocalJsonGameConfig,
-        // the real RewardsManager and the real CurrencyManager. Two outcomes are acceptable: the
-        // config refuses the document up front, or the reward it describes is one the bank takes.
-        // What is not is the middle - a config that accepts a value the bank then rejects, logging
-        // an error on every win while the popup tells the player "+0". That error log fails this
-        // test by itself; the assertions below say why in plain words. LogAssert.NoUnexpectedReceived
-        // is deliberately not used: it rejects every log, and a bank that accepts the reward logs an
-        // ordinary "Added" line.
+        /// <summary>
+        /// Runs a document through the real <c>LocalJsonGameConfig</c>, <c>RewardsManager</c> and
+        /// <c>CurrencyManager</c>: the config either refuses the document, or the reward it describes
+        /// is one the bank takes.
+        /// </summary>
+        /// <remarks>
+        /// See docs/architecture.md, "Config pipeline".
+        /// </remarks>
         [TestCase(CurrencyType.Coins, @"{ ""GemsReward"": 10, ""CoinsReward"": 0 }")]
         [TestCase(CurrencyType.Gems, @"{ ""GemsReward"": 0, ""CoinsReward"": 50 }")]
         public void AConfigLocalJsonGameConfigAccepts_NeverYieldsARewardTheRealCurrencyManagerRejects(CurrencyType drawn, string document)
@@ -139,7 +136,6 @@ namespace Company.ChestGame.Tests.EditMode
             }
             catch (GameConfigException)
             {
-                // Refused at load: nothing this document describes can ever reach the bank.
                 return;
             }
 
@@ -170,9 +166,9 @@ namespace Company.ChestGame.Tests.EditMode
             }
         }
 
-        // The fake currency manager lets a listener's exception escape, so this one is built on the
-        // real CurrencyManager: it logs a throwing listener and carries on, which is what keeps a
-        // broken HUD label from cancelling the reward it was told about.
+        /// <remarks>
+        /// See docs/saving.md, "Save, then notify, for both operations".
+        /// </remarks>
         [Test]
         public void GiveRandomCurrencyReward_WhenACurrencyListenerThrows_StillCreditsShowsThePopupAndAnnounces()
         {

@@ -65,11 +65,9 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.IsFalse(result.IsHexDump, $"{codec}/{protection} unexpectedly needed the hex fallback");
         }
 
-        // RawBytes is documented as what actually landed, read back through the store rather than
-        // re-encoded. The shared InMemory store is the one SaveComponentFactory hands back again
-        // here, so reading the probe's own key from it is an independent look at what landed. Aes
-        // draws a fresh IV per save, so a probe that re-encoded instead would differ from the store
-        // even for the same document.
+        /// <remarks>
+        /// See docs/testing.md, "SavePipelineProbeTests, and why isolation is per-key not per-store".
+        /// </remarks>
         [TestCaseSource(nameof(EveryCodecAndProtection))]
         public void RunAsync_EveryCombination_ReportsExactlyTheBytesThatLandedInTheStore(SaveCodec codec, SaveProtection protection)
         {

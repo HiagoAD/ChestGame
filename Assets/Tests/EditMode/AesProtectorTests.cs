@@ -31,14 +31,12 @@ namespace Company.ChestGame.Tests.EditMode
             CollectionAssert.AreEqual(plain, protector.Unprotect(second));
         }
 
+        /// <remarks>
+        /// See docs/saving.md, "Tamper detection is a different failure from a corrupt payload".
+        /// </remarks>
         [Test]
         public void Protect_DoesNotCarryAnyBlockOfThePlaintextInTheClear()
         {
-            // Every other test here would pass for a protector that wrote IV || plaintext || tag:
-            // the round trip works, the IV still differs per save, and the tag still catches an
-            // edit. Encryption is the one thing it would not do, so it is checked directly - no
-            // block-sized run of a distinctive plaintext may appear anywhere in the output. Real
-            // ciphertext matching 16 chosen bytes by chance is not a failure mode worth guarding.
             AesProtector protector = new(Key());
             byte[] plain = Encoding.UTF8.GetBytes("{\"Balance\":987654321,\"Nickname\":\"plaintext-that-must-not-survive\"}");
             Assert.GreaterOrEqual(plain.Length, 32, "guard: the plaintext has to span several blocks");
@@ -53,10 +51,9 @@ namespace Company.ChestGame.Tests.EditMode
             }
         }
 
-        // The tag is the last 32 bytes, and it is the only region SaveServiceTamperDetectionTests
-        // ever flips. A MAC computed over the ciphertext alone would pass that and still let the IV
-        // be edited - which under CBC rewrites the first plaintext block at will - so the IV and the
-        // ciphertext are each tampered with here directly.
+        /// <remarks>
+        /// See docs/saving.md, "Tamper detection is a different failure from a corrupt payload".
+        /// </remarks>
         [TestCase(0, TestName = "Unprotect_WithTheFirstIvByteFlipped_IsRejectedAsTampering")]
         [TestCase(16, TestName = "Unprotect_WithTheFirstCiphertextByteFlipped_IsRejectedAsTampering")]
         public void Unprotect_WithOneByteFlippedOutsideTheTag_IsRejectedAsTampering(int index)
@@ -114,7 +111,10 @@ namespace Company.ChestGame.Tests.EditMode
             StringAssert.Contains("key material", error.Message);
         }
 
-        // Where needle[start..start+length) first occurs in haystack, or -1.
+        /// <summary>
+        /// Returns the index in <paramref name="haystack"/> where
+        /// <c>needle[start..start+length)</c> first occurs, or -1.
+        /// </summary>
         private static int IndexOf(byte[] haystack, byte[] needle, int start, int length)
         {
             for (int i = 0; i + length <= haystack.Length; i++)

@@ -102,13 +102,6 @@ namespace Company.ChestGame.Tests.PlayMode
         public IEnumerator BeginAsync_WhenTheViewRejectsTheController_LeavesNoOrphanBehind() =>
             UniTask.ToCoroutine(async () =>
         {
-            // The view is instantiated before SetController runs and _running is set after it, so a
-            // throw from SetController lands in the catch with a live GameObject already in the
-            // scene. End returns early while _running is false, so if the catch does not destroy
-            // it, nothing does. The same goes for the controller: by the time the view exists it has
-            // already been injected, and injection is where a controller takes on what only Dispose
-            // gives back (ChestsMinigameController registers with the process-wide flush registry
-            // there). If the catch does not dispose it, nothing ever will.
             TestMinigameView rejecting = new GameObject("RejectingViewPrefab").AddComponent<RejectingView>();
             AssetReferenceGameObject rejectingRef = new(REJECTING_GUID);
             _assets.With(rejectingRef, rejecting.gameObject);
@@ -132,7 +125,6 @@ namespace Company.ChestGame.Tests.PlayMode
             Assert.AreEqual(1, _controller.DisposeCalls,
                 "a controller injected for a start that then failed has to be disposed by that failure, since End never will be");
 
-            // End is a no-op on a start that never completed; calling it must not dispose twice.
             minigame.End();
             Assert.AreEqual(1, _controller.DisposeCalls, "the failed start's own cleanup and a later End must not both dispose it");
 
@@ -144,13 +136,13 @@ namespace Company.ChestGame.Tests.PlayMode
             Object.Destroy(rejecting.gameObject);
         });
 
+        /// <remarks>
+        /// See docs/minigames.md, "Failure during a start".
+        /// </remarks>
         [UnityTest]
         public IEnumerator BeginAsync_WhenCleaningUpTheControllerAlsoThrows_RethrowsTheOriginalFailure() =>
             UniTask.ToCoroutine(async () =>
         {
-            // The catch disposes the controller after the view is gone and the content released. If
-            // that Dispose throws and nothing contains it, the caller is handed the cleanup's
-            // exception and never learns why the start actually failed.
             TestMinigameView rejecting = new GameObject("RejectingViewPrefab").AddComponent<RejectingView>();
             AssetReferenceGameObject rejectingRef = new(REJECTING_GUID);
             _assets.With(rejectingRef, rejecting.gameObject);
@@ -248,14 +240,18 @@ namespace Company.ChestGame.Tests.PlayMode
                 throw new InvalidOperationException("this view refuses its controller");
         }
 
-        // A different exception type from the view's, so a test can tell which of the two reached it.
+        /// <summary>
+        /// Thrown by <see cref="ThrowingDisposeController"/>; a different type from the view's, so a
+        /// test can tell which of the two reached it.
+        /// </summary>
         private class DisposeFailedException : Exception
         {
             public DisposeFailedException(string message) : base(message) { }
         }
 
-        // Counts the call like the shared fake does, then fails the way a controller whose
-        // teardown hits something it cannot let go of would.
+        /// <summary>
+        /// Counts the call like the shared fake does, then throws <see cref="DisposeFailedException"/>.
+        /// </summary>
         private class ThrowingDisposeController : FakeMinigameController
         {
             public override void Dispose()

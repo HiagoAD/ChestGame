@@ -54,9 +54,10 @@ namespace Company.ChestGame.Minigame.Core
         /// Everything content-shaped happens here: fetches this minigame's on-demand content if
         /// needed, loads the view, then runs the definition's configure hook and injects the
         /// controller before the view is instantiated. A controller builds state from its own
-        /// config and is injected on top of it. When a step after injection fails, the injected
-        /// controller is disposed before the view is destroyed and the content released; a failure
-        /// before injection completes does not dispose it.
+        /// config and is injected on top of it. When a step fails once injection has begun,
+        /// including a throw inside <c>Inject</c> itself, the view is destroyed, the content
+        /// released and then the controller disposed; a failure before injection begins does not
+        /// dispose it.
         /// </summary>
         /// <exception cref="MinigameAlreadyRunningException">The container is already running.</exception>
         /// <exception cref="ContentDownloadTimeoutException">
@@ -80,13 +81,8 @@ namespace Company.ChestGame.Minigame.Core
         /// </remarks>
         public async UniTask BeginAsync(Transform parent, CancellationToken ct)
         {
-            // Loud rather than a silent early return, and deliberately not symmetrical with End:
-            // a second start takes a second ref-count on the view that the single End can never
-            // give back.
             if (_running) throw new MinigameAlreadyRunningException(_definition != null ? _definition.Id : null);
 
-            // Set the moment injection begins, so the catch disposes a controller only once it may
-            // have taken on something Dispose gives back, and never one that was never reached.
             bool controllerInjected = false;
 
             try
@@ -101,17 +97,12 @@ namespace Company.ChestGame.Minigame.Core
                 controllerInjected = true;
                 _resolver.Inject(ControllerInstance);
 
-                // Through the resolver rather than Addressables, so the view and everything under
-                // it are injected the way every other object in the game is.
                 ViewInstance = _resolver.Instantiate(prefab.GetComponent<MinigameViewBase>(), parent);
                 ViewInstance.SetController(ControllerInstance);
                 _running = true;
             }
             catch
             {
-                // Nothing else can ever let these go: End is a no-op until _running is true, which
-                // is the last line above. The view is destroyed here for the same reason, one
-                // object further on.
                 if (ViewInstance != null)
                 {
                     Object.Destroy(ViewInstance.gameObject);
@@ -120,11 +111,6 @@ namespace Company.ChestGame.Minigame.Core
 
                 ReleaseContent();
 
-                // Same reason, for the controller: injection is where it registers for flushing,
-                // and End, which would dispose it, is a no-op until _running is true. Last, and
-                // logged rather than thrown, so a failing Dispose cannot replace the failure the
-                // caller needs to see. The nested catch ends before the bare throw below, which is
-                // what keeps that throw pointing at the original.
                 if (controllerInjected)
                 {
                     try

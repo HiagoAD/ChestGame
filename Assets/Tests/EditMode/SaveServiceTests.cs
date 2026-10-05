@@ -196,9 +196,6 @@ namespace Company.ChestGame.Tests.EditMode
         [Test]
         public void SaveAsync_ThenLoadAsync_RoundTripsThroughTheConfiguredCodecAndProtector()
         {
-            // The decoded value is read out of whatever bytes reach Decode rather than handed back
-            // canned, so a LoadAsync that passed the codec anything other than what Encode produced
-            // - the whole envelope, a re-serialised body, nothing - changes the answer.
             TestState state = new() { Value = 42 };
             byte[] encoded = Bytes(@"{""Value"":42}");
             _codec.EncodeResult = encoded;
@@ -221,8 +218,6 @@ namespace Company.ChestGame.Tests.EditMode
             _protector.IsTextSafe = false;
             byte[] binaryPlain = { 0, 1, 2, 254, 255 };
             _codec.EncodeResult = binaryPlain;
-            // Derived from the content, not just the length: five wrong bytes must not read back
-            // the same as the right five.
             _codec.DecodeResult = bytes => new TestState { Value = bytes.Sum(b => (int)b) };
 
             SynchronousUniTask.Complete(_service.SaveAsync(Key, new TestState(), CancellationToken.None));

@@ -48,8 +48,6 @@ namespace Company.ChestGame.Tests.EditMode
             }
             _touched.Clear();
 
-            // A DeleteKey that is never saved does not persist in batch mode, which is how a leaked
-            // key was first noticed - see docs/testing.md.
             PlayerPrefs.Save();
         }
 
@@ -71,7 +69,6 @@ namespace Company.ChestGame.Tests.EditMode
         [Test]
         public void WriteAsync_WithANullArray_ReadsBackAnEmptyArray()
         {
-            // ISaveStore: "a null array is stored as empty" - present, and empty, never absent.
             const string key = "profile";
             Track(_prefix, key);
 

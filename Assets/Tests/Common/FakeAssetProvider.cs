@@ -77,10 +77,13 @@ namespace Company.ChestGame.Tests.Common
         /// </summary>
         public bool StalledDownloadsThrowOnCancellation { get; set; }
 
-        // What a finishing download reports, in order. Just the final 1 unless a test asks for
-        // the steps in between. A lone 1 carries nothing a caller could not report for itself once
-        // the fetch returned, so only a step from inside the fetch shows whether a caller mapping
-        // one label's progress onto a larger whole forwards and maps it at all.
+        /// <summary>
+        /// What a finishing download reports, in order. Just the final 1 unless a test asks for
+        /// the steps in between.
+        /// </summary>
+        /// <remarks>
+        /// See docs/content-delivery.md, "Progress reporting".
+        /// </remarks>
         public float[] DownloadProgressSteps { get; set; } = new[] { 1f };
 
         public CancellationToken LastToken { get; private set; }
@@ -174,8 +177,8 @@ namespace Company.ChestGame.Tests.Common
         }
 
         /// <remarks>
-        /// Reports 1 on completion, so a caller aggregating several labels is not left looking
-        /// correct while never having been driven.
+        /// Reports each value of <see cref="DownloadProgressSteps"/> in order (by default just 1), so a
+        /// caller aggregating several labels is not left looking correct while never having been driven.
         /// </remarks>
         public UniTask DownloadAsync(string label, IProgress<float> progress, CancellationToken ct)
         {
@@ -211,8 +214,6 @@ namespace Company.ChestGame.Tests.Common
                 return stalled.Task;
             }
 
-            // A download that finishes reports that it finished, or a caller aggregating several
-            // labels would look correct while never having been driven.
             if (progress != null)
             {
                 foreach (float step in DownloadProgressSteps)

@@ -70,12 +70,12 @@ namespace Company.ChestGame.Tests.EditMode
         private static void Seed(ISaveService service, ChestsRunSaveDocument document) =>
             SynchronousUniTask.Complete(service.SaveAsync(ChestsRunSaveDocument.SaveKey, document, CancellationToken.None));
 
-        // The body exactly as it sits in the envelope, parsed but never mapped onto a type, so a
-        // field ChestsRunSaveDocument does not declare is still there to be seen.
+        /// <summary>
+        /// The body exactly as it sits in the envelope, parsed but never mapped onto a type, so a
+        /// field <c>ChestsRunSaveDocument</c> does not declare is still there to be seen.
+        /// </summary>
         private static JToken StoredBody(byte[] rawEnvelope) =>
             JToken.Parse(Encoding.UTF8.GetString(SaveEnvelope.Parse(Encoding.UTF8.GetString(rawEnvelope)).GetBody()));
-
-        // --- Decision #9, enforced -----------------------------------------------------------
 
         /// <remarks>
         /// See docs/saving.md, "ChestsRunSaveDocument, and decision #9 made structural".
@@ -83,19 +83,13 @@ namespace Company.ChestGame.Tests.EditMode
         [Test]
         public void MidRunSave_IsInvariantUnderWhichChestWouldWinNext()
         {
-            // Both runs open chest 0 then chest 1, drawing empty both times (>1/4 and >1/3). The
-            // third, never-drawn value differs so a different chest would win next in each, and so
-            // does every Range draw - a controller that placed the prize up front with Range and
-            // persisted where it put it has to be told apart too. The whole point being that the
-            // persisted document must not care. Both providers are primed before Inject, so even a
-            // draw taken while the controller is being wired up differs between the two runs.
-            FakeRandomProvider randomA = new(0.30f, 0.40f, 0.10f) { NextRangeResult = 2 }; // 0.10 would win chest 2 next
+            FakeRandomProvider randomA = new(0.30f, 0.40f, 0.10f) { NextRangeResult = 2 };
             randomA.RangeSequence.Enqueue(2);
             FakeSaveStore storeA = new();
             (ChestsMinigameController controllerA, _, ISaveFlushRegistry registryA, _, FakeGameClock clockA) =
                 NewController(new SaveService(new JsonCodec(), new NoProtection(), storeA), random: randomA);
 
-            FakeRandomProvider randomB = new(0.30f, 0.40f, 0.90f) { NextRangeResult = 3 }; // 0.90 would stay empty next
+            FakeRandomProvider randomB = new(0.30f, 0.40f, 0.90f) { NextRangeResult = 3 };
             randomB.RangeSequence.Enqueue(3);
             FakeSaveStore storeB = new();
             (ChestsMinigameController controllerB, _, ISaveFlushRegistry registryB, _, FakeGameClock clockB) =
@@ -112,9 +106,6 @@ namespace Company.ChestGame.Tests.EditMode
             registryA.FlushAll();
             registryB.FlushAll();
 
-            // The raw bytes in the store, not a typed load and re-encode: loading through
-            // ChestsRunSaveDocument would silently drop any field it does not declare, which is
-            // exactly where a leaked prize location would sit.
             byte[] bytesA = SynchronousUniTask.Result(storeA.ReadAsync(ChestsRunSaveDocument.SaveKey, CancellationToken.None));
             byte[] bytesB = SynchronousUniTask.Result(storeB.ReadAsync(ChestsRunSaveDocument.SaveKey, CancellationToken.None));
             Assert.IsNotNull(bytesA, "guard: the flush has to have written run A");
@@ -149,14 +140,12 @@ namespace Company.ChestGame.Tests.EditMode
         [Test]
         public void WinningTheRun_PersistsNothingResumable()
         {
-            // Chest 0 is opened empty first, so what opening it recorded is a genuinely resumable
-            // run. Only the win overwriting it keeps the next session from picking it back up.
             ISaveService service = new SaveService(new JsonCodec(), new NoProtection(), new FakeSaveStore());
 
             (ChestsMinigameController controller, _, ISaveFlushRegistry registry, FakeRandomProvider random, FakeGameClock clock) = NewController(service);
             controller.NewGame();
-            random.ValueSequence.Enqueue(0.99f); // > 1/4 -> empty
-            random.NextValue = 0f;               // then a certain win
+            random.ValueSequence.Enqueue(0.99f);
+            random.NextValue = 0f;
 
             OpenChest(controller, clock, 0);
             OpenChest(controller, clock, 1);
@@ -175,10 +164,6 @@ namespace Company.ChestGame.Tests.EditMode
         [Test]
         public void RunningOutOfAttempts_PersistsNothingResumable()
         {
-            // The next session is configured with more attempts than this one had. Under the same
-            // 2-attempt config the restore guard would throw a stale two-chest run away on its own,
-            // so only a config that would otherwise accept it shows whether ending the run actually
-            // cleared it - a finished run never resumes, whatever the config says next time.
             ISaveService service = new SaveService(new JsonCodec(), new NoProtection(), new FakeSaveStore());
 
             (ChestsMinigameController controller, _, ISaveFlushRegistry registry, FakeRandomProvider random, FakeGameClock clock) =
@@ -317,12 +302,12 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.IsTrue(controller.Chests.All(chest => chest.CurrentState == ChestsMinigameChestModel.State.Closed));
         }
 
+        /// <remarks>
+        /// See docs/saving.md, "Restore, discard, and why it lives in NewGame()".
+        /// </remarks>
         [Test]
         public void ASavedRunWhoseOpenedListIsNull_StartsFresh_RatherThanThrowing()
         {
-            // An edited or hand-written save can say null where the list belongs; JsonCodec hands
-            // that through as a null property rather than the empty list the type initialises.
-            // Seeded as raw JSON because SaveAsync on the typed document could never produce it.
             FakeSaveStore store = new();
             ISaveService service = new SaveService(new JsonCodec(), new NoProtection(), store);
             store.Seed(ChestsRunSaveDocument.SaveKey, Encoding.UTF8.GetBytes(
@@ -393,6 +378,9 @@ namespace Company.ChestGame.Tests.EditMode
         /// <remarks>
         /// See docs/saving.md, "A scheduler the composition root cannot name has to register itself".
         /// </remarks>
+        /// <remarks>
+        /// See docs/saving.md, "A scheduler the composition root cannot name has to register itself".
+        /// </remarks>
         [Test]
         public void Inject_WhenItThrows_LeavesNothingRegisteredWithTheFlushRegistry()
         {
@@ -405,12 +393,6 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.Throws<SaveException>(() =>
                 controller.Inject(new FakeRewardsManager(), new FakeRandomProvider(), new FakeGameClock(), hoppingService, registry));
 
-            // An Inject that throws has to clean up after itself rather than count on its owner
-            // to: the caller only ever sees the exception, and nothing promises it will go on to
-            // Dispose() an object that never finished being injected. A registration taken before
-            // the throw would sit in the singleton registry for the life of the process, flushed at
-            // every pause, holding a dead controller's state - and one more would accumulate per
-            // failed start.
             CollectionAssert.IsEmpty(registry.Registered);
         }
 

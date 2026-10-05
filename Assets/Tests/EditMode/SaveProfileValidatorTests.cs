@@ -21,12 +21,12 @@ namespace Company.ChestGame.Tests.EditMode
         private static IEnumerable<SaveProtection> EveryProtectionExceptNone() =>
             Enum.GetValues(typeof(SaveProtection)).Cast<SaveProtection>().Where(p => p != SaveProtection.None);
 
+        /// <remarks>
+        /// See docs/saving.md, "SaveProfileValidator".
+        /// </remarks>
         [TestCaseSource(nameof(EveryProtectionExceptNone))]
         public void Validate_JsonPrettyWithAnyNonNoneProtection_Warns(SaveProtection protection)
         {
-            // Base64, Xor and Hmac each warn on their own whatever the codec, so "some warning" is
-            // true of three of these four cases even with the JsonPretty check deleted. The warning
-            // has to be the one about JsonPretty itself, and it has to be the codec that earns it.
             IReadOnlyList<string> warnings = SaveProfileValidator.Validate(SaveCodec.JsonPretty, protection);
             IReadOnlyList<string> sameProtectionWithJson = SaveProfileValidator.Validate(SaveCodec.Json, protection);
 
