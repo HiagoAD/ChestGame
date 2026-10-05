@@ -4,12 +4,12 @@ Two suites, split by what only a real engine can prove.
 
 | Suite | Ours | Wall time |
 |---|---|---|
-| EditMode | 767 | ~2 s |
+| EditMode | 769 | ~2 s |
 | PlayMode | 77 | ~25 s |
 
 Reproduce them with `ci/run-tests.sh`; the wall times move a little run to run. The numbers are
 written here rather than linked because `ci-results/` is gitignored, so a fresh clone has none until
-it runs the suites itself. The EditMode runner reports 768: the
+it runs the suites itself. The EditMode runner reports 770: the
 Addressables package ships one editor test of its own
 (`AddressableAssets.DocExampleCode.TestStub.RequiredTest`) and Unity picks it up. It is not ours and
 is not counted above.
@@ -351,6 +351,11 @@ releases it from the main thread. In `WriteAsync` the gate is published before t
 to `WriteThreadIds`, so a test that waits for `WriteThreadIds` to grow and then calls `ReleaseWrite()`
 can never get there before the write it means to release is actually holding the gate; moving the
 `Add` above the publish reintroduces that race.
+
+A test over a `ThreadHoppingStore` waits on `IsHoldingWrite`, not only `SaveScheduler<T>.IsFlushing`,
+before it disposes or releases: `IsFlushing` is true as soon as the flush starts, while the write may
+still be hopping, and a `Dispose` that cancels it before it reaches `WriteAsync` throws on its first line,
+so the gate is never installed and `WriteCount` never moves.
 
 ### Simulating a click in a PlayMode UI test
 

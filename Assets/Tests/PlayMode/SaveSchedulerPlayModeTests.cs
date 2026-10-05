@@ -149,6 +149,7 @@ namespace Company.ChestGame.Tests.PlayMode
             scheduler.MarkDirty(new RecordingSaveState { Value = 9 });
 
             await WaitFor(() => scheduler.IsFlushing);
+            await WaitFor(() => inner.IsHoldingWrite);
 
             SaveException error = Assert.Throws<SaveException>(() => scheduler.FlushBlocking());
             StringAssert.Contains(key, error.Message);
@@ -187,6 +188,7 @@ namespace Company.ChestGame.Tests.PlayMode
             scheduler.MarkDirty(new RecordingSaveState { Value = 1 });
 
             await WaitFor(() => scheduler.IsFlushing);
+            await WaitFor(() => inner.IsHoldingWrite);
 
             scheduler.MarkDirty(new RecordingSaveState { Value = 2 });
             Assert.IsTrue(scheduler.HasPendingWrite, "guard: a newer write has to be queued behind the in-flight one");
@@ -211,6 +213,7 @@ namespace Company.ChestGame.Tests.PlayMode
             scheduler.MarkDirty(new RecordingSaveState { Value = 1 });
 
             await WaitFor(() => scheduler.IsFlushing);
+            await WaitFor(() => inner.IsHoldingWrite);
 
             Assert.IsFalse(scheduler.HasPendingWrite, "guard: nothing must be queued behind the in-flight write for this test");
 

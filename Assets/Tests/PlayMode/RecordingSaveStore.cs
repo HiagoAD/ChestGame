@@ -36,6 +36,22 @@ namespace Company.ChestGame.Tests.PlayMode
         public List<int> ReadThreadIds { get; } = new();
 
         /// <summary>
+        /// True while a write has claimed the armed gate and is parked on it: past any thread hop and
+        /// inside <see cref="WriteAsync"/>. False before the write arrives and after it is released.
+        /// </summary>
+        /// <remarks>
+        /// See docs/testing.md, "RecordingSaveStore, and why the gate is two fields, not one".
+        /// </remarks>
+        public bool IsHoldingWrite
+        {
+            get
+            {
+                UniTaskCompletionSource gate = _activeGate;
+                return gate != null && gate.Task.Status == UniTaskStatus.Pending;
+            }
+        }
+
+        /// <summary>
         /// Makes the next <c>WriteAsync</c> park until <see cref="ReleaseWrite"/>. One shot: a
         /// follow-up write completes immediately unless armed again.
         /// </summary>

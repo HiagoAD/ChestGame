@@ -9,7 +9,8 @@ namespace Company.ChestGame.UI
     /// <see cref="ICurrencyManager"/> and formats its balance into <see cref="Text"/>.
     /// </summary>
     /// <remarks>
-    /// See docs/mvc.md.
+    /// Each change re-reads <see cref="ICurrencyManager.GetCurrencyAmount"/> rather than trusting the
+    /// event's balance argument. See docs/mvc.md and docs/architecture.md, "Currency and rewards".
     /// </remarks>
     public class CurrencyLabelController : IController
     {
@@ -44,7 +45,7 @@ namespace Company.ChestGame.UI
         {
             if (resourceType != _currency) return;
 
-            Text = Format(currentBalance);
+            Text = Format(_currencyManager.GetCurrencyAmount(_currency));
             OnTextChanged?.Invoke(Text);
         }
 
