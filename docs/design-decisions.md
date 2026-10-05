@@ -5,8 +5,12 @@ Why the project landed the way it did. The mechanics of each are in the other fi
 
 ## 1. Library adoption
 
-UniTask eases async handling, VContainer structures dependency management, and Resource Bank speeds up
-currency system development. Chosen to increase reliability and cut boilerplate.
+UniTask eases async handling and VContainer structures dependency management. Chosen to increase
+reliability and cut boilerplate.
+
+The project also adopted Resource Bank for currency, and later removed it. `CurrencyManager` now owns
+the balances, validation and events the library provided. See
+[context/dropping-resource-bank.md](context/dropping-resource-bank.md).
 
 ## 2. Parallel async tasks for chest opening
 

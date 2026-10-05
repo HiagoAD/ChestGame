@@ -64,8 +64,8 @@ at once.
 
 ## 2. How this work was run, and how to continue it
 
-Hiago set a specific working protocol. **It is still in force** — anyone continuing this should
-follow it rather than inventing their own.
+The project owner set a specific working protocol. **It is still in force** — anyone continuing
+this should follow it rather than inventing their own.
 
 1. **Subagents write the code**, one per phase, briefed with that phase's plan section plus the
    working agreements it has to honour. The lead session does not write production code itself.
@@ -79,8 +79,8 @@ follow it rather than inventing their own.
    anything depend on a concrete loader or path where a seam already exists?). Report every
    deviation with its severity, including ones inherited rather than introduced.
 4. **Agents never commit.** Work stays in the tree for review.
-5. **Stop at the end of every phase** until Hiago explicitly says to proceed. Silence is not
-   approval; a follow-up question is not approval.
+5. **Stop at the end of every phase** until the project owner explicitly says to proceed. Silence
+   is not approval; a follow-up question is not approval.
 
 This is not ceremony. It caught defects that green suites did not: two silent-leak bugs, an entirely
 untested exception-translation path, and a false claim that had been written into both a code comment
@@ -280,8 +280,9 @@ asset's bundle in. The fields were rewired by hand and then re-saved through the
 Unity writes the same thing; it did, byte for byte.
 
 **An asset in a `Resources` folder *and* an addressable group ships twice.** The move to
-`_Project/Content` is not cosmetic. `Assets/TextMesh Pro/Resources` and
-`Assets/AssetLibrary/**/Resources` are not ours and are left alone.
+`_Project/Content` is not cosmetic. `Assets/TextMesh Pro/Resources` is not ours and is left alone.
+`Assets/AssetLibrary/**/Resources` was left alone too, until the folder was deleted along with
+Resource Bank; it is gone now. See [dropping-resource-bank.md](dropping-resource-bank.md).
 
 **Addressables loads never complete synchronously.** `Resources.Load` returned before the call did,
 which is why `SynchronousUniTask` worked in play mode. Addressables does not: the first call runs
@@ -492,9 +493,10 @@ stops answering mid-download, which is what section 11's manual check is for.
 **Nothing asserts the boot status label actually updates.** `IBootStatus` is registered and resolved
 under test, and `BootStatusLabel` is three lines, but no test drives boot and reads the label back.
 
-The gaps that predate this work — `GameManager` untested, `CurrencyWatcher` untested, the dormant
-play-mode ordering test, `FakeGameClock`'s caveat, and `ICurrencyManager` leaking
-`ResourceBankCallbacks` — are all still open and are described in the other file.
+The gaps that predate this work, `GameManager` untested, `CurrencyWatcher` untested, the dormant
+play-mode ordering test and `FakeGameClock`'s caveat, are all still open and are described in the
+other file. A fifth, `ICurrencyManager` leaking `ResourceBankCallbacks`, is resolved; see
+[dropping-resource-bank.md](dropping-resource-bank.md).
 
 ---
 
@@ -535,7 +537,7 @@ server is exactly the flakiness the project's testing agreements argue against.
 
 ---
 
-## 12. Open decisions, awaiting Hiago
+## 12. Open decisions, awaiting the project owner
 
 Raised during review, none ruled on. **Do not act on these without asking.**
 
@@ -551,10 +553,10 @@ Raised during review, none ruled on. **Do not act on these without asking.**
 4. **Filter the Addressables package's own test** out of `ci/run-tests.sh` via `-assemblyNames`, so
    the EditMode count is 254 rather than a 255 that needs explaining.
 
-Also open, and deliberately kept out of scope so it would not muddy these diffs: **`ICurrencyManager`
-leaks `ResourceBankCallbacks<CurrencyType>`**, forcing every consumer — including
-`Company.ChestGame.UI` — to reference the vendored library. It is a real smell and deserves its own
-pass.
+Also raised, and deliberately kept out of scope so it would not muddy these diffs: **`ICurrencyManager`
+leaked `ResourceBankCallbacks<CurrencyType>`**, forcing every consumer — including
+`Company.ChestGame.UI` — to reference the vendored library. It got its own pass and is resolved; see
+[dropping-resource-bank.md](dropping-resource-bank.md).
 
 ---
 

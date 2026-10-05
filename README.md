@@ -30,16 +30,14 @@ The notes from the AI sessions are under `docs`.
 
 ## 1. Overview
 
-Game code lives under `Assets/_Project`, tests under `Assets/Tests`, and the vendored copy of
-Resource Bank under `Assets/AssetLibrary`. Most of the content the game loads by key lives under
-`_Project/Content`. Dependencies are registered as singletons in
+Game code lives under `Assets/_Project` and tests under `Assets/Tests`. Most of the content the game
+loads by key lives under `_Project/Content`. Dependencies are registered as singletons in
 `Assets/_Project/Scripts/Core/GameLifetimeScope.cs`.
 
 Libraries:
 
 - [UniTask](https://github.com/Cysharp/UniTask): async/await for Unity with no allocations
 - [VContainer](https://github.com/hadashiA/VContainer): dependency injection
-- [Resource Bank](https://gitlab.com/tn-asset-library/resource-bank): persistent currency management
 - [Newtonsoft.Json](https://www.newtonsoft.com/json): JSON deserialization for config loading
 - [Addressables](https://docs.unity3d.com/Packages/com.unity.addressables@2.9/manual/index.html):
   content loading by key or by authored reference, kept behind a seam of the project's own

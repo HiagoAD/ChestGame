@@ -10,7 +10,7 @@ using UnityEngine;
 namespace Company.ChestGame.Tests.EditMode
 {
     // The legacy import, end to end, through the real adapter types this phase adds -
-    // CurrencyLegacyImport, CurrencyResourceBankSaveHandle, CurrencySaveDocument, SaveScheduler<T> -
+    // CurrencyLegacyImport, CurrencySaveHandler, CurrencySaveDocument, SaveScheduler<T> -
     // composed by hand exactly the shape GameLifetimeScope.RegisterCoreServices composes, but never
     // through GameLifetimeScope itself, so this never touches the developer's real
     // Application.persistentDataPath or real "ResourceBankSaveData_CurrencyType" PlayerPrefs entry.
@@ -55,8 +55,8 @@ namespace Company.ChestGame.Tests.EditMode
 
         private static CurrencyManager NewManager(ISaveService service, out SaveScheduler<CurrencySaveDocument> scheduler)
         {
-            scheduler = new SaveScheduler<CurrencySaveDocument>(service, CurrencyResourceBankSaveHandle.SaveKey, new FakeGameClock());
-            return new CurrencyManager(new CurrencyResourceBankSaveHandle(service, scheduler));
+            scheduler = new SaveScheduler<CurrencySaveDocument>(service, CurrencySaveHandler.SaveKey, new FakeGameClock());
+            return new CurrencyManager(new CurrencySaveHandler(service, scheduler));
         }
 
         private void SeedLegacyData(long coins, long gems) =>
@@ -72,7 +72,7 @@ namespace Company.ChestGame.Tests.EditMode
 
             Assert.AreEqual(0, manager.GetCurrencyAmount(CurrencyType.Coins));
             Assert.AreEqual(0, manager.GetCurrencyAmount(CurrencyType.Gems));
-            Assert.IsFalse(SynchronousUniTask.Result(service.ExistsAsync(CurrencyResourceBankSaveHandle.SaveKey, CancellationToken.None)),
+            Assert.IsFalse(SynchronousUniTask.Result(service.ExistsAsync(CurrencySaveHandler.SaveKey, CancellationToken.None)),
                 "a plain first run with nothing legacy present must not write anything");
 
             scheduler.Dispose();
@@ -89,7 +89,7 @@ namespace Company.ChestGame.Tests.EditMode
 
             Assert.AreEqual(670, manager.GetCurrencyAmount(CurrencyType.Coins), "balances have to carry across identically");
             Assert.AreEqual(180, manager.GetCurrencyAmount(CurrencyType.Gems), "balances have to carry across identically");
-            Assert.IsTrue(SynchronousUniTask.Result(service.ExistsAsync(CurrencyResourceBankSaveHandle.SaveKey, CancellationToken.None)),
+            Assert.IsTrue(SynchronousUniTask.Result(service.ExistsAsync(CurrencySaveHandler.SaveKey, CancellationToken.None)),
                 "a real save has to exist under the new key once the import runs");
             Assert.IsFalse(PlayerPrefs.HasKey(_legacyKey), "the old legacy key has to be cleared once the import succeeds");
 

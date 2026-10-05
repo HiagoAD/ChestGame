@@ -9,7 +9,6 @@ using Company.ChestGame.Popups;
 using Company.ChestGame.Popups.Internal;
 using Company.ChestGame.Rewards;
 using Company.ChestGame.Saving;
-using TapNation.Modules.ResourceBank.Saving;
 using UnityEngine;
 using VContainer;
 using VContainer.Unity;
@@ -111,7 +110,7 @@ namespace Company.ChestGame.Core
             {
                 SaveScheduler<CurrencySaveDocument> scheduler = new(
                     resolver.Resolve<ISaveService>(),
-                    CurrencyResourceBankSaveHandle.SaveKey,
+                    CurrencySaveHandler.SaveKey,
                     resolver.Resolve<IGameClock>());
 
                 // Inside the factory, so every route to this singleton registers it exactly once.
@@ -127,7 +126,7 @@ namespace Company.ChestGame.Core
             // every scheduler registered above.
             builder.RegisterBuildCallback(resolver => resolver.Resolve<SaveScheduler<CurrencySaveDocument>>());
 
-            builder.Register<IResourceBankSaveHandler<CurrencyType>, CurrencyResourceBankSaveHandle>(Lifetime.Singleton);
+            builder.Register<ICurrencySaveHandler, CurrencySaveHandler>(Lifetime.Singleton);
 
             builder.Register<SaveScheduler<GameMetaSaveDocument>>(resolver =>
             {

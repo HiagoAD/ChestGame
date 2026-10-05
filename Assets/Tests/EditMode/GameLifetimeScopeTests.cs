@@ -16,7 +16,6 @@ using Company.ChestGame.Rewards;
 using Company.ChestGame.Saving;
 using Company.ChestGame.Tests.Common;
 using NUnit.Framework;
-using TapNation.Modules.ResourceBank.Saving;
 using UnityEngine;
 using VContainer;
 using VContainer.Unity;
@@ -105,7 +104,7 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.IsTrue(_builder.Exists(typeof(IMinigameListSource), true), nameof(IMinigameListSource));
             Assert.IsTrue(_builder.Exists(typeof(IPopupListSource), true), nameof(IPopupListSource));
             Assert.IsTrue(_builder.Exists(typeof(IPopupParentSource), true), nameof(IPopupParentSource));
-            Assert.IsTrue(_builder.Exists(typeof(IResourceBankSaveHandler<CurrencyType>), true), "IResourceBankSaveHandler<CurrencyType>");
+            Assert.IsTrue(_builder.Exists(typeof(ICurrencySaveHandler), true), nameof(ICurrencySaveHandler));
             Assert.IsTrue(_builder.Exists(typeof(ICurrencyManager), true), nameof(ICurrencyManager));
             Assert.IsTrue(_builder.Exists(typeof(GameContentLoader), true), nameof(GameContentLoader));
             Assert.IsTrue(_builder.Exists(typeof(GameBootstrapper), true), nameof(GameBootstrapper));
@@ -150,8 +149,8 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.IsInstanceOf<AddressablesMinigameListSource>(container.Resolve<IMinigameListSource>());
             Assert.IsInstanceOf<AddressablesPopupListSource>(container.Resolve<IPopupListSource>());
             Assert.IsInstanceOf<AddressablesPopupParentSource>(container.Resolve<IPopupParentSource>());
-            Assert.IsInstanceOf<CurrencyResourceBankSaveHandle>(
-                container.Resolve<IResourceBankSaveHandler<CurrencyType>>());
+            Assert.IsInstanceOf<CurrencySaveHandler>(
+                container.Resolve<ICurrencySaveHandler>());
         }
 
         [Test]
@@ -206,7 +205,7 @@ namespace Company.ChestGame.Tests.EditMode
             using IObjectResolver container = builder.Build();
 
             CollectionAssert.AreEquivalent(
-                new[] { CurrencyResourceBankSaveHandle.SaveKey, GameMetaSaveDocument.SaveKey },
+                new[] { CurrencySaveHandler.SaveKey, GameMetaSaveDocument.SaveKey },
                 container.Resolve<ISaveFlushRegistry>().Registered.Select(flushable => flushable.SaveKey).ToArray(),
                 "the shipped composition no longer flushes exactly the saves it owns at pause/quit");
         }

@@ -98,7 +98,7 @@ Thirty-five EditMode fixtures and four PlayMode ones, by what they protect:
 | The service | `SaveServiceTests`, `SaveServiceMigrationTests`, `SaveServiceLegacyImportTests`, `SaveServiceTamperDetectionTests`, `SaveServiceCompletesOnCallingThreadTests`, `SaveMigratorTests` |
 | Factory and profile | `SaveServiceFactoryTests`, `SaveServiceFactoryCrossProductTests` (every storage/codec/protector triple), `SaveProfileSOTests`, `SaveProfileValidatorTests` |
 | Scheduler and flush | `SaveSchedulerTests`, `SaveFlushRegistryTests`, `GameLifetimeScopePauseQuitFlushTests` |
-| Currency | `CurrencyResourceBankSaveHandleTests`, `CurrencyLegacyImportIntegrationTests` |
+| Currency | `CurrencySaveHandlerTests`, `CurrencyLegacyImportIntegrationTests` |
 | Chests | `ChestsMinigameSaveTests` (including the two that pin decision #17) |
 | The inspector | `SavePipelineProbeTests`, `SaveTamperTests` |
 

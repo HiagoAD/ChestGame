@@ -1,20 +1,26 @@
 using System.Collections.Generic;
-using TapNation.Modules.ResourceBank.Saving;
 
 namespace Company.ChestGame.Currency
 {
-    // The same shape ResourceBankState<CurrencyType> carries - one ResourceAmount dictionary - but
-    // with its own public parameterless constructor, which a save model needs and
-    // ResourceBankState<T> does not have. Used on both the save and load side, so the JSON this
-    // assembly persists is owned by this type rather than whatever ResourceBankState<T> happens to
-    // serialize as.
+    // What CurrencyManager persists: one ResourceAmount dictionary of balances. Used on both the
+    // save and load side, so the JSON this assembly persists is owned by this type. The property's
+    // name, type and initializer are that JSON's shape, and the legacy PlayerPrefs format shares
+    // it, so changing any of them breaks every save already written.
     public class CurrencySaveDocument
     {
         public Dictionary<CurrencyType, long> ResourceAmount { get; set; } = new();
 
-        // Copies rather than aliases: ResourceBank keeps mutating that same dictionary for the
-        // rest of its life, and what MarkDirty is handed must be something nothing else holds.
-        public static CurrencySaveDocument From(ResourceBankState<CurrencyType> state) =>
-            new() { ResourceAmount = new Dictionary<CurrencyType, long>(state.ResourceAmount) };
+        // Copies rather than aliases: CurrencyManager keeps mutating its own balances for the rest
+        // of its life, and what a handler is given must be something nothing else holds.
+        public static CurrencySaveDocument From(IReadOnlyDictionary<CurrencyType, long> balances)
+        {
+            Dictionary<CurrencyType, long> copy = new();
+            foreach (KeyValuePair<CurrencyType, long> balance in balances)
+            {
+                copy.Add(balance.Key, balance.Value);
+            }
+
+            return new CurrencySaveDocument { ResourceAmount = copy };
+        }
     }
 }

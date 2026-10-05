@@ -29,8 +29,6 @@ Company.ChestGame.Editor      _Project/Scripts/Editor/     content build, save c
 
 Company.ChestGame.Minigame.Chests  _Project/Scripts/Minigames/Implementation/Minigames/
 
-TapNation.Modules             AssetLibrary/                vendored Resource Bank
-
 Company.ChestGame.Tests.Common    Tests/Common/            fakes, shared by both suites
 Company.ChestGame.Tests.EditMode  Tests/EditMode/
 Company.ChestGame.Tests.PlayMode  Tests/PlayMode/
@@ -394,13 +392,23 @@ a blank-looking id is otherwise invisible.
 
 ## Currency and rewards
 
-`CurrencyManager` wraps [Resource Bank](https://gitlab.com/tn-asset-library/resource-bank), providing
-events (`OnCurrencyChanged`, `OnCurrencyCollected`, `OnCurrencySpent`) and persistence. Add
-currencies by extending the `CurrencyType` enum. It takes an
-`IResourceBankSaveHandler<CurrencyType>` as its only constructor argument, registered in the scope,
-so a test can hand it an in-memory save instead of the real one.
+`CurrencyManager` owns the balances: a dictionary of amounts per `CurrencyType`, the validation of
+every add and spend, and three events (`OnCurrencyChanged`, `OnCurrencyCollected`,
+`OnCurrencySpent`). The events are typed with the project's own `CurrencyChangedHandler` delegate, so
+a subscriber needs nothing outside `Company.ChestGame.Currency`. Add currencies by extending the
+`CurrencyType` enum; a save written before a currency existed starts it at 0.
 
-The balance lives in a file, not in PlayerPrefs: `CurrencyResourceBankSaveHandle` writes through
+It takes an `ICurrencySaveHandler` as its only constructor argument, registered in the scope, so a
+test can hand it an in-memory save instead of the real one. There is no default handler: a null one
+throws `SaveException.NoSaveHandler()`. The manager loads once, from its constructor, and saves as
+part of every change, handing the handler a fresh `CurrencySaveDocument` each time and copying
+whatever `Load` returns. An add and a spend follow one order: validate, save, assign the balance in
+memory, then raise `OnCurrencyCollected` or `OnCurrencySpent` and after it `OnCurrencyChanged`. A
+listener that throws is logged and stops nothing: not the other listeners, the save or the caller's
+result. A `Save` that throws changes nothing, so no balance moves and no event fires. See
+[saving.md](saving.md), "Save, then notify, for both operations".
+
+The balance lives in a file, not in PlayerPrefs: `CurrencySaveHandler` writes through
 `ISaveService` to `<persistentDataPath>/Saves/currency.sav`, as readable, unprotected JSON swapped
 into place rather than overwritten. PlayerPrefs holds only the one-time legacy import - the
 `ResourceBankSaveData_CurrencyType` entry an already-installed player still has, which is read once
@@ -410,10 +418,9 @@ that entry as the live balance; it is spent. See [saving.md](saving.md), "The le
 The class also marks the places a production game would hook up analytics and a currency purchase
 flow, both left as commented examples.
 
-One simplification against the library's own example: `ResourceBank.ResourceIdMap`, which maps enum
-values to strings, was dropped. See
-`Assets/AssetLibrary/ResourceBank/Examples/CurrencyManager/CurrencyManagerExample.cs` for the full
-version.
-
 `CurrencyWatcher` subscribes to the events and updates TextMeshPro labels in the UI. `RewardsManager`
 picks a random currency reward from the config values and shows a `RewardReceivedPopup`.
+
+The balances and events used to live in a vendored third-party library, Resource Bank. It was
+removed, and the legacy key above keeps its name because installed players' saves are stored under it.
+See [context/dropping-resource-bank.md](context/dropping-resource-bank.md).
