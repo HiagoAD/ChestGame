@@ -57,6 +57,10 @@ namespace Company.ChestGame.Minigame.Core
             // give back.
             if (_running) throw new MinigameAlreadyRunningException(_definition != null ? _definition.Id : null);
 
+            // Set the moment injection begins, so the catch disposes a controller only once it may
+            // have taken on something Dispose gives back, and never one that was never reached.
+            bool controllerInjected = false;
+
             try
             {
                 await EnsureContentIsDownloadedAsync(ct);
@@ -64,6 +68,7 @@ namespace Company.ChestGame.Minigame.Core
                 GameObject prefab = await _assets.LoadAsync<GameObject>(ViewRef, ct);
 
                 await _definition.ConfigureControllerAsync(ControllerInstance, _assets, ct);
+                controllerInjected = true;
                 _resolver.Inject(ControllerInstance);
 
                 // Through the resolver rather than Addressables, so the view and everything under
@@ -84,6 +89,10 @@ namespace Company.ChestGame.Minigame.Core
                 }
 
                 ReleaseContent();
+
+                // Same reason, for the controller: injection is where it registers for flushing,
+                // and End, which would dispose it, is a no-op until _running is true.
+                if (controllerInjected) ControllerInstance.Dispose();
                 throw;
             }
         }

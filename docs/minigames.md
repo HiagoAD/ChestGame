@@ -73,8 +73,8 @@ follows can only give one back.
 
 ## Failure during a start
 
-If anything in `BeginAsync` throws, the catch releases what was already taken and destroys the view
-instance if one exists, then rethrows.
+If anything in `BeginAsync` throws, the catch releases what was already taken, destroys the view
+instance if one exists, and disposes the controller if injection had begun, then rethrows.
 
 Nothing else could ever let those go. `End` is a no-op until `_running` is true, which is the last
 line of the try block, so a load that threw or a start that was cancelled halfway would otherwise
@@ -85,6 +85,12 @@ container that never began, and "release what I took" is the only statement that
 cases. The view instance is destroyed in the same place for the same reason, one object further on. A
 view created just before `SetController` threw would otherwise sit in the scene, unreferenced and
 undestroyable, for the rest of the session.
+
+The controller follows the same rule. Injection is where `ChestsMinigameController` registers with the
+process-wide flush registry, so a start that fails after it would otherwise leave that registration
+behind with nothing left to call `Dispose`. A failure before injection (the download, the loads,
+`ConfigureControllerAsync`) disposes nothing, because nothing has been taken on. `End` stays a no-op
+afterwards, so the controller is disposed exactly once.
 
 ## Teardown
 
