@@ -197,11 +197,12 @@
     -unity-font-style: bold;
 }
 
+/* min-width is the floor shared with the pooling demo's toggle (PoolingDemo.uss); keep the two equal. */
 .toggle {
     position: absolute;
     top: 272px;
     right: var(--gutter);
-    min-width: 256px;
+    min-width: 280px;
     font-size: 26px;
 }
 

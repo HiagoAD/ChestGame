@@ -257,10 +257,11 @@ property of the document inside the envelope, not of anything that carries it.
 
 ## The legacy import
 
-`ILegacyImport` is the seam a save that predates the envelope entirely plugs into. What ships today
-under `ResourceBankSaveData_CurrencyType` is exactly that: a bare `{"ResourceAmount":{…}}` written by
-`DefaultResourceBankSaveHandle` straight into `PlayerPrefs`, under a different key than anything
-`ISaveStore` in this assembly would ever use, with no envelope and no version field at all. It never
+`ILegacyImport` is the seam a save that predates the envelope entirely plugs into. What an installed
+player's device still holds under `ResourceBankSaveData_CurrencyType` is exactly that: a bare
+`{"ResourceAmount":{…}}` that the Resource Bank library's `DefaultResourceBankSaveHandle` wrote
+straight into `PlayerPrefs`, under a different key than anything `ISaveStore` in this assembly would
+ever use, with no envelope and no version field at all. It never
 reaches `SaveMigrator`, because there is no `v` for the chain to start walking from — this is why the
 import runs *before* the chain rather than as a step inside it, the same way `LoadAsync`'s own
 first-run check runs before the envelope is even looked at.
@@ -315,7 +316,7 @@ currency ever asked for it. Nothing throws, and the player's balance is simply z
 `ImportLegacyOrFreshAsync` compares it against the key it was actually asked for, ordinally, **before
 `IsPresent()` is ever called** — not merely before `Import()`, because asking an import whether it has
 data for a key it knows nothing about is already the wrong question regardless of the answer.
-`CurrencyLegacyImport.TargetKey` returns `CurrencyResourceBankSaveHandle.SaveKey` rather than
+`CurrencyLegacyImport.TargetKey` returns `CurrencySaveHandler.SaveKey` rather than
 restating the `"currency"` literal, so the two cannot drift.
 
 Worth stating what this does *not* fix: one `ILegacyImport` per `SaveService` is still the shape, so a
@@ -422,14 +423,18 @@ it has to run (via the inner `using` block) before `compressed.ToArray()` reads 
 `compressed` afterward as well would be redundant, since nothing further writes to it once the gzip
 stream has flushed.
 
-`Decode<T>` and `ToJson` share the same `Decompress` step, so both have to fail the same way on the
-same bad input, not a fixed assumption about which .NET exception type `GZipStream` throws. On this
-runtime, truncated gzip bytes (as few as 5) degrade quietly rather than throwing at all: `Decompress`
-produces zero bytes, and `JsonConvert.DeserializeObject` of an empty string returns `null` — exactly
-the case `SaveService.LoadAsync`'s own null-guard exists to catch. Bytes that are not gzip at all do
-throw, with whatever exception type `GZipStream` actually throws on this runtime — read from
-`Decode<T>`'s own observed behaviour with `Assert.Catch` rather than assumed in advance with
-`Assert.Throws`, and held to the same type for `ToJson`.
+On the way back, `Decode<T>` and `ToJson` share one `Decompress` step, so both fail the same way on
+the same bad input. `Decompress` checks the gzip trailer - the CRC32 and length of the uncompressed
+bytes - against what it decompressed, and throws `InvalidDataException` on a mismatch; input shorter
+than the smallest valid gzip member (20 bytes) is refused the same way before decompression starts.
+Unity's Mono `GZipStream` does not reliably throw on a stream cut short: it can return nothing, or
+part of the document, which would decode to `null` or hand a migration an empty string, so the codec
+does not lean on it to throw. The trailer is read from the last 8 bytes, which holds because `Encode`
+writes exactly one gzip member. So a multi-member stream, or one with bytes appended, is refused even
+though another gzip reader would accept it. Nothing but this codec writes these saves, so that costs
+nothing today. Bytes that are not gzip at all throw whatever exception type `GZipStream` throws on
+the runtime, or `InvalidDataException` from the trailer check; the tests catch the base type rather
+than assume which.
 
 ### Why there is no binary codec
 
@@ -689,7 +694,7 @@ a storage failure. No test reproduces the failure, because it cannot happen outs
 
 ## `InMemoryStore`
 
-The general form of `Tests/Common/InMemoryResourceBankSaveHandler`: a dictionary keyed by save key,
+The general form of `Tests/Common/InMemoryCurrencySaveHandler`: a dictionary keyed by save key,
 copying bytes on the way in and out so a caller mutating an array after handing it to `WriteAsync`,
 or mutating one handed back from `ReadAsync`, cannot reach into what the store believes it holds. It
 is not only a test double — an editor mode that must never touch the real save can point a
@@ -882,7 +887,7 @@ In the shape the pool strategy list in `docs/design-decisions.md` uses.
    points at.
 5. Answer `CompletesOnCallingThread` honestly. It is not documentation — `SaveScheduler<T>` reads it
    through `CanFlushBlocking`, `SaveFlushRegistry.Register` refuses a scheduler that answers false,
-   and `CurrencyResourceBankSaveHandle` and `ChestsMinigameController` both refuse at construction to
+   and `CurrencySaveHandler` and `ChestsMinigameController` both refuse at construction to
    block on a load through a store that answers false. A backend that reaches the network or hops a
    thread must say so, or the composition that wraps it will look correct and fail at
    `OnApplicationPause` on a device.
@@ -1052,10 +1057,10 @@ codebase once, for `LoadAsync`. `MarkDirty` gets its own name instead of hiding 
 behind `SaveAsync`'s name.
 
 `SaveScheduler<T>` is fixed to one key and one `T` at construction, not parameterised per call the way
-`ISaveService.SaveAsync<T>(key, ...)` is. A resource bank that calls `Save()` on every add and every
+`ISaveService.SaveAsync<T>(key, ...)` is. A currency manager that calls `Save()` on every add and every
 spend has exactly one save slot to coalesce; a scheduler juggling several independent keys would need
 a table of pending writes instead of one `_pending`/`_hasPending` pair, for a generality nothing this
-phase (or the resource-bank adapter phase 6/7 actually builds) needs. A game with several save slots
+phase (or the currency adapter phase 6/7 actually builds) needs. A game with several save slots
 constructs several `SaveScheduler<T>` instances — the same per-key granularity `SaveAsync` already
 has, just decided once at construction instead of on every call.
 
@@ -1063,7 +1068,7 @@ has, just decided once at construction instead of on every call.
 `SaveScheduler<T>.DefaultCoalesceWindowMilliseconds` (1000ms, overridable per instance) — the first
 time state becomes dirty, and does **not** restart it on every subsequent `MarkDirty` call inside that
 window. A debounce (reset-on-every-call) would let a caller that never stops mutating state — plausible
-for a resource bank during an active minigame — starve the flush indefinitely, deferring every save to
+for a currency manager during an active minigame — starve the flush indefinitely, deferring every save to
 "whenever things go quiet," which for a save system is the wrong failure mode: the whole point is a
 bounded worst case between a mutation and its persistence. When the fixed window elapses, whatever is
 currently in `_pending` — the *latest* state as of that moment, because every `MarkDirty` call
@@ -1144,9 +1149,9 @@ by the same throttle as any other write, never a tight loop hammering a store th
 
 ### A failed write now says so
 
-`MarkDirty` is the only caller most of this class ever has in this codebase — `CurrencyResourceBankSaveHandle.Save`
+`MarkDirty` is the only caller most of this class ever has in this codebase — `CurrencySaveHandler.Save`
 calls it and nothing ever awaits the result, because `Save()` cannot be `async` and still satisfy
-`IResourceBankSaveHandler<T>` — so the organic path through `RunFlushLoopAsync`, the one a coalescing
+`ICurrencySaveHandler` — so the organic path through `RunFlushLoopAsync`, the one a coalescing
 window elapsing on its own takes, had nobody positioned to observe a failure at all. Before this was
 fixed, an exception there reached `completion.TrySetException`, passed through
 `WaitThenFlushAsync`'s `.SuppressCancellationThrow()` unchanged (that method only suppresses
@@ -1154,7 +1159,7 @@ fixed, an exception there reached `completion.TrySetException`, passed through
 same distinction applied to a different exception), and escaped the `.Forget()`-ed `UniTaskVoid` this
 runs inside of to `UniTaskScheduler`'s own unobserved-exception handler. That handler does log it — so
 this was never a fully silent failure — but with no key, no indication a *save* is what failed, and
-nothing to connect it to `CurrencyResourceBankSaveHandle` at all: indistinguishable, in a device log,
+nothing to connect it to `CurrencySaveHandler` at all: indistinguishable, in a device log,
 from any other unrelated unobserved exception anywhere in the process. `AtomicFileStore` is what makes
 this reachable in a way `PlayerPrefs` never practically was for this game — a full disk or a revoked
 permission are real `IOException`s a file store reports, where `PlayerPrefs.SetString` essentially
@@ -1162,6 +1167,10 @@ never fails in practice — and the fix is one `Debug.LogError` inside `RunFlush
 naming the key and the exception's message, before `completion.TrySetException` runs. `FlushBlocking`
 and `Dispose` already attributed their own failures at their own call sites before this; this closes
 the one path that had not.
+
+The log line alone was not enough, though: the exception also still left `WaitThenFlushAsync` as an
+unobserved one, a second report with no key. `WaitThenFlushAsync` now catches it, because
+`RunFlushLoopAsync` has already reported it, so a failed window write is reported exactly once.
 
 Logged unconditionally, not only when nothing else is watching: a caller that does use `FlushAsync` and
 also logs its own catch now sees one duplicate line rather than this class trying to guess whether it is
@@ -1207,7 +1216,7 @@ throw the instant a flush is genuinely in flight when it is called, every time, 
 real tension this phase surfaces rather than resolves for a future caller: the same scheduler cannot
 both get the frame-cost relief `ThreadHoppingStore` buys during normal play *and* offer a `FlushBlocking`
 that is guaranteed to succeed at pause time. Phase 6/7's integration, when it composes a real
-`SaveScheduler<T>` for the resource bank, has to pick one of those two things for that scheduler
+`SaveScheduler<T>` for currency, has to pick one of those two things for that scheduler
 instance, and this document is where that choice needs to be made deliberately rather than discovered
 by an `OnApplicationPause` handler throwing in production.
 
@@ -1298,23 +1307,47 @@ scratch harness above. That check is what a plain-`Task` port of the algorithm c
 
 ## Currency: the first real caller
 
-Phase 6b's scope is deliberately narrow: persist exactly what `DefaultResourceBankSaveHandle<T>`
-already persisted — Coins and Gems, nothing else — through this assembly's pipeline instead of
-straight into `PlayerPrefs`. The wider save model, chests progress, and the phase 8 demo panel are
-phase 7. What follows is `Company.ChestGame.Currency`'s own adapter, living there rather than here
-because it is the one place allowed to know both `CurrencyType` and `ISaveService` — nothing under
-`Company.ChestGame.Saving` may know either.
+Phase 6b's scope is deliberately narrow: persist exactly what the Resource Bank library's
+`DefaultResourceBankSaveHandle<T>` already persisted — Coins and Gems, nothing else — through this
+assembly's pipeline instead of straight into `PlayerPrefs`. The wider save model, chests progress, and
+the phase 8 demo panel are phase 7. What follows is `Company.ChestGame.Currency`'s own adapter, living
+there rather than here because it is the one place allowed to know both `CurrencyType` and
+`ISaveService` — nothing under `Company.ChestGame.Saving` may know either.
 
-### `IResourceBankSaveHandler<T>` is fully synchronous; `ISaveService` is not
+### Resource Bank was removed, and what stayed
 
-`ResourceBank<T>` calls `Load()` once from its own constructor and `Save()` from inside both
-`TryAddResourceAmount` and `TryToSpendResource` — both plain, non-`async` methods returning a value
-or `void`, not a `UniTask`. Neither may block on work that genuinely needs to leave the calling
-thread, for the same reason `SaveScheduler<T>.FlushBlocking` refuses to: blocking the one thread that
-would have to service its own continuation is a deadlock, not a slow path. The two directions are
-resolved differently, because the two problems are not the same shape.
+The Resource Bank library, which the rest of this section was written against, is no longer in the
+project. It was vendored under `Assets/AssetLibrary` as the assembly `TapNation.Modules`, and
+`CurrencyManager` wrapped it. `CurrencyManager` now holds the balances, the add and spend validation
+and the three events itself. It loads once from its constructor and saves as part of every change,
+before raising its events; see "Save, then notify, for both operations" below.
 
-**`Save()` never blocks.** `CurrencyResourceBankSaveHandle.Save` hands the state straight to a
+The save seam is the project's own `ICurrencySaveHandler`, with `CurrencySaveDocument` as its only
+state type. The library's `IResourceBankSaveHandler<T>` and `ResourceBankState<T>` went with it, and
+so did the fallback that wrote to `PlayerPrefs` when no handler was given. A `CurrencyManager`
+constructed without a handler now throws `SaveException.NoSaveHandler()`, because that fallback would
+have written under the same key the legacy import reads. `CurrencyResourceBankSaveHandle` is now
+`CurrencySaveHandler`, and the test double is `InMemoryCurrencySaveHandler`.
+
+Every string a player's save depends on is unchanged. `CurrencySaveHandler.SaveKey` is still
+`"currency"`, the document is still `{"ResourceAmount":{...}}`, and
+`CurrencyLegacyImport.DefaultLegacyKey` is still `"ResourceBankSaveData_CurrencyType"`, with its
+`.migrated` rename. The legacy key keeps the library's name for good, because installed players' saves
+are stored under it and the import is the only way to read them. Where the rest of this section says
+the library or its handler did something, that is how 6b found it, and the project's own types it
+names are the current ones. The reasoning for the removal, and what the tests do not pin, is in
+[context/dropping-resource-bank.md](context/dropping-resource-bank.md).
+
+### `ICurrencySaveHandler` is fully synchronous; `ISaveService` is not
+
+`CurrencyManager` calls `Load()` once from its own constructor and `Save()` from inside `AddCurrency`
+and `TrySpendCurrency`, both plain, non-`async` methods returning `void` or `bool`, not a `UniTask`.
+Neither may block on work that genuinely needs to leave the calling thread, for the same reason
+`SaveScheduler<T>.FlushBlocking` refuses to: blocking the one thread that would have to service its
+own continuation is a deadlock, not a slow path. The two directions are resolved differently, because
+the two problems are not the same shape.
+
+**`Save()` never blocks.** `CurrencySaveHandler.Save` hands the document straight to a
 `SaveScheduler<CurrencySaveDocument>` via `MarkDirty` and returns immediately — see "Write coalescing"
 above for what that buys generally. What it costs specifically for currency: if the process dies
 inside the coalescing window (up to `DefaultCoalesceWindowMilliseconds`, 1 second), whatever changed
@@ -1327,9 +1360,13 @@ exactly the two points mobile and desktop each guarantee the process is still wi
 all. Between those two, the only genuinely open loss window is a hard kill (an OS out-of-memory kill,
 a crash, a pulled battery) inside one second of a save that has not yet flushed — the same bound this
 assembly's own docs already accept for `SaveScheduler<T>` in general, not a new one currency invented.
+`CurrencyManager` calls `Save()` once per change, before the balance is assigned in memory and before
+any event. It can fail synchronously: `MarkDirty` throws `SaveException.SchedulerDisposed` once the
+scheduler is disposed. "Save, then notify, for both operations" below says what `CurrencyManager`
+does then.
 
 **`Load()` blocks, once, on the calling thread — the harder direction, because there is no honest way
-to return a `ResourceBankState<T>` from a method with that exact signature without either already
+to return a `CurrencySaveDocument` from a method with that exact signature without either already
 having the value or waiting for it.** Two resolutions were on the table. The first: block only where
 `ISaveService.CompletesOnCallingThread` guarantees the wait is not really a wait — the task is already
 finished by the time `LoadAsync` returns, because nothing in the composition ever hops off the calling
@@ -1342,81 +1379,137 @@ composition that (see below) is already forced to be non-hopping for `FlushBlock
 the same restriction twice to buy a second implementation of the thing the first already gives for
 free was not worth the restructuring.
 
-**What blocking costs: `CurrencyResourceBankSaveHandle`'s constructor refuses any `ISaveService` whose
+**What blocking costs: `CurrencySaveHandler`'s constructor refuses any `ISaveService` whose
 `CompletesOnCallingThread` answers false — structurally, not by a comment.** A `ThreadHoppingStore`-
 backed composition cannot satisfy this handler's contract at all: `Load()` would either have to block
 the very thread that would need to run to finish the hop (a deadlock, exactly the one
 `SaveScheduler<T>.FlushBlocking` already refuses to risk) or return before the real load finished (a
-lie the vendored `ResourceBank<T>` has no way to detect, since its `Load()` contract has no concept of
-"not yet"). So the constructor throws `SaveException.SynchronousLoadNeedsNonHoppingStore()` immediately
-rather than shipping a composition that would only discover this the first time a player's load
-actually raced the hop. **What this forbids, in full: nothing that ever backs `CurrencyResourceBankSaveHandle`
+lie `CurrencyManager` has no way to detect, since `ICurrencySaveHandler.Load()` has no concept of
+"not yet", and a premature `null` reads as a first run). So the constructor throws
+`SaveException.SynchronousLoadNeedsNonHoppingStore()` immediately rather than shipping a composition
+that would only discover this the first time a player's load actually raced the hop. **What this
+forbids, in full: nothing that ever backs `CurrencySaveHandler`
 may be wrapped in `ThreadHoppingStore`, ever — not "should not," refused outright at the moment the
 handler is constructed.** A future phase wanting the frame-cost relief `ThreadHoppingStore` buys for
 currency specifically would have to move to the second resolution (pre-load at boot) instead, not add
 the wrapper to this composition.
 
-### The save-then-notify ordering no longer means what it used to
+### Save, then notify, for both operations
 
-`ResourceBank<T>` — vendored, untouched — calls `Save()` and invokes its own callback in a different
-order for each method: `TryAddResourceAmount` invokes `ResourceCollected`/`ResourceAmountChanged`
-*before* calling `Save()`; `TryToSpendResource` calls `Save()` *before* invoking
-`ResourceSpent`/`ResourceAmountChanged`. That call order is exactly what it always was — pinned now,
-by `CurrencyResourceBankSaveHandleTests`, where it never was before — because nothing about this phase
-touches the vendored library. What changed is what being on either side of that order *means*.
+`AddCurrency`, `TrySpendCurrency` and the cheat reset (a spend of the whole balance) follow one
+order. Validate, compute the new balance, hand a snapshot holding it to `ICurrencySaveHandler.Save`,
+and only after `Save` returns assign the balance in memory. Then raise `OnCurrencyCollected` or
+`OnCurrencySpent`, and after it `OnCurrencyChanged`.
 
-Before this phase, `Save()` was `DefaultResourceBankSaveHandle.Save`, synchronous `PlayerPrefs.SetString`
-I/O that had already happened by the time the call returned. That made the two methods genuinely
-asymmetric to an observer: a `ResourceSpent` handler could assume the new balance was already durable,
-because `TryToSpendResource` only fires it after `Save()` returns; a `ResourceCollected` handler could
-not, because `TryAddResourceAmount` fires it first. Now `Save()` is `CurrencyResourceBankSaveHandle.Save`,
-which calls `SaveScheduler<CurrencySaveDocument>.MarkDirty` and returns immediately having persisted
-nothing at all — see "`Save()` never blocks" above. Being called before or after a callback no longer
-correlates with durability, because neither position was ever durable to begin with: `MarkDirty` only
-guarantees a write will happen within the current coalescing window, or at the next pause/quit flush,
-not that one already has.
+The Resource Bank library, as vendored, ordered the two operations differently. An add changed
+memory, raised `OnCurrencyCollected` and `OnCurrencyChanged`, then saved. A spend changed memory,
+saved, then raised `OnCurrencySpent` and `OnCurrencyChanged`. A listener that threw escaped the call.
+No reason for the difference was ever recorded. The save-system work pinned both orders with two
+characterization tests, which record what the code does and never judge it. The test-suite revamp on
+main then replaced them with specification tests and edited the library so an add saved before
+notifying, as a spend already did. This branch kept that order in `CurrencyManager`, which replaced
+the library, and then dealt with what save-then-notify still left open:
 
-**What an observer can still conclude from either callback, and what it never could:** the in-memory
-balance `GetCurrencyAmount` reports is already the new one, in both methods, because `ResourceBank<T>`
-mutates its dictionary before calling either `Save()` or the callback — that part was never in question
-and is not what changed. **What it can no longer distinguish, and only appeared to be able to before:**
-whether that balance has reached disk yet. It never actually could reach that conclusion safely even
-under the old ordering — a crash between `TryToSpendResource`'s `Save()` and its callback was already a
-narrow enough window nothing exercised it — but the appearance of a guarantee is itself worth retracting
-in writing rather than leaving an observer to infer one from call order that no longer supports it. This
-is a deliberate, intentional consequence of write coalescing existing at all: restoring the old ordering
-would mean making `Save()` synchronous again, which is the entire property this phase exists to remove.
-Nothing about `CurrencyManager`'s own public events changed - what changed is what a subscriber is
-entitled to assume from them, and this paragraph is that retraction made explicit rather than left to be
-discovered by whoever eventually needs the guarantee that no longer holds.
+- A listener that threw escaped a completed, saved operation. A spend whose listener threw never
+  returned `true`, so `if (TrySpendCurrency(...)) Grant()` took the currency and granted nothing.
+  An add whose listener threw skipped `RewardsManager`'s popup and announcement.
+- A throwing listener also stopped the listeners after it, `OnCurrencyChanged` included.
+- A `Save` that threw left the balance already changed in memory, so a retry applied the change
+  twice.
 
-### `CurrencySaveDocument`, and a `new()` constraint the vendored model cannot satisfy
+Isolating each listener closes the first two. Handing the snapshot to `Save` before assigning the
+balance closes the third.
+
+Durability was never the difference between the two orders. The library's
+`DefaultResourceBankSaveHandle.Save` was only `PlayerPrefs.SetString`. That updates the in-memory
+prefs and reaches disk on `PlayerPrefs.Save()` or at a clean quit, and the handler never called
+`PlayerPrefs.Save()`, so no `OnCurrencySpent` listener could assume its balance was on disk.
+`CurrencySaveHandler.Save` calls `SaveScheduler<CurrencySaveDocument>.MarkDirty` and returns
+having written nothing (see "`Save()` never blocks" above). The write happens within the current
+coalescing window or at the next pause or quit flush, so neither position relative to `Save` is
+durable. Making `Save` synchronous again is the property write-behind exists to remove, so the order
+is not where durability can come from.
+
+What a listener can rely on, on any of the three events: `GetCurrencyAmount` already reports the new
+balance, the change has been handed to the save handler but is not durable yet, and a listener that
+needs it durable can call `FlushBlocking` on the currency scheduler, which writes that change.
+`Collected` or `Spent` fires before `Changed`, and each fires in subscription order. Saving before
+notifying gives all of that, whether memory is assigned before the save or after it. Saving the
+snapshot first adds one property: a throwing `Save` changes nothing, so a retry cannot apply a change
+twice. It also sets a rule for handlers: the snapshot already holds the new balance while
+`GetCurrencyAmount` still reports the old one, so `Save` must not call back into `CurrencyManager`.
+A listener that starts another operation finds the first change already in memory and handed to
+`Save`, which is why the assignment stays ahead of the events. The `balance` argument is then stale
+for every listener after it in the first operation, the following `Changed` raise included, because
+both raises pass the same value, and the nested operation's own events arrive before the rest of the
+first one's. `GetCurrencyAmount` is the authority.
+
+A listener that throws is isolated. `CurrencyManager` invokes each listener separately, through
+`GetInvocationList`, inside its own `try`/`catch`, and passes the exception to `Debug.LogException`,
+which keeps the stack trace that names the listener. The other listeners still run, the save has
+already been handed over, and the caller gets its result: `AddCurrency` returns normally,
+`TrySpendCurrency` returns `true`, and `OnCurrencyChanged` is still raised after a throwing
+`Collected` or `Spent` listener. The catch is on `Exception` because a publisher has to tolerate
+whatever its subscribers throw. The cost is one log entry per throw, so a HUD label whose render
+fails on every change logs on every change and breaks neither saves nor rewards. In
+Unity tests an unexpected `LogException` fails the test, so a test with a throwing listener has to
+declare it with `LogAssert.Expect`. `FakeCurrencyManager` does not isolate listeners, so a test of
+this behaviour has to use the real `CurrencyManager` over `InMemoryCurrencySaveHandler`.
+
+A `Save` that throws is not isolated. The exception reaches the caller unchanged and nothing has
+happened: no balance change, no events, no success log. In production the only synchronous `Save`
+failure is `SaveException.SchedulerDisposed`, thrown by `SaveScheduler<T>.MarkDirty` once the
+scheduler is disposed, which is expected at root-scope teardown. That comes from reading the code and
+has not run in Unity. A write that fails after `MarkDirty` returned is not a `Save` failure and never
+reaches `CurrencyManager`; see "A failed write now says so".
+
+These are pinned by specification tests named after what a caller needs. In `CurrencyManagerTests`:
+six listener-failure tests, `AnAddsListeners_SeeTheNewBalanceAlreadySavedAndInMemory` and its spend
+twin, and `AListenerThatAddsReentrantly_LeavesTheSumInMemoryAndInTheLastSave`. In
+`CurrencySaveHandlerTests`: `AddCurrency_HandsTheNewStateToTheSaveHandler_BeforeAnyCallbackFires`,
+its `TrySpendCurrency_` twin and `ACollectedListenerThatThrows_DoesNotStopTheNewBalanceBeingSaved`,
+which came from the revamp on main and were renamed when the library went;
+`AListenerOfAnAdd_CanFlushTheAddItWasToldAbout`, `AListenerOfASpend_CanFlushTheSpendItWasToldAbout`,
+`AnAddWhoseChangedListenerAlwaysThrows_IsStillWrittenByTheBlockingFlush`, and the two
+`..._AfterTheSchedulerIsDisposed_ThrowsSaveException_AndChangesNothing` tests. `RewardsManagerTests`
+has `GiveRandomCurrencyReward_WhenACurrencyListenerThrows_StillCreditsShowsThePopupAndAnnounces`.
+
+### `CurrencySaveDocument`, and a `new()` constraint the library's model could not satisfy
 
 `ISaveService.LoadAsync<T>` (and `SaveService`'s own legacy-import path) both require
-`T : class, new()`. `ResourceBankState<T>`'s only constructor is
+`T : class, new()`. The library's `ResourceBankState<T>` had only the constructor
 `ResourceBankState(Dictionary<T, long> resourceAmount = null)` — a constructor with a default
 argument, which is a genuine `CS0310` the moment it is asked to stand in for that `T`: a constructor
 with an optional parameter is not a parameterless constructor as far as the `new()` constraint is
-concerned, confirmed against a real compile rather than assumed while this phase was built.
-`ResourceBank<T>` is vendored and not to be touched, so `ResourceBankState<CurrencyType>` can never be
-the `T` this assembly saves and loads directly.
+concerned, confirmed against a real compile rather than assumed while this phase was built. The
+library was vendored and not to be touched, so `ResourceBankState<CurrencyType>` could never be the
+`T` this assembly saved and loaded directly.
 
-`Company.ChestGame.Currency.CurrencySaveDocument` exists instead — the same shape,
+`Company.ChestGame.Currency.CurrencySaveDocument` was added instead: the same shape,
 `Dictionary<CurrencyType, long> ResourceAmount`, but a type this adapter owns, with a real
 parameterless constructor. `Save()` only needs `class`, not `new()`, so it could have kept using
 `ResourceBankState<CurrencyType>` directly and left `CurrencySaveDocument` to cover only the `Load()`
-side; using it on both sides instead is deliberate, so the JSON this assembly actually persists is
-owned by this adapter's own type rather than one direction of it silently tracking whatever shape a
-future update to the vendored library's own `ResourceBankState<T>` happens to serialize as.
-`CurrencySaveDocument.From` copies the dictionary rather than aliasing it, for the reason given on the
-type itself: `ResourceBank<T>` keeps mutating the same dictionary instance for its whole lifetime, and
-the state handed to `MarkDirty` is documented elsewhere in this file to be something nothing else holds
-a reference to once it is captured — copying is what makes that true here rather than merely assumed.
+side; using it on both sides was deliberate, so the JSON this assembly actually persists is owned by
+this adapter's own type rather than one direction of it silently tracking whatever shape a future
+update to the library's `ResourceBankState<T>` happened to serialize as.
+
+Owning that shape is now the type's whole job. `ICurrencySaveHandler` takes and returns
+`CurrencySaveDocument` and nothing else, and `ResourceBankState<T>` left with the library. The
+property's name, type and initializer are the saved JSON's shape, and the legacy `PlayerPrefs` format
+shares it, so changing any of them breaks every save already written.
+
+The copies run in both directions. `CurrencySaveDocument.From` copies the dictionary rather than
+aliasing it, because `CurrencyManager` keeps mutating its own balances for its whole lifetime and the
+document handed to `MarkDirty` is documented elsewhere in this file to be something nothing else holds
+a reference to once it is captured. `CurrencyManager` also copies what `Load()` returns, entry by
+entry, instead of adopting it, because the handler may still hold the document it returned.
+`EverySave_HandsTheHandlerASnapshotNothingElseHolds` and
+`Construction_CopiesTheLoadedDocument_RatherThanAdoptingIt` pin the two.
 
 ### The legacy import: `CurrencyLegacyImport`
 
 The concrete `ILegacyImport` "The legacy import" above described and deferred. It reads exactly what
-`DefaultResourceBankSaveHandle<CurrencyType>` has always written — a bare `{"ResourceAmount":{...}}`
+the library's `DefaultResourceBankSaveHandle<CurrencyType>` wrote — a bare `{"ResourceAmount":{...}}`
 under `"ResourceBankSaveData_CurrencyType"` in `PlayerPrefs`, no envelope, no version — and because
 that shape is already exactly `CurrencySaveDocument`'s own shape, `Import()` does no reshaping at all
 beyond `JObject.Parse`: parsing *is* the reshape this key's data needed. The ordering `SaveService`
@@ -1426,8 +1519,8 @@ and durably persists the imported document through the real `AtomicFileStore` be
 `Clear()`. Idempotent structurally, per "The legacy import" above, not by a flag this adapter carries.
 
 **Absence is not corruption, and `IsPresent()` is where that distinction actually lives.**
-`DefaultResourceBankSaveHandle.Save(null)` — never something `ResourceBank<T>` itself does, but not
-something `PlayerPrefs` stops anyone from having written by hand — serializes to the four-byte JSON
+`DefaultResourceBankSaveHandle.Save(null)` — never something `ResourceBank<T>` itself did, but not
+something `PlayerPrefs` stops anyone from having written by hand — serialized to the four-byte JSON
 literal `"null"`; an empty string is the same absence `PlayerPrefs` cannot otherwise tell apart from
 "never written". The old path already treated both as nothing to load:
 `JsonConvert.DeserializeObject<ResourceBankState<T>>("null")` returns a C# `null`, and
@@ -1487,19 +1580,19 @@ than hiding it behind a key that ships in the binary either way. `AtomicFile` ov
 the one place this composition spends more than the minimum: `SaveScheduler<T>` means a coalesced
 write can now land at any point in the app's lifecycle — mid-minigame, on a background thread's worth
 of wall-clock time later, at a pause/quit flush — rather than only inside one synchronous `Save()`
-call the way `DefaultResourceBankSaveHandle` always did, so the torn-write protection `AtomicFileStore`
+call the way the library's `DefaultResourceBankSaveHandle` always did, so the torn-write protection `AtomicFileStore`
 buys over `FileStore` (see `AtomicFileStore` above) is worth its small extra cost precisely because
 write timing is no longer fully in this adapter's own hands. `SaveCodec.Json`, not `JsonPretty`: this
 document already argues indentation is pure size once nothing is meant to read it in an editor, and an
 actual player's save is exactly that case, unlike the phase 8 demo panel's.
 
 Two constraints this composition depends on are asserted at the moment it is wired, in
-`GameLifetimeScope.RegisterCoreServices` and `CurrencyResourceBankSaveHandle`'s own constructor, both
+`GameLifetimeScope.RegisterCoreServices` and `CurrencySaveHandler`'s own constructor, both
 reachable by `GameLifetimeScopeTests` building a container from `RegisterCoreServices` exactly as it
 already does for every other registration — never left to be discovered on a device the first time a
 pause or a load actually depended on either:
 
-- `CurrencyResourceBankSaveHandle`'s constructor throws `SaveException.SynchronousLoadNeedsNonHoppingStore()`
+- `CurrencySaveHandler`'s constructor throws `SaveException.SynchronousLoadNeedsNonHoppingStore()`
   if the `ISaveService` it was given does not answer `CompletesOnCallingThread == true` — see "`Load()`
   blocks" above for why `Load()` cannot be correct without this.
 - The factory registering `SaveScheduler<CurrencySaveDocument>` throws
@@ -1619,7 +1712,7 @@ resolves `ICurrencyManager` writes a real file under the real `Application.persi
 that machine has a legacy `"ResourceBankSaveData_CurrencyType"` PlayerPrefs entry, which any developer
 who ever played the game before this phase does — actually performs the real legacy import: it imports
 that data and then deletes it, for good, from production code, the first time a test happens to resolve
-`ICurrencyManager`. `InMemoryResourceBankSaveHandler`'s own comment already states the rule this would
+`ICurrencyManager`. `InMemoryCurrencySaveHandler`'s own comment already states the rule this would
 otherwise break: a test "neither read[s] nor clobber[s] the real editor save." Losing data a developer
 cannot get back is worse than the debris a leaked key merely leaves behind, and the fix costs nothing
 in production: `RegisterCoreServices(builder, status, currencySaveInputs, legacyCurrencyPlayerPrefsKey)`
@@ -1637,9 +1730,9 @@ own concern, one `SaveComponentFactory` never touches, so giving `SaveFactoryInp
 mean a `Company.ChestGame.Saving` type carrying a piece of state only `Company.ChestGame.Currency` ever
 reads, for a composition that does not even use `SaveFactoryInputs.PlayerPrefsKeyPrefix` today (this
 composition stores through `AtomicFile`, not `PlayerPrefs`). Passed straight through to
-`CurrencyLegacyImport`'s own constructor, which falls back to `DefaultLegacyKey` — the real
-`DefaultResourceBankSaveHandle<CurrencyType>` key — exactly when it is left null, the same
-`null`-means-"use the real one" shape `currencySaveInputs` already follows.
+`CurrencyLegacyImport`'s own constructor, which falls back to `DefaultLegacyKey` — the real legacy
+key, the one the library's `DefaultResourceBankSaveHandle<CurrencyType>` wrote under — exactly when it
+is left null, the same `null`-means-"use the real one" shape `currencySaveInputs` already follows.
 
 **This closes exactly one of the two paths a test can reach this composition through, and saying so
 here is what the next section exists to correct.** A test that builds its own `ContainerBuilder` and
@@ -1657,7 +1750,7 @@ with no way for anything to thread an argument through — and its body is
 `currencySaveInputs` nor `legacyCurrencyPlayerPrefsKey`. `GameBootstrapperTests` is a `PlayMode` test
 that loads the real Boot scene and lets it run exactly as a player's device would: `Awake()` →
 `Configure()` → this exact zero-argument call → `ICurrencyManager` resolved for the game scene's
-the game scene's currency labels → `ResourceBank<T>`'s constructor → `CurrencyResourceBankSaveHandle.Load()` → the
+the game scene's currency labels → `CurrencyManager`'s constructor → `CurrencySaveHandler.Load()` → the
 real `CurrencyLegacyImport` against the real `"ResourceBankSaveData_CurrencyType"` PlayerPrefs entry.
 Nothing about the previous section's two optional parameters touches any step of that chain, because
 none of it is reachable from outside `Configure()`'s own fixed signature.
@@ -1767,14 +1860,16 @@ Three ordering rules inside `Inject`, each closing a real failure rather than a 
 
 - **The guard runs first.** `SaveException.SynchronousLoadNeedsNonHoppingStore()` is thrown before
   anything is built, because the restore load blocks the calling thread exactly the way
-  `CurrencyResourceBankSaveHandle.Load()` does. The existing exception already describes "a caller
+  `CurrencySaveHandler.Load()` does. The existing exception already describes "a caller
   that blocks on `LoadAsync`'s result" generically, so this reuses it rather than adding a twin.
-- **`Register` runs last.** `MinigameContainer.BeginAsync` disposes a controller whose injection
-  completed when a later step fails, but not one whose `Inject` threw, so `Register` running last is
-  still what keeps a half-injected controller out of the registry. A scheduler registered before a
-  throw would stay in the singleton registry for the life of the process, flushed at every
-  pause/quit and accumulating one more per failed start. `SaveScheduler` does not hold the
-  controller; the stale registration is a scheduler that nothing marks dirty.
+- **`Register` runs last.** `MinigameContainer.BeginAsync` disposes the controller whenever injection
+  had begun and a step fails, including a throw inside `Inject` itself, so a half-injected controller
+  is disposed too. `Register` running last keeps that safe: a throw before it leaves nothing
+  registered for `Dispose` to undo, and `Dispose` null-checks the scheduler. A scheduler registered
+  before a throw, with nothing disposing the controller, would stay in the singleton registry for the
+  life of the process, flushed at every pause/quit and accumulating one more per failed start.
+  `SaveScheduler` does not hold the controller; the stale registration is a scheduler that nothing
+  marks dirty.
 - **A corrupt run is discarded, not fatal.** A `SaveException` from the load is logged and answered
   with no pending restore. This is the same call-site policy `GameBootstrapper` applies to meta and it
   rests on the same test: a chests run holds nothing a player earned, because the win pays out through
@@ -1931,20 +2026,20 @@ The toggle itself moves to `top: 272px`, below the pooling toggle's 160-256 band
 while both are collapsed.
 
 The two toggles also have to read as one stack, and the label is what decides that. Each toggle is as
-wide as its label needs above a shared `min-width`, so the stack only lines up while that floor is
-above every label. "Save Inspector" overflowed it, so its button grew, left the stack with a ragged
-left edge, and squeezed its own padding to almost nothing beside the button above it. The button now
-reads **Saving Demo**, following the convention the existing toggle already set - the button names a
-topic, the panel it opens carries the full title, the same way "Pooling Demo" opens "Object Pooling".
-
-The floor is `256px`, and it has to clear the *longest* label rather than the shortest. It was 240px
-on the assumption that "Pooling Demo" fitted inside it, which it does not: that label needs 248px, so
-the pooling toggle sat 8px wider than the save inspector's and the column was ragged from the start.
-Raising the floor above both labels is what makes the two resolve to the same width with aligned
-edges. A future label that outgrows 256px widens only its own button and breaks the alignment again;
+wide as its label needs above a shared `min-width: 280px`, declared equal in both stylesheets
+(`SaveInspector.uss` and `PoolingDemo.uss`). The floor has to clear the *longest* label rather than
+the shortest. It was first 240 px, and "Pooling Demo" at 26 px bold plus 20 px of padding each side
+resolves to 248 px: it outgrew the floor, so it sat 8 px wider than the save inspector's button and
+left a ragged left edge on the stack. "Save Inspector" had overflowed it as well, so its button grew,
+and squeezed its own padding to almost nothing beside the button above it. The floor now sits well
+above both labels ("Pooling Demo" 248 px, "Saving Demo" narrower), so both buttons resolve to
+exactly 280 x 96 with aligned edges. The save inspector's button reads **Saving Demo**, following the
+convention the existing toggle set - the button names a topic, the panel it opens carries the full
+title, the same way "Pooling Demo" opens "Object Pooling". A future label that outgrows 280 px widens
+only its own button and breaks the alignment again;
 `DemoOverlaysPlayModeTests.Collapsed_TheTwoDemoToggles_FormOneAlignedColumn` fails on exactly that,
-rather than a reviewer having to notice it - which is how this was caught. Game UI canvases sort at 0,
-so 99 still draws above the game.
+rather than a reviewer having to notice it. Game UI canvases sort at 0, so 99 still draws above the
+game.
 
 This is a fixed arrangement for exactly two overlays. A third full-screen overlay would need its
 toggle below both existing chromes and its chrome above both existing toggles, and past that point

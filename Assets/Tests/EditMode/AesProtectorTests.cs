@@ -32,6 +32,49 @@ namespace Company.ChestGame.Tests.EditMode
         }
 
         [Test]
+        public void Protect_DoesNotCarryAnyBlockOfThePlaintextInTheClear()
+        {
+            // Every other test here would pass for a protector that wrote IV || plaintext || tag:
+            // the round trip works, the IV still differs per save, and the tag still catches an
+            // edit. Encryption is the one thing it would not do, so it is checked directly - no
+            // block-sized run of a distinctive plaintext may appear anywhere in the output. Real
+            // ciphertext matching 16 chosen bytes by chance is not a failure mode worth guarding.
+            AesProtector protector = new(Key());
+            byte[] plain = Encoding.UTF8.GetBytes("{\"Balance\":987654321,\"Nickname\":\"plaintext-that-must-not-survive\"}");
+            Assert.GreaterOrEqual(plain.Length, 32, "guard: the plaintext has to span several blocks");
+
+            byte[] protectedBytes = protector.Protect(plain);
+
+            const int window = 16;
+            for (int start = 0; start + window <= plain.Length; start++)
+            {
+                Assert.AreEqual(-1, IndexOf(protectedBytes, plain, start, window),
+                    $"plaintext bytes {start}..{start + window - 1} appear verbatim in the protected output, so it was not encrypted");
+            }
+        }
+
+        // The tag is the last 32 bytes, and it is the only region SaveServiceTamperDetectionTests
+        // ever flips. A MAC computed over the ciphertext alone would pass that and still let the IV
+        // be edited - which under CBC rewrites the first plaintext block at will - so the IV and the
+        // ciphertext are each tampered with here directly.
+        [TestCase(0, TestName = "Unprotect_WithTheFirstIvByteFlipped_IsRejectedAsTampering")]
+        [TestCase(16, TestName = "Unprotect_WithTheFirstCiphertextByteFlipped_IsRejectedAsTampering")]
+        public void Unprotect_WithOneByteFlippedOutsideTheTag_IsRejectedAsTampering(int index)
+        {
+            AesProtector protector = new(Key());
+            byte[] plain = Encoding.UTF8.GetBytes("{\"Balance\":987654321,\"Nickname\":\"Ada\"}");
+
+            byte[] tampered = protector.Protect(plain);
+            Assert.Less(index, tampered.Length - 32, "guard: the byte flipped has to sit before the 32-byte tag");
+            tampered[index] ^= 0x01;
+
+            Exception error = Assert.Catch(() => protector.Unprotect(tampered),
+                $"a payload edited at byte {index} has to be refused, not decrypted into something that merely looks plausible");
+            Assert.AreEqual("PayloadTamperedException", error.GetType().Name,
+                $"an edit at byte {index} has to fail the tag check, not surface as a padding or block error out of AES itself");
+        }
+
+        [Test]
         public void Unprotect_WithAPayloadShorterThanAnIvPlusATag_IsRejectedAsTamperingRatherThanSomethingUntyped()
         {
             AesProtector protector = new(Key());
@@ -69,6 +112,20 @@ namespace Company.ChestGame.Tests.EditMode
         {
             SaveException error = Assert.Throws<SaveException>(() => new AesProtector(Array.Empty<byte>()));
             StringAssert.Contains("key material", error.Message);
+        }
+
+        // Where needle[start..start+length) first occurs in haystack, or -1.
+        private static int IndexOf(byte[] haystack, byte[] needle, int start, int length)
+        {
+            for (int i = 0; i + length <= haystack.Length; i++)
+            {
+                int matched = 0;
+                while (matched < length && haystack[i + matched] == needle[start + matched]) matched++;
+
+                if (matched == length) return i;
+            }
+
+            return -1;
         }
 
         private static bool BytesEqual(byte[] a, byte[] b)

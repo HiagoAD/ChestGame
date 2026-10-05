@@ -12,18 +12,24 @@ using UnityEngine.TestTools;
 
 namespace Company.ChestGame.Tests.PlayMode
 {
-    /// <summary>
-    /// The parts of <see cref="SaveScheduler{T}"/> that need a real UnityGameClock, a real hop, or a
-    /// real player loop to settle mid-flight state deterministically: coalescing, one write in
-    /// flight, FlushBlocking's throw over a genuinely hopping composition, and Dispose's own
-    /// best-effort flush and its logged loss. SaveSchedulerTests (edit mode) covers the constructor
-    /// guards and CanFlushBlocking answers that need neither.
-    /// </summary>
-    /// <remarks>
-    /// See docs/testing.md, "The save fixtures".
-    /// </remarks>
+    // The parts of SaveScheduler<T> that need a real UnityGameClock, a real hop, or a real player
+    // loop to settle mid-flight state deterministically: coalescing, one write in flight,
+    // FlushBlocking's throw over a genuinely hopping composition, and Dispose's own best-effort
+    // flush and its logged loss. See docs/saving.md, "Write coalescing" through "Disposal and a
+    // pending write". SaveSchedulerTests (edit mode) covers the constructor guards and
+    // CanFlushBlocking answers that need neither, and drives coalescing, FlushAsync and the
+    // failed-write retry over FakeGameClock instead of a real one.
+    //
+    // Every wait for something to happen is driven by UniTask.WaitUntil against a counter or a flag
+    // this fixture controls (RecordingSaveStore.WriteCount, SaveScheduler<T>.IsFlushing) - never a
+    // fixed sleep - bounded by a generous cancellation timeout only so a genuine hang fails loudly
+    // instead of stalling the suite. The only fixed waits are the ones proving something does NOT
+    // happen after a point, which no condition can signal; each is several windows long. Nothing
+    // here asserts on how long anything took.
     public class SaveSchedulerPlayModeTests
     {
+        // Short so the suite stays fast - SaveScheduler<T>.DefaultCoalesceWindowMilliseconds (1000ms)
+        // exists for production, not for a test waiting on a real clock.
         private const int WindowMilliseconds = 40;
 
         private static readonly TimeSpan PollTimeout = TimeSpan.FromSeconds(10);
@@ -35,17 +41,16 @@ namespace Company.ChestGame.Tests.PlayMode
         [SetUp]
         public void SetUp() => _clock = new UnityGameClock();
 
-        /// <remarks>
-        /// See docs/testing.md, "The save fixtures".
-        /// </remarks>
         [TearDown]
         public void TearDown()
         {
+            // Never leave a worker thread parked on a gate nobody will ever release again, and never
+            // leave a scheduler's own loop running into the next test.
             foreach (RecordingSaveStore store in _blockingStores) store.ReleaseWrite();
             foreach (IDisposable scheduler in _schedulers)
             {
                 try { scheduler.Dispose(); }
-                catch { }
+                catch { /* already exercised deliberately by some of the tests below */ }
             }
         }
 
@@ -68,9 +73,8 @@ namespace Company.ChestGame.Tests.PlayMode
         private static UniTask WaitFor(Func<bool> condition) =>
             UniTask.WaitUntil(condition, cancellationToken: new CancellationTokenSource(PollTimeout).Token);
 
-        /// <remarks>
-        /// See docs/saving.md, "Write coalescing, and why it cannot live inside SaveAsync".
-        /// </remarks>
+        // --- Coalescing (docs/saving.md, "Write coalescing") ---------------------------------
+
         [UnityTest]
         public IEnumerator MarkDirty_SeveralCallsInsideOneWindow_ProduceExactlyOneWrite_CarryingTheLastState() => UniTask.ToCoroutine(async () =>
         {
@@ -84,6 +88,7 @@ namespace Company.ChestGame.Tests.PlayMode
             scheduler.MarkDirty(new RecordingSaveState { Value = 3 });
 
             await WaitFor(() => store.WriteCount >= 1);
+            // Give a bug that double-writes one more frame to show itself before asserting.
             await UniTask.Yield();
             await UniTask.Yield();
 
@@ -91,15 +96,16 @@ namespace Company.ChestGame.Tests.PlayMode
             RecordingSaveState written = await service.LoadAsync<RecordingSaveState>(key, CancellationToken.None);
             Assert.AreEqual(3, written.Value, "the one write must carry the latest state, not the first");
 
+            // A MarkDirty after the window already fired is new dirty state, not more of the same
+            // window - it must produce its own, later write.
             scheduler.MarkDirty(new RecordingSaveState { Value = 4 });
             await WaitFor(() => store.WriteCount >= 2);
 
             Assert.AreEqual(2, store.WriteCount);
         });
 
-        /// <remarks>
-        /// See docs/saving.md, "One write in flight".
-        /// </remarks>
+        // --- One write in flight (docs/saving.md, "One write in flight") ---------------------
+
         [UnityTest]
         public IEnumerator OneWriteInFlight_MarkDirtyTwiceWhileBlocked_ProducesExactlyTwoWrites_SecondCarryingNewestState() => UniTask.ToCoroutine(async () =>
         {
@@ -127,9 +133,8 @@ namespace Company.ChestGame.Tests.PlayMode
             Assert.AreEqual(3, written.Value, "the follow-up write has to carry the newest state, not the first one queued behind the in-flight write");
         });
 
-        /// <remarks>
-        /// See docs/saving.md, "FlushBlocking, and why it cannot deadlock".
-        /// </remarks>
+        // --- FlushBlocking (docs/saving.md, "FlushBlocking, and why it cannot deadlock") -----
+
         [Test]
         public void FlushBlocking_OverANonHoppingComposition_WritesSynchronously()
         {
@@ -171,9 +176,8 @@ namespace Company.ChestGame.Tests.PlayMode
             await WaitFor(() => !scheduler.IsFlushing);
         });
 
-        /// <remarks>
-        /// See docs/saving.md, "Disposal and a pending write".
-        /// </remarks>
+        // --- Dispose (docs/saving.md, "Disposal and a pending write") ------------------------
+
         [Test]
         public void Dispose_WithAPendingWriteOverANonHoppingComposition_FlushesIt()
         {
@@ -190,9 +194,6 @@ namespace Company.ChestGame.Tests.PlayMode
             Assert.IsFalse(scheduler.HasPendingWrite);
         }
 
-        /// <remarks>
-        /// See docs/saving.md, "Disposal and a pending write".
-        /// </remarks>
         [UnityTest]
         public IEnumerator Dispose_WithAWriteMidHopAndANewerOneQueued_LogsNamingTheKey_AndDoesNotThrow() => UniTask.ToCoroutine(async () =>
         {
@@ -214,12 +215,11 @@ namespace Company.ChestGame.Tests.PlayMode
             Assert.DoesNotThrow(() => scheduler.Dispose());
 
             inner.ReleaseWrite();
+            // Let the abandoned background write settle instead of leaking a live continuation into
+            // whatever test runs next.
             await WaitFor(() => inner.WriteCount >= 1);
         });
 
-        /// <remarks>
-        /// See docs/saving.md, "Disposal and a pending write".
-        /// </remarks>
         [UnityTest]
         public IEnumerator Dispose_WhileAFlushIsGenuinelyInFlight_StopsCleanly_AndNothingKeepsRunningAfterwards() => UniTask.ToCoroutine(async () =>
         {
@@ -234,24 +234,36 @@ namespace Company.ChestGame.Tests.PlayMode
 
             await WaitFor(() => scheduler.IsFlushing);
 
+            // Nothing queued behind the in-flight write this time - the branch this test exists to
+            // distinguish from Dispose_WithAWriteMidHopAndANewerOneQueued above, which logs.
             Assert.IsFalse(scheduler.HasPendingWrite, "guard: nothing must be queued behind the in-flight write for this test");
 
             Assert.DoesNotThrow(() => scheduler.Dispose());
 
             inner.ReleaseWrite();
 
+            // The abandoned write is left to finish unobserved rather than lost - it still lands -
+            // but nothing about the scheduler reacts to it afterwards: no new window, no retry, no
+            // further write.
             await WaitFor(() => inner.WriteCount >= 1);
             await UniTask.Delay(WindowMilliseconds * 3);
 
             Assert.AreEqual(1, inner.WriteCount, "the one abandoned write must land exactly once and never repeat or retry after Dispose");
         });
 
-        /// <remarks>
-        /// See docs/saving.md, "Disposal and a pending write".
-        /// </remarks>
-        [Test]
-        public void Dispose_WhileACoalescingWindowIsStillCountingDown_CancelsIt_OverANonHoppingComposition()
+        // --- Cancellation (docs/saving.md, "Disposal and a pending write") -------------------
+
+        [UnityTest]
+        public IEnumerator Dispose_WhileACoalescingWindowIsStillCountingDown_CancelsIt_OverANonHoppingComposition() => UniTask.ToCoroutine(async () =>
         {
+            // Non-hopping: Dispose's own best-effort flush completes synchronously here (the same
+            // path Dispose_WithAPendingWriteOverANonHoppingComposition_FlushesIt above proves on its
+            // own), so exactly one write exists the moment Dispose returns. Real time is then let
+            // run well past the window the MarkDirty opened: a window that survived Dispose would
+            // fire inside that time, and whatever it did - a second write, or a throw out of its
+            // continuation against a scheduler already torn down, which the test runner reports as
+            // an unhandled log - is what this waits to see. Asserting on the write count only
+            // before that time had passed could never have caught it.
             RecordingSaveStore store = TrackedStore();
             ISaveService service = new SaveService(new JsonCodec(), new NoProtection(), store);
             string key = UniqueKey(nameof(Dispose_WhileACoalescingWindowIsStillCountingDown_CancelsIt_OverANonHoppingComposition));
@@ -261,16 +273,23 @@ namespace Company.ChestGame.Tests.PlayMode
             Assert.IsFalse(scheduler.IsFlushing, "guard: the window must not have elapsed yet - nothing should be flushing");
 
             Assert.DoesNotThrow(() => scheduler.Dispose());
+            Assert.AreEqual(1, store.WriteCount, "guard: Dispose's own best-effort flush has to have written synchronously");
+
+            await UniTask.Delay(WindowMilliseconds * 3);
+            await UniTask.Yield();
+            await UniTask.Yield();
 
             Assert.AreEqual(1, store.WriteCount, "Dispose's own best-effort flush must be the only write - the cancelled window must never fire one of its own");
-        }
+            Assert.IsFalse(scheduler.HasPendingWrite, "nothing may be left pending once Dispose has flushed");
+        });
 
-        /// <remarks>
-        /// See docs/saving.md, "Disposal and a pending write".
-        /// </remarks>
         [UnityTest]
         public IEnumerator Dispose_WithAPendingWriteThatNeverStartedFlushing_OverAHoppingComposition_LogsTheLossAndDoesNotThrow() => UniTask.ToCoroutine(async () =>
         {
+            // The window is still counting down - not yet claimed by a flush - so Dispose's own
+            // synchronous attempt is what has to leave the calling thread here, a different branch
+            // from Dispose_WithAWriteMidHopAndANewerOneQueued above (which finds a flush already
+            // running). Both log, naming the key, and neither throws.
             RecordingSaveStore inner = TrackedStore();
             ThreadHoppingStore hopStore = new(inner);
             ISaveService service = new SaveService(new JsonCodec(), new NoProtection(), hopStore);
@@ -283,6 +302,8 @@ namespace Company.ChestGame.Tests.PlayMode
             LogAssert.Expect(LogType.Error, new Regex(Regex.Escape(key)));
             Assert.DoesNotThrow(() => scheduler.Dispose());
 
+            // The abandoned attempt still lands once released - unobserved by the scheduler, but not
+            // hung forever - which is what keeps this fixture from leaking a live continuation.
             await WaitFor(() => inner.WriteCount >= 1);
         });
     }

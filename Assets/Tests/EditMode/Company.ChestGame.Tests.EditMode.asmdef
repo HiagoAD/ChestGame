@@ -22,7 +22,6 @@
         "Company.ChestGame.Rewards",
         "Company.ChestGame.Saving",
         "Company.ChestGame.Saving.Demo",
-        "TapNation.Modules",
         "UniTask",
         "Unity.Addressables",
         "Unity.ResourceManager",

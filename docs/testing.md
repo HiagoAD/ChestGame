@@ -4,12 +4,12 @@ Two suites, split by what only a real engine can prove.
 
 | Suite | Ours | Wall time |
 |---|---|---|
-| EditMode | 708 | ~2 s |
-| PlayMode | 74 | ~25 s |
+| EditMode | <!-- COUNT: to be filled from the post-merge run --> | <!-- WALLTIME: to be filled from the post-merge run --> |
+| PlayMode | <!-- COUNT: to be filled from the post-merge run --> | <!-- WALLTIME: to be filled from the post-merge run --> |
 
 Reproduce them with `ci/run-tests.sh`; the wall times move a little run to run. The numbers are
 written here rather than linked because `ci-results/` is gitignored, so a fresh clone has none until
-it runs the suites itself. The EditMode runner reports 709: the
+it runs the suites itself. The EditMode runner reports <!-- COUNT: to be filled from the post-merge run --> (one more than the table): the
 Addressables package ships one editor test of its own
 (`AddressableAssets.DocExampleCode.TestStub.RequiredTest`) and Unity picks it up. It is not ours and
 is not counted above.
@@ -152,7 +152,7 @@ Thirty-five EditMode fixtures and four PlayMode ones, by what they protect:
 | The service | `SaveServiceTests`, `SaveServiceMigrationTests`, `SaveServiceLegacyImportTests`, `SaveServiceTamperDetectionTests`, `SaveServiceCompletesOnCallingThreadTests`, `SaveMigratorTests` |
 | Factory and profile | `SaveServiceFactoryTests`, `SaveServiceFactoryCrossProductTests` (every storage/codec/protector triple), `SaveProfileSOTests`, `SaveProfileValidatorTests` |
 | Scheduler and flush | `SaveSchedulerTests`, `SaveFlushRegistryTests`, `GameLifetimeScopePauseQuitFlushTests` |
-| Currency | `CurrencyResourceBankSaveHandleTests`, `CurrencyLegacyImportIntegrationTests` |
+| Currency | `CurrencySaveHandlerTests`, `CurrencyLegacyImportIntegrationTests` |
 | Chests | `ChestsMinigameSaveTests` (including the two that pin decision #17) |
 | The inspector | `SavePipelineProbeTests`, `SaveTamperTests` |
 

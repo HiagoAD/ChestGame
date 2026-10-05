@@ -80,9 +80,14 @@ namespace Company.ChestGame.Minigame.Core
         /// </remarks>
         public async UniTask BeginAsync(Transform parent, CancellationToken ct)
         {
+            // Loud rather than a silent early return, and deliberately not symmetrical with End:
+            // a second start takes a second ref-count on the view that the single End can never
+            // give back.
             if (_running) throw new MinigameAlreadyRunningException(_definition != null ? _definition.Id : null);
 
-            bool injected = false;
+            // Set the moment injection begins, so the catch disposes a controller only once it may
+            // have taken on something Dispose gives back, and never one that was never reached.
+            bool controllerInjected = false;
 
             try
             {
@@ -93,20 +98,20 @@ namespace Company.ChestGame.Minigame.Core
                 await _definition.ConfigureControllerAsync(ControllerInstance, _assets, ct);
                 ct.ThrowIfCancellationRequested();
 
+                controllerInjected = true;
                 _resolver.Inject(ControllerInstance);
-                injected = true;
 
+                // Through the resolver rather than Addressables, so the view and everything under
+                // it are injected the way every other object in the game is.
                 ViewInstance = _resolver.Instantiate(prefab.GetComponent<MinigameViewBase>(), parent);
                 ViewInstance.SetController(ControllerInstance);
                 _running = true;
             }
             catch
             {
-                if (injected)
-                {
-                    ControllerInstance.Dispose();
-                }
-
+                // Nothing else can ever let these go: End is a no-op until _running is true, which
+                // is the last line above. The view is destroyed here for the same reason, one
+                // object further on.
                 if (ViewInstance != null)
                 {
                     Object.Destroy(ViewInstance.gameObject);
@@ -114,6 +119,24 @@ namespace Company.ChestGame.Minigame.Core
                 }
 
                 ReleaseContent();
+
+                // Same reason, for the controller: injection is where it registers for flushing,
+                // and End, which would dispose it, is a no-op until _running is true. Last, and
+                // logged rather than thrown, so a failing Dispose cannot replace the failure the
+                // caller needs to see. The nested catch ends before the bare throw below, which is
+                // what keeps that throw pointing at the original.
+                if (controllerInjected)
+                {
+                    try
+                    {
+                        ControllerInstance.Dispose();
+                    }
+                    catch (Exception disposeException)
+                    {
+                        Debug.LogError($"The controller of minigame '{_definition.Id}' failed to dispose after its start failed: {disposeException.Message}");
+                    }
+                }
+
                 throw;
             }
         }

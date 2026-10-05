@@ -191,12 +191,14 @@
 }
 
 /* The one control a collapsed demo leaves on screen, placed clear of the game's own currency HUD.
-   160px is a fixed constant with margin to spare, not a measurement of it. */
+   160px is a fixed constant with margin to spare, not a measurement of it. min-width is the floor
+   shared with the save inspector's toggle (SaveInspector.uss) so the two stack as one column; keep
+   the two equal, and wide enough that no label sets its own width. */
 .toggle {
     position: absolute;
     top: 160px;
     right: var(--gutter);
-    min-width: 256px;
+    min-width: 280px;
     font-size: 26px;
 }
 

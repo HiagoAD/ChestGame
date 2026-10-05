@@ -32,6 +32,9 @@ in [WIP.md](WIP.md).
 - [context/self-contained-minigames.md](context/self-contained-minigames.md): how a minigame became a
   unit of content delivery, covering the config split, its own assembly, the boot scene, and
   Addressables.
+- [context/dropping-resource-bank.md](context/dropping-resource-bank.md): how the vendored Resource
+  Bank library was replaced by project-owned currency code, covering the design decisions, the
+  behaviour contract the replacement keeps, and what the tests still do not pin.
 
 Read the reference files for what the architecture is, and the session notes before changing anything
 structural.

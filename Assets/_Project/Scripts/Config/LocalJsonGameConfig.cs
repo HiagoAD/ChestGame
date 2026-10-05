@@ -5,12 +5,9 @@ using Company.ChestGame.Config.Internal;
 
 namespace Company.ChestGame.Config
 {
-    /// <summary>
-    /// Parses and validates GameConfig.json.
-    /// </summary>
-    /// <remarks>
-    /// See docs/architecture.md, "Config pipeline".
-    /// </remarks>
+    // Parses and validates GameConfig.json. Where the document came from is IGameConfigSource's
+    // problem, and it takes the document rather than the source so parse-and-validate stays a
+    // synchronous constructor. A real remote config would likely need callbacks here.
     public class LocalJsonGameConfig : IGameConfig
     {
         public long GemsReward { get; }
@@ -44,10 +41,13 @@ namespace Company.ChestGame.Config
             CoinsReward = parsedObject.CoinsReward;
         }
 
+        // A zero or negative reward reaches AddCurrency, which rejects it and logs an error on every
+        // win while the popup shows "+0". A field the document omits deserializes to 0, so this
+        // refuses that too.
         private static void Validate(GameConfigData data)
         {
-            ConfigValidation.Require(data.GemsReward >= 0, nameof(data.GemsReward), data.GemsReward);
-            ConfigValidation.Require(data.CoinsReward >= 0, nameof(data.CoinsReward), data.CoinsReward);
+            ConfigValidation.Require(data.GemsReward > 0, nameof(data.GemsReward), data.GemsReward);
+            ConfigValidation.Require(data.CoinsReward > 0, nameof(data.CoinsReward), data.CoinsReward);
         }
     }
 }

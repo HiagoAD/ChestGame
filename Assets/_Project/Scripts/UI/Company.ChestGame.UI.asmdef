@@ -4,7 +4,6 @@
     "references": [
         "Company.ChestGame.Currency",
         "Company.ChestGame.Mvc",
-        "TapNation.Modules",
         "Unity.TextMeshPro",
         "VContainer"
     ],

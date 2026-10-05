@@ -24,10 +24,16 @@ namespace Company.ChestGame.Tests.EditMode
         [TestCaseSource(nameof(EveryProtectionExceptNone))]
         public void Validate_JsonPrettyWithAnyNonNoneProtection_Warns(SaveProtection protection)
         {
+            // Base64, Xor and Hmac each warn on their own whatever the codec, so "some warning" is
+            // true of three of these four cases even with the JsonPretty check deleted. The warning
+            // has to be the one about JsonPretty itself, and it has to be the codec that earns it.
             IReadOnlyList<string> warnings = SaveProfileValidator.Validate(SaveCodec.JsonPretty, protection);
+            IReadOnlyList<string> sameProtectionWithJson = SaveProfileValidator.Validate(SaveCodec.Json, protection);
 
-            Assert.IsNotEmpty(warnings,
-                $"JsonPretty + {protection} spends bytes indenting a body the protector then makes unreadable anyway");
+            Assert.IsTrue(warnings.Any(w => w.Contains("JsonPretty")),
+                $"JsonPretty + {protection} spends bytes indenting a body the protector then makes unreadable anyway, and the warning has to say so");
+            Assert.IsFalse(sameProtectionWithJson.Any(w => w.Contains("JsonPretty")),
+                $"guard: Json + {protection} must not carry the JsonPretty warning, or the codec is not what triggers it");
         }
 
         [Test]
@@ -119,8 +125,10 @@ namespace Company.ChestGame.Tests.EditMode
                 serialized.ApplyModifiedPropertiesWithoutUndo();
 
                 IReadOnlyList<string> warnings = SaveProfileValidator.Validate(profile);
+                IReadOnlyList<string> expected = SaveProfileValidator.Validate(SaveCodec.JsonPretty, SaveProtection.Aes);
 
-                Assert.IsNotEmpty(warnings,
+                Assert.IsNotEmpty(expected, "guard: JsonPretty + Aes has to warn at all, or agreeing with it proves nothing");
+                CollectionAssert.AreEqual(expected, warnings,
                     "the profile overload has to read the same _codec/_protection fields the inspector writes, not defaults of its own");
             }
             finally

@@ -183,9 +183,10 @@ namespace Company.ChestGame.Minigame.Chests.Internal
         /// </remarks>
         private bool ShouldDiscardRestore(ChestsRunSaveDocument document)
         {
+            // A hand-edited save can say null where the list belongs; RestoreFrom has nothing to read.
             List<int> indices = document.OpenedChestIndices;
-
             if (indices == null) return true;
+
             if (document.ChestCount != Chests.Count) return true;
             if (indices.Count >= TotalAttempts) return true;
 

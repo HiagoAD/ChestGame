@@ -9,20 +9,13 @@ using UnityEngine;
 
 namespace Company.ChestGame.Tests.EditMode
 {
-    /// <summary>
-    /// The legacy import, end to end, through the real adapter types this phase adds -
-    /// <see cref="CurrencyLegacyImport"/>, <see cref="CurrencyResourceBankSaveHandle"/>,
-    /// <see cref="CurrencySaveDocument"/>, <see cref="SaveScheduler{T}"/> - composed by hand exactly
-    /// the shape <c>GameLifetimeScope.RegisterCoreServices</c> composes, but never through
-    /// <c>GameLifetimeScope</c> itself, so this never touches the developer's real
-    /// <c>Application.persistentDataPath</c> or real <c>"ResourceBankSaveData_CurrencyType"</c>
-    /// PlayerPrefs entry. Every root and legacy key below is unique per test and cleaned up in
-    /// TearDown even on failure.
-    /// </summary>
-    /// <remarks>
-    /// See docs/saving.md, "The legacy import: CurrencyLegacyImport".
-    /// See docs/saving.md, "Currency: the first real caller".
-    /// </remarks>
+    // The legacy import, end to end, through the real adapter types this phase adds -
+    // CurrencyLegacyImport, CurrencySaveHandler, CurrencySaveDocument, SaveScheduler<T> -
+    // composed by hand exactly the shape GameLifetimeScope.RegisterCoreServices composes, but never
+    // through GameLifetimeScope itself, so this never touches the developer's real
+    // Application.persistentDataPath or real "ResourceBankSaveData_CurrencyType" PlayerPrefs entry.
+    // Every root and legacy key below is unique per test and cleaned up in TearDown even on
+    // failure. See docs/saving.md, "The legacy import" and "Currency: the first real caller".
     public class CurrencyLegacyImportIntegrationTests
     {
         private string _root;
@@ -35,9 +28,6 @@ namespace Company.ChestGame.Tests.EditMode
             _legacyKey = "ChestGameSaveTests.Legacy." + Guid.NewGuid().ToString("N");
         }
 
-        /// <remarks>
-        /// See docs/saving.md, "The legacy import: CurrencyLegacyImport".
-        /// </remarks>
         [TearDown]
         public void TearDown()
         {
@@ -45,6 +35,8 @@ namespace Company.ChestGame.Tests.EditMode
 
             PlayerPrefs.DeleteKey(_legacyKey);
 
+            // CurrencyLegacyImport.Clear renames rather than deletes, so a successful import leaves
+            // a second key behind that deleting _legacyKey alone never touches.
             PlayerPrefs.DeleteKey(_legacyKey + ".migrated");
             PlayerPrefs.Save();
         }
@@ -63,8 +55,8 @@ namespace Company.ChestGame.Tests.EditMode
 
         private static CurrencyManager NewManager(ISaveService service, out SaveScheduler<CurrencySaveDocument> scheduler)
         {
-            scheduler = new SaveScheduler<CurrencySaveDocument>(service, CurrencyResourceBankSaveHandle.SaveKey, new FakeGameClock());
-            return new CurrencyManager(new CurrencyResourceBankSaveHandle(service, scheduler));
+            scheduler = new SaveScheduler<CurrencySaveDocument>(service, CurrencySaveHandler.SaveKey, new FakeGameClock());
+            return new CurrencyManager(new CurrencySaveHandler(service, scheduler));
         }
 
         private void SeedLegacyData(long coins, long gems) =>
@@ -80,7 +72,7 @@ namespace Company.ChestGame.Tests.EditMode
 
             Assert.AreEqual(0, manager.GetCurrencyAmount(CurrencyType.Coins));
             Assert.AreEqual(0, manager.GetCurrencyAmount(CurrencyType.Gems));
-            Assert.IsFalse(SynchronousUniTask.Result(service.ExistsAsync(CurrencyResourceBankSaveHandle.SaveKey, CancellationToken.None)),
+            Assert.IsFalse(SynchronousUniTask.Result(service.ExistsAsync(CurrencySaveHandler.SaveKey, CancellationToken.None)),
                 "a plain first run with nothing legacy present must not write anything");
 
             scheduler.Dispose();
@@ -97,7 +89,7 @@ namespace Company.ChestGame.Tests.EditMode
 
             Assert.AreEqual(670, manager.GetCurrencyAmount(CurrencyType.Coins), "balances have to carry across identically");
             Assert.AreEqual(180, manager.GetCurrencyAmount(CurrencyType.Gems), "balances have to carry across identically");
-            Assert.IsTrue(SynchronousUniTask.Result(service.ExistsAsync(CurrencyResourceBankSaveHandle.SaveKey, CancellationToken.None)),
+            Assert.IsTrue(SynchronousUniTask.Result(service.ExistsAsync(CurrencySaveHandler.SaveKey, CancellationToken.None)),
                 "a real save has to exist under the new key once the import runs");
             Assert.IsFalse(PlayerPrefs.HasKey(_legacyKey), "the old legacy key has to be cleared once the import succeeds");
 
@@ -115,6 +107,8 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.AreEqual(50, manager1.GetCurrencyAmount(CurrencyType.Coins));
             scheduler1.Dispose();
 
+            // A second, independent resolve over the same root and the same (now-cleared) legacy
+            // key - standing in for a second boot of the game.
             ISaveService service2 = NewService();
             CurrencyManager manager2 = NewManager(service2, out SaveScheduler<CurrencySaveDocument> scheduler2);
 
@@ -124,12 +118,14 @@ namespace Company.ChestGame.Tests.EditMode
             scheduler2.Dispose();
         }
 
-        /// <remarks>
-        /// See docs/saving.md, "The legacy import: CurrencyLegacyImport".
-        /// </remarks>
         [Test]
         public void SecondResolve_WithTheLegacyKeyStillPresent_DoesNotReimport_AndDoesNotOverwriteANewerSave()
         {
+            // Simulates a Clear() that silently failed to stick - the legacy key is still present
+            // the second time around, and the structural guarantee this design exists for is that
+            // the branch becomes unreachable once a real save exists under the new key, not that
+            // IsPresent() is trusted to answer false a second time. See docs/saving.md, "The legacy
+            // import".
             SeedLegacyData(670, 180);
             PlayerPrefs.Save();
 
@@ -141,6 +137,8 @@ namespace Company.ChestGame.Tests.EditMode
             scheduler1.FlushBlocking();
             scheduler1.Dispose();
 
+            // Re-seed the legacy key exactly as it read before Clear() ran, standing in for a
+            // Clear() call that never survived an unclean quit.
             SeedLegacyData(670, 180);
             PlayerPrefs.Save();
 

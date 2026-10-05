@@ -91,20 +91,21 @@ follows can only give one back.
 
 ## Failure during a start
 
-If anything in `BeginAsync` throws, the catch releases what was already taken and destroys the view
-instance if one exists, then rethrows. If injection had already completed, it disposes the controller
-first, then destroys the view and releases the content, the order `End` uses.
+If anything in `BeginAsync` throws, the catch destroys the view instance if one exists, releases what
+was already taken, and then disposes the controller if injection had begun. It rethrows the original
+exception afterwards.
 
-`BeginAsync` tracks whether `Inject` returned. A failure after that (view instantiation, or
+`BeginAsync` sets a `controllerInjected` flag immediately before `Inject` is called, not after it
+returns. A failure from that point on (a throw inside `Inject` itself, view instantiation, or
 `SetController`, which throws `ArgumentException` on a controller type mismatch) disposes the
 controller, because injection may have registered something with the root scope, as the chests
-controller's `SaveScheduler` does. A failure before injection completes does not, and that includes a
-throw inside `Inject` itself. `Dispose`'s contract covers only a controller whose injection
-completed, so the container never calls it on a half-injected one. A controller that registers
-something during `Inject` must therefore register it last, as the chests controller does with its
-`SaveScheduler` (see [saving.md](saving.md), "A scheduler the composition root cannot name has to
-register itself", the "`Register` runs last" rule), so a throw inside `Inject`
-leaves nothing registered to undo.
+controller's `SaveScheduler` does. A failure before that point (the download, the loads,
+`ConfigureControllerAsync`, the cancellation check) disposes nothing, because nothing has been taken
+on. A controller whose `Inject` throws part way is therefore disposed, and its `Dispose` has to be safe
+on a controller that was only partly injected. A controller that registers something during `Inject`
+still registers it last, as the chests controller does with its `SaveScheduler` (see
+[saving.md](saving.md), "A scheduler the composition root cannot name has to register itself", the
+"`Register` runs last" rule), so a throw inside `Inject` leaves nothing registered for `Dispose` to undo.
 
 `BeginAsync` calls `ct.ThrowIfCancellationRequested()` after its last await, `ConfigureControllerAsync`,
 and before `Inject`. Without it, a cancel landing during that await, with a definition override or
@@ -121,6 +122,15 @@ container that never began, and "release what I took" is the only statement that
 cases. The view instance is destroyed in the same place for the same reason, one object further on. A
 view created just before `SetController` threw would otherwise sit in the scene, unreferenced and
 undestroyable, for the rest of the session.
+
+The controller follows the same rule. Injection is where `ChestsMinigameController` registers with the
+process-wide flush registry, so a start that fails after it would otherwise leave that registration
+behind with nothing left to call `Dispose`. `End` stays a no-op afterwards, so the controller is
+disposed exactly once.
+
+If that `Dispose` throws, the failure is logged and swallowed, so the exception `BeginAsync` rethrows is
+always the one that made the start fail rather than one from its cleanup. The nested catch ends before
+the bare `throw`, which keeps the rethrow pointing at the original.
 
 ## Teardown
 
@@ -220,8 +230,9 @@ build one for it. It also loads whatever run was left pending, holding it for th
 call rather than applying it immediately. A saved run this build cannot read is logged and discarded
 rather than thrown: it holds no reward a player earned, since the win pays out through currency's own
 save. Registration happens last, so nothing throwing above it can leave a scheduler registered for
-the lifetime of the process against a half-injected controller. `Dispose` unregisters and disposes
-the scheduler, and stays idempotent.
+the lifetime of the process. If `Inject` throws, the container still calls `Dispose` (see "Failure
+during a start"), which has to cope with the scheduler never having been built. `Dispose` unregisters
+and disposes the scheduler, and stays idempotent.
 
 A click spawns two concurrent UniTasks under one cancellation token: one updates the chest's progress
 every frame through `IGameClock.NextFrame`, which lasts exactly one update loop the way

@@ -1,4 +1,5 @@
 using System.Collections;
+using System.Collections.Generic;
 using System.Threading;
 using Company.ChestGame.Config;
 using Company.ChestGame.Core;
@@ -15,6 +16,9 @@ using Company.ChestGame.UI;
 using Cysharp.Threading.Tasks;
 using NUnit.Framework;
 using UnityEngine;
+using UnityEngine.AddressableAssets;
+using UnityEngine.ResourceManagement.AsyncOperations;
+using UnityEngine.ResourceManagement.ResourceLocations;
 using UnityEngine.SceneManagement;
 using UnityEngine.TestTools;
 using VContainer;
@@ -134,15 +138,36 @@ namespace Company.ChestGame.Tests.PlayMode
         /// <remarks>
         /// See docs/minigames.md, "What adding a minigame actually takes".
         /// </remarks>
-        [Test]
-        public void TheShippedChestsMinigame_NamesItsOwnContent()
+        [UnityTest]
+        public IEnumerator TheShippedChestsMinigame_NamesContentThatActuallyResolves()
         {
+            // The two fields the delivery paths read, pinned against the group they describe. The
+            // label is asked of Addressables itself rather than compared to a string copied out of
+            // the asset: a literal moves with the descriptor, so it could never notice the label
+            // drifting away from the one the group's entries actually carry.
             IMinigameCatalog catalog = Resolve<IMinigameCatalog>();
             MinigameBaseSO definition = catalog.Minigames[typeof(ChestsMinigame)];
 
-            Assert.AreEqual("minigame.chests", definition.ContentLabel,
-                "the label has to match the one the group's entries carry");
             Assert.AreEqual(MinigameLoadPolicy.OnDemand, definition.LoadPolicy);
+            Assert.IsFalse(string.IsNullOrWhiteSpace(definition.ContentLabel),
+                "the shipped chests minigame has to name a content label at all");
+
+            AsyncOperationHandle<IList<IResourceLocation>> locating =
+                Addressables.LoadResourceLocationsAsync(definition.ContentLabel);
+            try
+            {
+                yield return locating;
+
+                Assert.AreEqual(AsyncOperationStatus.Succeeded, locating.Status,
+                    $"looking up the label '{definition.ContentLabel}' failed outright");
+                Assert.IsNotNull(locating.Result);
+                Assert.Greater(locating.Result.Count, 0,
+                    $"no Addressables entry carries '{definition.ContentLabel}', so the minigame's content can never be fetched as a unit");
+            }
+            finally
+            {
+                Addressables.Release(locating);
+            }
         }
 
         /// <remarks>

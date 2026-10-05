@@ -42,9 +42,19 @@ namespace Company.ChestGame.Tests.EditMode
         /// </remarks>
         public bool ToJsonWasCalled { get; private set; }
 
+        // Exactly what each call was handed, copied on the way in. A canned DecodeResult or
+        // ToJsonResult answers the same whatever arrives, so without these a round trip through
+        // this fake proves nothing about which bytes SaveService actually passed along.
+        public byte[] LastDecodeInput { get; private set; }
+        public byte[] LastToJsonInput { get; private set; }
+
         public byte[] EncodeResult { get; set; } = Array.Empty<byte>();
         public Func<byte[], object> DecodeResult { get; set; }
         public string ToJsonResult { get; set; } = "{}";
+
+        // When set, wins over ToJsonResult, so a test can make the JSON a migration sees depend on
+        // the bytes that reached this codec rather than on a fixed string.
+        public Func<byte[], string> ToJsonFromInput { get; set; }
 
         public byte[] Encode<T>(T value)
         {
@@ -55,13 +65,15 @@ namespace Company.ChestGame.Tests.EditMode
         public T Decode<T>(byte[] bytes)
         {
             DecodeWasCalled = true;
+            LastDecodeInput = (byte[])bytes?.Clone();
             return DecodeResult != null ? (T)DecodeResult(bytes) : default;
         }
 
         public string ToJson(byte[] encoded)
         {
             ToJsonWasCalled = true;
-            return ToJsonResult;
+            LastToJsonInput = (byte[])encoded?.Clone();
+            return ToJsonFromInput != null ? ToJsonFromInput(encoded) : ToJsonResult;
         }
     }
 }

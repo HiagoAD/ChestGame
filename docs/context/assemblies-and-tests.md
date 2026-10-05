@@ -116,14 +116,16 @@ instead, which no longer contains `Assembly-CSharp.dll` at all.
 explicitly. This is why `Unity.TextMeshPro` had to be added by hand to three asmdefs even though its
 own asmdef sets `autoReferenced: true`.
 
-**`ICurrencyManager` leaks a third-party type.** Its events are typed
-`ResourceBankCallbacks<CurrencyType>.ResourceAmountChangedDelegate`, so every consumer needs a
-reference to `TapNation.Modules`. `Company.ChestGame.UI` references a vendored currency library
-purely to subscribe to an event. The monolith hid this. It is a real design smell; the fix is tracked in [WIP.md](../WIP.md).
+**`ICurrencyManager` leaked a third-party type.** Its events were typed
+`ResourceBankCallbacks<CurrencyType>.ResourceAmountChangedDelegate`, so every consumer needed a
+reference to `TapNation.Modules`. `Company.ChestGame.UI` referenced a vendored currency library
+purely to subscribe to an event. The monolith hid this. It was a real design smell. **Resolved:** the
+events now use the project-owned `CurrencyChangedHandler` and the library is gone; see
+[dropping-resource-bank.md](dropping-resource-bank.md).
 
 **A container-resolved `CurrencyManager` reads the real PlayerPrefs save.** This surfaced as a test
 failing with "Expected: 0, But was: 470", where 470 was the developer's actual coin balance. Tests
-that build a `CurrencyManager` directly must pass `InMemoryResourceBankSaveHandler`. The one test
+that build a `CurrencyManager` directly must pass `InMemoryCurrencySaveHandler`. The one test
 that resolves it from the container deliberately asserts nothing about balances.
 
 **`Debug.LogError` fails a test by default.** `CurrencyManager` logs an error on every rejected
@@ -230,9 +232,14 @@ Each of these was reachable in the shipped game unless noted.
 ## 7. Known gaps, and one honest caveat
 
 The gaps this pass left, and the one honest caveat about `FakeGameClock`, are tracked in
-[WIP.md](../WIP.md), "Known gaps in the tests" and "Open decisions, awaiting the project owner": `GameManager`'s
-behaviour untested, `CurrencyWatcher` untested, the dormant play-mode ordering test, the fake
-clock that cannot reproduce the ordering bug, and `ICurrencyManager` leaking `ResourceBankCallbacks`.
+[WIP.md](../WIP.md), "Known gaps in the tests": `GameManager`'s behaviour untested, the dormant
+play-mode ordering test, and the fake clock that cannot reproduce the ordering bug. The gap that was
+first listed here as `CurrencyWatcher` untested was reshaped by the MVC refactor into
+`CurrencyLabelController`, which has tests; see [WIP.md](../WIP.md) for what remains.
+
+**`ICurrencyManager` leaking `ResourceBankCallbacks`** is resolved: the delegate is now the
+project-owned `CurrencyChangedHandler`, and `UI` no longer references `TapNation.Modules`. See
+[dropping-resource-bank.md](dropping-resource-bank.md).
 
 ---
 
@@ -244,12 +251,13 @@ Fakes live in `Tests/Common/` and are shared by both suites.
 |---|---|
 | `ChestsMinigameControllerTests` | The whole chest flow through `OnChestClicked`, including both UniTasks, cancellation, attempt accounting, prize odds, end-of-game |
 | `ChestsMinigameChestModelTests` | Per-chest state machine and its guards |
-| `CurrencyManagerTests` | Add/spend guards, the spent-vs-changed sign asymmetry, persistence through the save handler |
+| `CurrencyManagerTests` | Add/spend guards including the opt-in zero spend, the spent-vs-changed sign asymmetry, event order within one operation, the cheat reset, persistence through `ICurrencySaveHandler` (load once, a fresh snapshot per save, the loaded document copied rather than adopted), a throwing listener being logged and stopping nothing, listeners seeing the change already saved and in memory, and a null handler throwing `SaveException` |
+| `CurrencySaveHandlerTests` | `CurrencyManager` over the real `CurrencySaveHandler` and scheduler: saves that miss a currency or carry a null `ResourceAmount`, the new state handed to the handler before any callback fires, a throwing listener not stopping the save, what a listener can flush, and a disposed scheduler failing the call with nothing changed |
 | `LocalJsonGameConfigTests` | Missing, empty, malformed, non-object, and out-of-range game config documents |
 | `CatalogTests` | Empty slots and duplicate types in both catalogs, and for minigames the id lookup: indexing by authored id, a duplicate id throwing, a blank id skipped with a warning |
 | `MinigameManagerTests` | Container construction by type and by id, fresh instance per request, all three throw paths, and that `Get` neither configures nor injects the controller — both of which belong to `BeginAsync` now |
 | `PopupManagerTests` | Catalog lookup, parent selection, data hand-off, unregistered popup |
-| `RewardsManagerTests` | Currency draw, amount from config, popup and event agreement |
+| `RewardsManagerTests` | Currency draw, amount from config, popup and event agreement, and that a throwing currency listener does not stop the reward |
 | `PrefabPoolTests` | All four pool strategies against one shared contract: reuse, bounds, disposal, and that only `DirectSpawner` instantiates on a second get |
 | `FrameBudgetedLoopTests` | That work is spread by elapsed time rather than by item count, and that every frame places at least one unit |
 | `PoolRaceTests` | The race orchestration against a fake clock: per-lane timing, solo vs all-four, the three fill modes |

@@ -27,11 +27,6 @@ Raised during review, none ruled on. **Do not act on these without asking.**
    GUID is covered (that is a `MissingAssetException`); a right GUID on the wrong asset is not.
 4. **Filter the Addressables package's own test** out of `ci/run-tests.sh` via `-assemblyNames`, so
    the EditMode count is the project's own rather than one higher and needing explanation.
-5. **`ICurrencyManager` leaks `ResourceBankCallbacks<CurrencyType>`.** Its events are typed with the
-   vendored library's delegate, so every consumer, including `Company.ChestGame.UI`, has to reference
-   `TapNation.Modules` purely to subscribe to an event. Wrapping the delegate in a project-owned type
-   would let `UI` drop that reference. Kept out of earlier passes so it would not muddy their diffs;
-   it deserves its own.
 
 ## Planned features
 
@@ -56,8 +51,8 @@ The first belongs after a successful add, the second after a successful spend.
 
 ### Currency: purchase flow on insufficient currency
 
-`TrySpendCurrency` takes a `spawnCurrencyPurchasePopup` flag for exactly this case, but when the bank
-reports `InsufficientAmount` and the flag is set, nothing happens: the branch is empty, and the
+`TrySpendCurrency` takes a `spawnCurrencyPurchasePopup` flag for exactly this case, but when the
+validation rejects the spend as `InsufficientAmount` and the flag is set, nothing happens: the branch is empty, and the
 method falls through to the same log-and-return-false path as any other failure. Opening a shop or
 purchase flow so the player can make up the difference is planned, not built. The placeholder that
 marked the spot:
@@ -70,11 +65,11 @@ marked the spot:
 
 ### Save writes still cost main-thread frame time
 
-`ThreadHoppingStore` is not wired into any composition this game ships. `CurrencyResourceBankSaveHandle`
+`ThreadHoppingStore` is not wired into any composition this game ships. `CurrencySaveHandler`
 structurally refuses to be paired with one (see [saving.md](saving.md), "`Load()` blocks"), and
 `ChestsMinigameController.Inject` refuses for the same reason. So the frame cost of encoding and
-writing a save still lands on the main thread, as it always did under `DefaultResourceBankSaveHandle`,
-bounded to once per coalescing window rather than once per coin. The route [saving.md](saving.md)
+writing a save still lands on the main thread, as it always did under the removed library's
+`DefaultResourceBankSaveHandle`, bounded to once per coalescing window rather than once per coin. The route [saving.md](saving.md)
 describes is to pre-load those saves during boot, in an async step ahead of
 `GameLifetimeScope.RegisterCoreServices`, so `Load()` hands back what was already fetched; only then
 can the wrapper go into the composition. Adding it to today's composition is not an option.
@@ -89,6 +84,15 @@ gain, so the names stay for now and their declarations say what they actually go
 
 ## Known gaps in the tests
 
+- **Currency behaviour the tests do not pin.** A save naming a currency no longer in `CurrencyType`
+  (whether the codec lets it reach `CurrencyManager`, which would keep and rewrite the stray balance);
+  `long` overflow on an add, which has no guard (one would need a typed exception); the empty
+  `spawnCurrencyPurchasePopup` branch, where passing `true` does nothing and nothing asserts that;
+  `FakeCurrencyManager` still letting listener exceptions escape, so retiring it in
+  `RewardsManagerTests` is open; no write-together guarantee across the chests run clear and the
+  currency credit, which land on two schedulers; and `TrySpendCurrency` logging `Debug.LogError` for
+  insufficient funds, which a future shop's tests would have to `LogAssert.Expect`. Reasoning in
+  [context/dropping-resource-bank.md](context/dropping-resource-bank.md), "What is not pinned".
 - **Part of `GameShellView`'s behaviour is untested.** The shell's rules are asserted by
   `GameShellControllerTests`, and `GameShellTeardownTests` presses the real start button, waits for
   the start to settle with the button interactable again, and asserts the minigame starts. Still

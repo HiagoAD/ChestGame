@@ -281,8 +281,9 @@ asset's bundle in. The fields were rewired by hand and then re-saved through the
 Unity writes the same thing; it did, byte for byte.
 
 **An asset in a `Resources` folder *and* an addressable group ships twice.** The move to
-`_Project/Content` is not cosmetic. `Assets/TextMesh Pro/Resources` and
-`Assets/AssetLibrary/**/Resources` are not ours and are left alone.
+`_Project/Content` is not cosmetic. `Assets/TextMesh Pro/Resources` is not ours and is left alone.
+`Assets/AssetLibrary/**/Resources` was left alone too, until the folder was deleted along with
+Resource Bank; it is gone now. See [dropping-resource-bank.md](dropping-resource-bank.md).
 
 **Addressables loads never complete synchronously.** `Resources.Load` returned before the call did,
 which is why `SynchronousUniTask` worked in play mode. Addressables does not: the first call runs
@@ -483,6 +484,8 @@ The gaps this work left open, and those that predate it, are tracked in [WIP.md]
 untyped failure for a right-GUID-wrong-prefab view, the deadline nobody has watched fire against a
 real server, the untested boot status label, and the older ones this file used to point to in
 [assemblies-and-tests.md](assemblies-and-tests.md).
+One of those older gaps, `ICurrencyManager` leaking `ResourceBankCallbacks`, is resolved; see
+[dropping-resource-bank.md](dropping-resource-bank.md).
 
 ---
 
@@ -511,6 +514,11 @@ server is exactly the flakiness the project's testing agreements argue against.
 
 Moved to [WIP.md](../WIP.md), "Open decisions, awaiting the project owner", which keeps the rule that none of
 them is acted on without asking.
+
+`ICurrencyManager` leaking `ResourceBankCallbacks<CurrencyType>`, forcing every consumer, including
+`Company.ChestGame.UI`, to reference the vendored library, was also raised here and kept out of scope
+so it would not muddy these diffs. It got its own pass and is resolved; see
+[dropping-resource-bank.md](dropping-resource-bank.md).
 
 ---
 

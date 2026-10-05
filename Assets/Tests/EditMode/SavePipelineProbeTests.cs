@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text;
 using System.Threading;
 using Company.ChestGame.Saving;
 using Company.ChestGame.Saving.Demo;
@@ -64,16 +65,32 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.IsFalse(result.IsHexDump, $"{codec}/{protection} unexpectedly needed the hex fallback");
         }
 
+        // RawBytes is documented as what actually landed, read back through the store rather than
+        // re-encoded. The shared InMemory store is the one SaveComponentFactory hands back again
+        // here, so reading the probe's own key from it is an independent look at what landed. Aes
+        // draws a fresh IV per save, so a probe that re-encoded instead would differ from the store
+        // even for the same document.
         [TestCaseSource(nameof(EveryCodecAndProtection))]
-        public void RunAsync_EveryCombination_RecordsNonNegativeTimings(SaveCodec codec, SaveProtection protection)
+        public void RunAsync_EveryCombination_ReportsExactlyTheBytesThatLandedInTheStore(SaveCodec codec, SaveProtection protection)
         {
             SaveInspectorDocument document = new() { Balance = 1250, Nickname = "Ada", Level = 4 };
 
             SaveProbeResult result = SynchronousUniTask.Result(
                 SavePipelineProbe.RunAsync(SaveStorage.InMemory, codec, protection, _inputs, _key, document, CancellationToken.None));
 
-            Assert.GreaterOrEqual(result.WriteMilliseconds, 0);
-            Assert.GreaterOrEqual(result.ReadMilliseconds, 0);
+            ISaveStore store = SaveComponentFactory.CreateStore(SaveStorage.InMemory, _inputs);
+            byte[] landed = SynchronousUniTask.Result(store.ReadAsync(_key, CancellationToken.None));
+
+            Assert.IsNotNull(landed, "guard: the probe has to have written under its own key in the shared InMemory store");
+            CollectionAssert.AreEqual(landed, result.RawBytes,
+                $"{codec}/{protection}: RawBytes has to be exactly what the store holds under the key");
+            Assert.AreEqual(result.RawBytes.Length, result.ByteCount, "ByteCount has to count the bytes it reports");
+            Assert.AreEqual(new UTF8Encoding(false).GetString(landed), result.RenderedText,
+                "valid UTF-8 has to render as itself, not a summary or a re-serialisation");
+
+            SaveEnvelope envelope = SaveEnvelope.Parse(new UTF8Encoding(false).GetString(landed));
+            Assert.AreEqual(result.CodecId, envelope.CodecId, "the codec the probe reports has to be the one the stored envelope names");
+            Assert.AreEqual(result.ProtectorId, envelope.ProtectorId, "the protector the probe reports has to be the one the stored envelope names");
         }
 
         [Test]
