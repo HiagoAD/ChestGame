@@ -4,12 +4,12 @@ Two suites, split by what only a real engine can prove.
 
 | Suite | Ours | Wall time |
 |---|---|---|
-| EditMode | <!-- COUNT: to be filled from the post-merge run --> | <!-- WALLTIME: to be filled from the post-merge run --> |
-| PlayMode | <!-- COUNT: to be filled from the post-merge run --> | <!-- WALLTIME: to be filled from the post-merge run --> |
+| EditMode | 767 | ~2 s |
+| PlayMode | 77 | ~25 s |
 
 Reproduce them with `ci/run-tests.sh`; the wall times move a little run to run. The numbers are
 written here rather than linked because `ci-results/` is gitignored, so a fresh clone has none until
-it runs the suites itself. The EditMode runner reports <!-- COUNT: to be filled from the post-merge run --> (one more than the table): the
+it runs the suites itself. The EditMode runner reports 768: the
 Addressables package ships one editor test of its own
 (`AddressableAssets.DocExampleCode.TestStub.RequiredTest`) and Unity picks it up. It is not ours and
 is not counted above.
@@ -677,6 +677,6 @@ runs it later only has to check out the repo, supply a licensed Unity, and call 
 Two things any Unity pipeline needs regardless of provider. A licence has to be supplied at runtime,
 which for a Personal licence means the account credentials reaching the runner as secrets. And
 `Library/` has to be cached, keyed on `Assets/`, `Packages/` and `ProjectSettings/`. Without it every
-run re-imports the project from scratch, which costs several minutes against the 22 seconds the tests
+run re-imports the project from scratch, which costs several minutes against the roughly 27 seconds the tests
 actually take.
 </content>
