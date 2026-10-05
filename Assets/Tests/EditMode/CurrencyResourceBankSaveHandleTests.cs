@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using Company.ChestGame.Currency;
 using Company.ChestGame.Saving;
@@ -43,18 +44,21 @@ namespace Company.ChestGame.Tests.EditMode
         }
 
         // Wraps a real CurrencyResourceBankSaveHandle only to record the moment Save() runs
-        // relative to whatever else a test appends to the same list - never a replacement for the
-        // real handler's own logic, which every call here still reaches.
+        // relative to whatever else a test appends to the same list, and the coin balance it was
+        // handed at that moment - never a replacement for the real handler's own logic, which every
+        // call here still reaches.
         private class OrderRecordingHandler : IResourceBankSaveHandler<CurrencyType>
         {
             private readonly IResourceBankSaveHandler<CurrencyType> _inner;
             public readonly List<string> Events = new();
+            public readonly List<long> SavedCoinBalances = new();
 
             public OrderRecordingHandler(IResourceBankSaveHandler<CurrencyType> inner) => _inner = inner;
 
             public void Save(ResourceBankState<CurrencyType> data)
             {
                 Events.Add("Save");
+                SavedCoinBalances.Add(data.ResourceAmount[CurrencyType.Coins]);
                 _inner.Save(data);
             }
 
@@ -106,21 +110,25 @@ namespace Company.ChestGame.Tests.EditMode
             StringAssert.Contains("SaveScheduler", error.Message);
         }
 
-        // The composition-root guard's own exception contract - see docs/saving.md, "What ships,
-        // and where the composition asserts its own constraints". GameLifetimeScope.RegisterCoreServices
-        // hardcodes SaveStorage.AtomicFile for the currency store, so nothing reachable through its
-        // own public parameters (currencySaveInputs, legacyCurrencyPlayerPrefsKey) can ever make
-        // that registration's own ISaveFlushRegistry.Register call actually throw - this pins the
-        // exception's own message contract instead, since the throw site itself is unreachable
-        // without either a production change or a fake standing in for the real registration. See
-        // this gate's report for the coverage gap named plainly.
+        // The composition-root guard, through the real throw site rather than the message factory
+        // behind it. GameLifetimeScope.RegisterCoreServices hardcodes SaveStorage.AtomicFile for the
+        // currency store, so nothing reachable through its own public parameters can make its
+        // registration throw; what can be reached is the same SaveFlushRegistry.Register call over
+        // the same scheduler type and key, composed over a store that hops - the wiring mistake the
+        // guard exists to refuse before the one moment a pause flush would need it.
         [Test]
-        public void SchedulerCannotFlushBlockingException_NamesTheKey_AndMentionsFlushBlocking()
+        public void RegisteringTheCurrencySchedulerOverAHoppingService_IsRefused_NamingTheKey()
         {
-            SaveException error = SaveException.SchedulerCannotFlushBlocking("currency");
+            ISaveService hoppingService = new SaveService(new FakeSaveCodec(), new NoProtection(), new ThreadHoppingStore(new FakeSaveStore()));
+            using SaveScheduler<CurrencySaveDocument> scheduler = new(hoppingService, CurrencyResourceBankSaveHandle.SaveKey, new FakeGameClock());
+            SaveFlushRegistry registry = new();
 
-            StringAssert.Contains("currency", error.Message);
+            SaveException error = Assert.Throws<SaveException>(() => registry.Register(scheduler));
+
+            StringAssert.Contains($"'{CurrencyResourceBankSaveHandle.SaveKey}'", error.Message,
+                "the refusal has to name which save was wired wrong");
             StringAssert.Contains("FlushBlocking", error.Message);
+            CollectionAssert.IsEmpty(registry.Registered, "a refused scheduler must not have been registered anyway");
         }
 
         // --- Round trip (docs/saving.md, "Currency: the first real caller") --------------------
@@ -192,27 +200,35 @@ namespace Company.ChestGame.Tests.EditMode
             scheduler.Dispose();
         }
 
-        // --- Event-ordering asymmetry (docs/saving.md, "IResourceBankSaveHandler<T> is fully
-        // synchronous") - pre-existing ResourceBank<T> behaviour, unpinned until now, that the
-        // switch to write-behind could plausibly have disturbed. --------------------------------
+        // --- Save before notify (docs/saving.md, "IResourceBankSaveHandler<T> is fully
+        // synchronous") - as vendored, ResourceBank<T> notifies before saving on add but saves
+        // before notifying on spend. The order matters because a listener is arbitrary game code:
+        // one that throws during an add-first-notify-later sequence takes the save down with it, and
+        // the balance the player was just shown is never persisted. One contract for both
+        // directions: the new state reaches the save handler before any callback runs. -----------
 
         [Test]
-        public void TryAddResourceAmount_FiresItsCallback_BeforeSaving()
+        public void TryAddResourceAmount_HandsTheNewStateToTheSaveHandler_BeforeAnyCallbackFires()
         {
             ISaveService service = NewCurrencySaveService(_root);
             using SaveScheduler<CurrencySaveDocument> scheduler = new(service, CurrencyResourceBankSaveHandle.SaveKey, new FakeGameClock());
             OrderRecordingHandler handler = new(new CurrencyResourceBankSaveHandle(service, scheduler));
             CurrencyManager manager = new(handler);
 
-            manager.OnCurrencyCollected += (currency, amount, balance, source) => handler.Events.Add("Callback");
+            manager.OnCurrencyCollected += (currency, amount, balance, source) => handler.Events.Add("Collected");
+            manager.OnCurrencyChanged += (currency, amount, balance, source) => handler.Events.Add("Changed");
 
             manager.AddCurrency(CurrencyType.Coins, 5, "order-test");
 
-            CollectionAssert.AreEqual(new[] { "Callback", "Save" }, handler.Events);
+            Assert.AreEqual(3, handler.Events.Count, $"one save and two callbacks expected, got [{string.Join(", ", handler.Events)}]");
+            Assert.AreEqual("Save", handler.Events[0],
+                $"the new balance has to be handed to the save handler before any listener runs, got [{string.Join(", ", handler.Events)}]");
+            CollectionAssert.AreEquivalent(new[] { "Collected", "Changed" }, handler.Events.Skip(1));
+            CollectionAssert.AreEqual(new[] { 5L }, handler.SavedCoinBalances, "what was saved has to be the new balance");
         }
 
         [Test]
-        public void TryToSpendResource_SavesBeforeFiringItsCallback()
+        public void TryToSpendResource_HandsTheNewStateToTheSaveHandler_BeforeAnyCallbackFires()
         {
             ISaveService service = NewCurrencySaveService(_root);
             using SaveScheduler<CurrencySaveDocument> scheduler = new(service, CurrencyResourceBankSaveHandle.SaveKey, new FakeGameClock());
@@ -221,12 +237,50 @@ namespace Company.ChestGame.Tests.EditMode
 
             manager.AddCurrency(CurrencyType.Coins, 10, "seed");
             handler.Events.Clear();
+            handler.SavedCoinBalances.Clear();
 
-            manager.OnCurrencySpent += (currency, amount, balance, source) => handler.Events.Add("Callback");
+            manager.OnCurrencySpent += (currency, amount, balance, source) => handler.Events.Add("Spent");
+            manager.OnCurrencyChanged += (currency, amount, balance, source) => handler.Events.Add("Changed");
 
             Assert.IsTrue(manager.TrySpendCurrency(CurrencyType.Coins, 4, "order-test"));
 
-            CollectionAssert.AreEqual(new[] { "Save", "Callback" }, handler.Events);
+            Assert.AreEqual(3, handler.Events.Count, $"one save and two callbacks expected, got [{string.Join(", ", handler.Events)}]");
+            Assert.AreEqual("Save", handler.Events[0],
+                $"the new balance has to be handed to the save handler before any listener runs, got [{string.Join(", ", handler.Events)}]");
+            CollectionAssert.AreEquivalent(new[] { "Spent", "Changed" }, handler.Events.Skip(1));
+            CollectionAssert.AreEqual(new[] { 6L }, handler.SavedCoinBalances, "what was saved has to be the new balance");
+        }
+
+        [Test]
+        public void ACollectedListenerThatThrows_DoesNotStopTheNewBalanceBeingSaved()
+        {
+            ISaveService service = NewCurrencySaveService(_root);
+            using SaveScheduler<CurrencySaveDocument> scheduler = new(service, CurrencyResourceBankSaveHandle.SaveKey, new FakeGameClock());
+            OrderRecordingHandler handler = new(new CurrencyResourceBankSaveHandle(service, scheduler));
+            CurrencyManager manager = new(handler);
+
+            manager.OnCurrencyCollected += (currency, amount, balance, source) =>
+                throw new InvalidOperationException("a listener failing for its own reasons");
+
+            try
+            {
+                manager.AddCurrency(CurrencyType.Coins, 25, "throwing-listener");
+            }
+            catch (InvalidOperationException)
+            {
+                // The listener's own failure. Whether it reaches this caller is not what this test
+                // is about; whether the balance it was told about got saved is.
+            }
+
+            Assert.AreEqual(25, manager.GetCurrencyAmount(CurrencyType.Coins), "guard: the bank itself did take the coins");
+            CollectionAssert.AreEqual(new[] { 25L }, handler.SavedCoinBalances,
+                "a balance the bank already holds - and already announced - has to have reached the save handler, whatever the listener did");
+            Assert.IsTrue(scheduler.HasPendingWrite, "and the handler has to have handed it on to be written");
+
+            scheduler.FlushBlocking();
+            CurrencySaveDocument reloaded = SynchronousUniTask.Result(
+                NewCurrencySaveService(_root).LoadAsync<CurrencySaveDocument>(CurrencyResourceBankSaveHandle.SaveKey, CancellationToken.None));
+            Assert.AreEqual(25, reloaded.ResourceAmount[CurrencyType.Coins], "the next session has to see the coins the player was given");
         }
     }
 }

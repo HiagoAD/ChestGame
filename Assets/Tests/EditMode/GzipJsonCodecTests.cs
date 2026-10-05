@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -53,6 +54,42 @@ namespace Company.ChestGame.Tests.EditMode
 
             Assert.Less(gzipBytes.Length, jsonBytes.Length,
                 "5000 repeats of the same short string is exactly the shape gzip exists to shrink");
+        }
+
+        // --- Truncated input, directly: two outcomes, never a third ------------------------------
+        //
+        // ISaveCodec promises the value or a throw. A truncated stream that decompresses to nothing
+        // and reads back as null (Decode<T>) or "" (ToJson) is neither, and leaves every caller
+        // to notice for itself. The exception type is not pinned; that one is thrown is.
+
+        private static byte[] TruncatedTo(int keep)
+        {
+            byte[] valid = new GzipJsonCodec().Encode(new RepetitiveState { Items = Enumerable.Repeat("chest", 50).ToList() });
+            Assert.Less(keep, valid.Length, "guard: the truncation has to actually drop something");
+
+            return valid.Take(keep).ToArray();
+        }
+
+        [TestCase(5, TestName = "Decode_OnBytesTruncatedInsideTheGzipHeader_Throws")]
+        [TestCase(20, TestName = "Decode_OnBytesTruncatedInsideTheCompressedData_Throws")]
+        public void Decode_OnTruncatedBytes_Throws_RatherThanReturningNull(int keep)
+        {
+            GzipJsonCodec codec = new();
+            byte[] truncated = TruncatedTo(keep);
+
+            Assert.Catch<Exception>(() => codec.Decode<RepetitiveState>(truncated),
+                "a truncated stream has to be refused, never handed back as null or as whatever survived");
+        }
+
+        [TestCase(5, TestName = "ToJson_OnBytesTruncatedInsideTheGzipHeader_Throws")]
+        [TestCase(20, TestName = "ToJson_OnBytesTruncatedInsideTheCompressedData_Throws")]
+        public void ToJson_OnTruncatedBytes_Throws_RatherThanReturningAnEmptyDocument(int keep)
+        {
+            GzipJsonCodec codec = new();
+            byte[] truncated = TruncatedTo(keep);
+
+            Assert.Catch<Exception>(() => codec.ToJson(truncated),
+                "a truncated stream has to be refused, not handed to a migration as an empty or partial document");
         }
 
         // --- Property 8: truncated or non-gzip bytes surface typed, through SaveService ----------

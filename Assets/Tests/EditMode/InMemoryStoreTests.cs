@@ -25,6 +25,20 @@ namespace Company.ChestGame.Tests.EditMode
             CollectionAssert.AreEqual(payload, readBack);
         }
 
+        [Test]
+        public void WriteAsync_WithANullArray_ReadsBackAnEmptyArray()
+        {
+            // ISaveStore: "a null array is stored as empty" - present, and empty, never absent.
+            InMemoryStore store = new();
+
+            SynchronousUniTask.Complete(store.WriteAsync(Key, null, CancellationToken.None));
+            byte[] readBack = SynchronousUniTask.Result(store.ReadAsync(Key, CancellationToken.None));
+
+            Assert.IsNotNull(readBack, "a null write is stored as empty; it must read back as an empty array, not as absent");
+            CollectionAssert.IsEmpty(readBack);
+            Assert.IsTrue(SynchronousUniTask.Result(store.ExistsAsync(Key, CancellationToken.None)));
+        }
+
         // --- The one behaviour that separates this from a naive dictionary --------------------
 
         [Test]

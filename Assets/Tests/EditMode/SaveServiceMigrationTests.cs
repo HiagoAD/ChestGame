@@ -34,8 +34,8 @@ namespace Company.ChestGame.Tests.EditMode
 
         private static byte[] Bytes(string text) => new UTF8Encoding(false).GetBytes(text);
 
-        private static string EnvelopeJson(string version) =>
-            $@"{{""v"":{version},""codec"":""json"",""prot"":""none"",""enc"":""raw"",""body"":{{}}}}";
+        private static string EnvelopeJson(string version, string body = "{}") =>
+            $@"{{""v"":{version},""codec"":""json"",""prot"":""none"",""enc"":""raw"",""body"":{body}}}";
 
         [Test]
         public void LoadAsync_WhenVersionEqualsCurrent_ReadsThroughDecodeUnchanged_EvenWithAMigratorConfigured()
@@ -73,20 +73,29 @@ namespace Company.ChestGame.Tests.EditMode
         [Test]
         public void LoadAsync_WhenVersionIsBelowCurrent_AndAMigratorIsConfigured_WalksTheChainAndMaterialisesTheMigratedDocument()
         {
+            // Every link in the chain depends on the one before it: the stored body reaches
+            // ToJson, ToJson's text reaches the migration, and the migration builds on the value it
+            // was handed rather than overwriting it. A wrong input at any link changes the result.
             int storedVersion = SaveService.CurrentSchemaVersion - 1;
+            int? valueTheMigrationSaw = null;
             FakeSaveMigration migration = new(storedVersion, doc =>
             {
-                doc["Value"] = 99;
+                valueTheMigrationSaw = (int)doc["Value"];
+                doc["Value"] = valueTheMigrationSaw.Value + 10;
                 return doc;
             });
             SaveMigrator migrator = new(new ISaveMigration[] { migration });
             SaveService service = new(_codec, _protector, _store, migrator);
-            _store.Seed(Key, Bytes(EnvelopeJson(storedVersion.ToString())));
-            _codec.ToJsonResult = @"{""Value"":1}";
+            _store.Seed(Key, Bytes(EnvelopeJson(storedVersion.ToString(), body: @"{""Value"":5}")));
+            _codec.ToJsonFromInput = bytes => new UTF8Encoding(false).GetString(bytes);
 
             TestState result = SynchronousUniTask.Result(service.LoadAsync<TestState>(Key, CancellationToken.None));
 
-            Assert.AreEqual(99, result.Value, "the materialised value has to come from the migrated document, not the pre-migration one");
+            CollectionAssert.AreEqual(Bytes(@"{""Value"":5}"), _codec.LastToJsonInput,
+                "ToJson has to be handed the stored body itself, unwrapped and unprotected, not the envelope or anything canned");
+            Assert.AreEqual(5, valueTheMigrationSaw,
+                "the migration has to see the stored document, not a fresh or default one");
+            Assert.AreEqual(15, result.Value, "the materialised value has to come from the migrated document, not the pre-migration one");
             Assert.IsTrue(_codec.ToJsonWasCalled, "the migrated route reaches the codec's own JSON, not Decode<T>");
             Assert.IsFalse(_codec.DecodeWasCalled, "an older-than-current save with a migrator must never reach Decode<T> directly");
             Assert.IsTrue(migration.ApplyWasCalled);

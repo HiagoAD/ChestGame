@@ -41,11 +41,13 @@ namespace Company.ChestGame.Config
             CoinsReward = parsedObject.CoinsReward;
         }
 
-        // A negative reward reaches AddCurrency, which rejects it and logs an error on every win.
+        // A zero or negative reward reaches AddCurrency, which rejects it and logs an error on every
+        // win while the popup shows "+0". A field the document omits deserializes to 0, so this
+        // refuses that too.
         private static void Validate(GameConfigData data)
         {
-            ConfigValidation.Require(data.GemsReward >= 0, nameof(data.GemsReward), data.GemsReward);
-            ConfigValidation.Require(data.CoinsReward >= 0, nameof(data.CoinsReward), data.CoinsReward);
+            ConfigValidation.Require(data.GemsReward > 0, nameof(data.GemsReward), data.GemsReward);
+            ConfigValidation.Require(data.CoinsReward > 0, nameof(data.CoinsReward), data.CoinsReward);
         }
     }
 }

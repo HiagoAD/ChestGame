@@ -366,6 +366,14 @@ the reason the flag exists at all: `PrettyJsonCodec`'s output is still JSON, so 
 `GzipJsonCodec`'s is gzip's own magic bytes, which would corrupt the envelope if embedded raw the same
 way a bare unquoted string would.
 
+On the way back, `GzipJsonCodec` checks the gzip trailer — the CRC32 and length of the uncompressed
+bytes — against what it decompressed, and throws `InvalidDataException` on a mismatch. Unity's Mono
+`GZipStream` does not reliably throw on a stream cut short: it can return nothing, or part of the
+document, which would decode to `null` or hand a migration an empty string. The trailer is read from
+the last 8 bytes, which holds because `Encode` writes exactly one gzip member. So a multi-member stream,
+or one with bytes appended, is refused even though another gzip reader would accept it. Nothing but
+this codec writes these saves, so that costs nothing today.
+
 ### Why there is no binary codec
 
 The original plan for this phase listed one. It cannot be built against this seam without weakening
@@ -1049,6 +1057,10 @@ naming the key and the exception's message, before `completion.TrySetException` 
 and `Dispose` already attributed their own failures at their own call sites before this; this closes
 the one path that had not.
 
+The log line alone was not enough, though: the exception also still left `WaitThenFlushAsync` as an
+unobserved one, a second report with no key. `WaitThenFlushAsync` now catches it, because
+`RunFlushLoopAsync` has already reported it, so a failed window write is reported exactly once.
+
 Logged unconditionally, not only when nothing else is watching: a caller that does use `FlushAsync` and
 also logs its own catch now sees one duplicate line rather than this class trying to guess whether it is
 the only one about to report the failure. A duplicate log line is the direction to err in over a
@@ -1228,18 +1240,18 @@ the wrapper to this composition.
 
 ### The save-then-notify ordering no longer means what it used to
 
-`ResourceBank<T>` — vendored, untouched — calls `Save()` and invokes its own callback in a different
-order for each method: `TryAddResourceAmount` invokes `ResourceCollected`/`ResourceAmountChanged`
-*before* calling `Save()`; `TryToSpendResource` calls `Save()` *before* invoking
-`ResourceSpent`/`ResourceAmountChanged`. That call order is exactly what it always was — pinned now,
-by `CurrencyResourceBankSaveHandleTests`, where it never was before — because nothing about this phase
-touches the vendored library. What changed is what being on either side of that order *means*.
+`ResourceBank<T>` — vendored, but edited for this — calls `Save()` before invoking its callbacks in
+both methods: `TryAddResourceAmount` and `TryToSpendResource` each hand the new state to the save
+handler first and only then invoke `ResourceCollected`/`ResourceSpent` and `ResourceAmountChanged`. As
+vendored, `TryAddResourceAmount` notified *before* saving, so a listener that threw took the save down
+with it; the one contract is now pinned by `CurrencyResourceBankSaveHandleTests`. What changed with
+write coalescing is what being on either side of that order *means*.
 
 Before this phase, `Save()` was `DefaultResourceBankSaveHandle.Save`, synchronous `PlayerPrefs.SetString`
 I/O that had already happened by the time the call returned. That made the two methods genuinely
 asymmetric to an observer: a `ResourceSpent` handler could assume the new balance was already durable,
 because `TryToSpendResource` only fires it after `Save()` returns; a `ResourceCollected` handler could
-not, because `TryAddResourceAmount` fires it first. Now `Save()` is `CurrencyResourceBankSaveHandle.Save`,
+not, because the vendored `TryAddResourceAmount` fired it first. Now `Save()` is `CurrencyResourceBankSaveHandle.Save`,
 which calls `SaveScheduler<CurrencySaveDocument>.MarkDirty` and returns immediately having persisted
 nothing at all — see "`Save()` never blocks" above. Being called before or after a callback no longer
 correlates with durability, because neither position was ever durable to begin with: `MarkDirty` only
@@ -1734,15 +1746,16 @@ The toggle itself moves to `top: 272px`, below the pooling toggle's 160-256 band
 while both are collapsed.
 
 The two toggles also have to read as one stack, and the label is what decides that. Each toggle is as
-wide as its label needs above a shared `min-width: 240px`. "Pooling Demo" fits inside that floor;
-"Save Inspector" did not, so its button grew to 246 px, left the stack with a ragged left edge, and
-squeezed its own padding to almost nothing beside the roomier button above it. The button now reads
-**Saving Demo**. That follows the convention the existing toggle already set - the button names a
-topic, the panel it opens carries the full title, the same way "Pooling Demo" opens "Object Pooling" -
-and it fits the shared floor, so both buttons resolve to exactly 240 x 96 with aligned edges without
-the pooling demo changing at all. A future label that outgrows 240 px widens only its own button;
-`DemoOverlaysPlayModeTests` fails on exactly that, rather than a reviewer having to notice it. Game UI canvases sort at 0, so 99 still draws above the game. The pooling
-demo is untouched: the save inspector carries the asymmetry on its own.
+wide as its label needs above a shared `min-width: 280px`, declared equal in both stylesheets
+(`SaveInspector.uss` and `PoolingDemo.uss`). The floor was first 240 px, and "Pooling Demo" at
+26 px bold plus 20 px of padding each side resolves to 248 px: it outgrew the floor, so it sat 8 px
+wider than the save inspector's button and left a ragged left edge on the stack. The floor now sits
+well above both labels ("Pooling Demo" 248 px, "Saving Demo" narrower), so both buttons resolve to
+exactly 280 x 96 with aligned edges. The save inspector's button reads **Saving Demo**, following the
+convention the existing toggle set - the button names a topic, the panel it opens carries the full
+title, the same way "Pooling Demo" opens "Object Pooling". A future label that outgrows 280 px widens
+only its own button; `DemoOverlaysPlayModeTests` fails on exactly that, rather than a reviewer having
+to notice it. Game UI canvases sort at 0, so 99 still draws above the game.
 
 This is a fixed arrangement for exactly two overlays. A third full-screen overlay would need its
 toggle below both existing chromes and its chrome above both existing toggles, and past that point

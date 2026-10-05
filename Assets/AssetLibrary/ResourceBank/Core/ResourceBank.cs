@@ -41,8 +41,10 @@ namespace TapNation.Modules.ResourceBank
             _saveData.ResourceAmount[resourceType] += amount;
             long balance = _saveData.ResourceAmount[resourceType];
             
-            Callbacks.InvokeResourceCollected(resourceType, amount, balance, source);
+            // Save before notifying, as TryToSpendResource does: a listener that throws must not
+            // take the new balance's save down with it.
             Save();
+            Callbacks.InvokeResourceCollected(resourceType, amount, balance, source);
             return ResourceBankError.None;
         }
 

@@ -298,6 +298,39 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.AreEqual(ChestsMinigameChestModel.State.Open_Prize, StateOf(3));
         }
 
+        // The other side of each threshold. Draws just above 1/4, 1/3 and 1/2 reading as empty
+        // proves the odds are no better than 1/(N - k); only a draw just below reading as a win
+        // proves they are no worse - a divisor that drifted upward would pass the test above alone.
+        [TestCase(0, 0.24f, TestName = "PrizeChance_ADrawJustBelowAQuarter_WinsTheFirstChest")]
+        [TestCase(1, 0.33f, TestName = "PrizeChance_ADrawJustBelowAThird_WinsTheSecondChestAfterAnEmptyFirst")]
+        [TestCase(2, 0.49f, TestName = "PrizeChance_ADrawJustBelowAHalf_WinsTheThirdChestAfterTwoEmpties")]
+        public void PrizeChance_ADrawJustBelowTheThreshold_Wins(int alreadyOpenedEmpty, float draw)
+        {
+            ConfigureAndInject();
+            _controller.NewGame();
+            for (int i = 0; i < alreadyOpenedEmpty; i++)
+            {
+                _random.ValueSequence.Enqueue(0.99f); // above every threshold short of the last chest -> empty
+            }
+            _random.ValueSequence.Enqueue(draw);
+
+            bool? outcome = null;
+            _controller.OnGameFinished += won => outcome = won;
+
+            for (int i = 0; i <= alreadyOpenedEmpty; i++)
+            {
+                OpenChest(i);
+            }
+
+            for (int i = 0; i < alreadyOpenedEmpty; i++)
+            {
+                Assert.AreEqual(ChestsMinigameChestModel.State.Open_Empty, StateOf(i), $"guard: chest {i} should have opened empty");
+            }
+            Assert.AreEqual(ChestsMinigameChestModel.State.Open_Prize, StateOf(alreadyOpenedEmpty),
+                $"{draw} is under 1/{4 - alreadyOpenedEmpty}, so chest {alreadyOpenedEmpty} has to hold the prize");
+            Assert.AreEqual(true, outcome);
+        }
+
         [Test]
         public void WithTheUnluckiestDraws_ThePrizeWaitsInTheFinalChest()
         {

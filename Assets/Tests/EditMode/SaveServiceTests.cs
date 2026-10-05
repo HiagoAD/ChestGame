@@ -1,9 +1,11 @@
 using System;
+using System.Linq;
 using System.Text;
 using System.Threading;
 using Company.ChestGame.Common;
 using Company.ChestGame.Saving;
 using Company.ChestGame.Tests.Common;
+using Newtonsoft.Json;
 using NUnit.Framework;
 
 namespace Company.ChestGame.Tests.EditMode
@@ -203,13 +205,19 @@ namespace Company.ChestGame.Tests.EditMode
         [Test]
         public void SaveAsync_ThenLoadAsync_RoundTripsThroughTheConfiguredCodecAndProtector()
         {
+            // The decoded value is read out of whatever bytes reach Decode rather than handed back
+            // canned, so a LoadAsync that passed the codec anything other than what Encode produced
+            // - the whole envelope, a re-serialised body, nothing - changes the answer.
             TestState state = new() { Value = 42 };
-            _codec.EncodeResult = Bytes(@"{""Value"":42}");
-            _codec.DecodeResult = _ => new TestState { Value = 42 };
+            byte[] encoded = Bytes(@"{""Value"":42}");
+            _codec.EncodeResult = encoded;
+            _codec.DecodeResult = bytes => JsonConvert.DeserializeObject<TestState>(new UTF8Encoding(false).GetString(bytes));
 
             SynchronousUniTask.Complete(_service.SaveAsync(Key, state, CancellationToken.None));
             TestState loaded = SynchronousUniTask.Result(_service.LoadAsync<TestState>(Key, CancellationToken.None));
 
+            CollectionAssert.AreEqual(encoded, _codec.LastDecodeInput,
+                "Decode has to receive exactly the bytes Encode produced, unwrapped from the envelope and unprotected");
             Assert.AreEqual(42, loaded.Value);
         }
 
@@ -223,7 +231,9 @@ namespace Company.ChestGame.Tests.EditMode
             _protector.IsTextSafe = false;
             byte[] binaryPlain = { 0, 1, 2, 254, 255 };
             _codec.EncodeResult = binaryPlain;
-            _codec.DecodeResult = bytes => new TestState { Value = bytes.Length };
+            // Derived from the content, not just the length: five wrong bytes must not read back
+            // the same as the right five.
+            _codec.DecodeResult = bytes => new TestState { Value = bytes.Sum(b => (int)b) };
 
             SynchronousUniTask.Complete(_service.SaveAsync(Key, new TestState(), CancellationToken.None));
             byte[] stored = SynchronousUniTask.Result(_store.ReadAsync(Key, CancellationToken.None));
@@ -233,7 +243,9 @@ namespace Company.ChestGame.Tests.EditMode
 
             TestState loaded = SynchronousUniTask.Result(_service.LoadAsync<TestState>(Key, CancellationToken.None));
 
-            Assert.AreEqual(binaryPlain.Length, loaded.Value, "and LoadAsync has to be able to read what SaveAsync wrote");
+            CollectionAssert.AreEqual(binaryPlain, _codec.LastDecodeInput,
+                "the base64 branch has to hand Decode back exactly the bytes Encode produced, not merely as many of them");
+            Assert.AreEqual(binaryPlain.Sum(b => (int)b), loaded.Value, "and LoadAsync has to be able to read what SaveAsync wrote");
         }
 
         // --- Cancellation (property 7): SaveAsync stops before the value is ever encoded ---------

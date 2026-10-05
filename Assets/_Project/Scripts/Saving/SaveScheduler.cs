@@ -150,28 +150,44 @@ namespace Company.ChestGame.Saving
             _disposedCts.Dispose();
         }
 
-        // Restores the pending state rather than reporting a save that never happened, if the
-        // write turns out to need more than this thread.
+        // Restores the pending state rather than reporting a save that never happened, whether the
+        // write turns out to need more than this thread or simply fails.
         private void FlushSynchronousCore()
         {
             T toWrite = _pending;
             _pending = null;
             _hasPending = false;
 
-            UniTask task = _saveService.SaveAsync(_key, toWrite, CancellationToken.None);
+            bool finished;
+            try
+            {
+                UniTask task = _saveService.SaveAsync(_key, toWrite, CancellationToken.None);
 
-            // A status check, not a wait: nothing could complete this task without the thread this
-            // call is already occupying. Do not turn it into an await.
-            if (task.Status == UniTaskStatus.Pending)
+                // A status check, not a wait: nothing could complete this task without the thread this
+                // call is already occupying. Do not turn it into an await.
+                finished = task.Status != UniTaskStatus.Pending;
+
+                // Already finished, so this reads a recorded outcome and rethrows a captured
+                // exception rather than blocking.
+                if (finished) task.GetAwaiter().GetResult();
+            }
+            catch
+            {
+                // Not logged: the caller gets the exception, or Dispose logs it. Nothing is
+                // counting down to retry once the state is back, so a window is opened here, as
+                // RunFlushLoopAsync's finally does. Disposal has already ruled that out.
+                _pending = toWrite;
+                _hasPending = true;
+                ScheduleWindowIfNeeded();
+                throw;
+            }
+
+            if (!finished)
             {
                 _pending = toWrite;
                 _hasPending = true;
                 throw SaveException.FlushWouldBlock(_key);
             }
-
-            // Already finished, so this reads a recorded outcome and rethrows a captured
-            // exception rather than blocking.
-            task.GetAwaiter().GetResult();
         }
 
         private void ScheduleWindowIfNeeded()
@@ -200,7 +216,16 @@ namespace Company.ChestGame.Saving
             _windowCts.Dispose();
             _windowCts = null;
 
-            await EnsureFlushingAsync(_disposedCts.Token).SuppressCancellationThrow();
+            try
+            {
+                await EnsureFlushingAsync(_disposedCts.Token);
+            }
+            catch (Exception)
+            {
+                // Nobody awaits this path. A failed write was already logged, naming the key, by
+                // RunFlushLoopAsync; letting it escape the UniTaskVoid would report it a second
+                // time as an unobserved exception. Cancellation is disposal, and equally expected.
+            }
         }
 
         private void InterruptWindow()

@@ -1,5 +1,6 @@
 using System;
 using System.Collections;
+using System.Text.RegularExpressions;
 using System.Threading;
 using Company.ChestGame.Assets;
 using Company.ChestGame.Minigame.Core;
@@ -24,6 +25,7 @@ namespace Company.ChestGame.Tests.PlayMode
         private const string VIEW_GUID = "33333333333333333333333333333333";
         private const string CONTENT_GUID = "44444444444444444444444444444444";
         private const string REJECTING_GUID = "55555555555555555555555555555555";
+        private const string DISPOSE_FAILURE = "this controller cannot be disposed";
 
         private IObjectResolver _container;
         private FakeAssetProvider _assets;
@@ -94,7 +96,10 @@ namespace Company.ChestGame.Tests.PlayMode
             // The view is instantiated before SetController runs and _running is set after it, so a
             // throw from SetController lands in the catch with a live GameObject already in the
             // scene. End returns early while _running is false, so if the catch does not destroy
-            // it, nothing does.
+            // it, nothing does. The same goes for the controller: by the time the view exists it has
+            // already been injected, and injection is where a controller takes on what only Dispose
+            // gives back (ChestsMinigameController registers with the process-wide flush registry
+            // there). If the catch does not dispose it, nothing ever will.
             TestMinigameView rejecting = new GameObject("RejectingViewPrefab").AddComponent<RejectingView>();
             AssetReferenceGameObject rejectingRef = new(REJECTING_GUID);
             _assets.With(rejectingRef, rejecting.gameObject);
@@ -115,11 +120,60 @@ namespace Company.ChestGame.Tests.PlayMode
 
             Assert.IsFalse(minigame.Running, "a start that threw did not start anything");
             Assert.IsNull(minigame.ViewInstance, "the container must not still be holding the instance");
+            Assert.AreEqual(1, _controller.InjectCalls, "guard: the controller has to have been injected before the view rejected it");
+            Assert.AreEqual(1, _controller.DisposeCalls,
+                "a controller injected for a start that then failed has to be disposed by that failure, since End never will be");
+
+            // End is a no-op on a start that never completed; calling it must not dispose twice.
+            minigame.End();
+            Assert.AreEqual(1, _controller.DisposeCalls, "the failed start's own cleanup and a later End must not both dispose it");
 
             await UniTask.Yield();
 
             Assert.AreEqual(0, _parent.transform.childCount,
                 "the instance the failed start created has to be destroyed, not orphaned in the scene");
+
+            Object.Destroy(rejecting.gameObject);
+        });
+
+        [UnityTest]
+        public IEnumerator BeginAsync_WhenCleaningUpTheControllerAlsoThrows_RethrowsTheOriginalFailure() =>
+            UniTask.ToCoroutine(async () =>
+        {
+            // The catch disposes the controller after the view is gone and the content released. If
+            // that Dispose throws and nothing contains it, the caller is handed the cleanup's
+            // exception and never learns why the start actually failed.
+            TestMinigameView rejecting = new GameObject("RejectingViewPrefab").AddComponent<RejectingView>();
+            AssetReferenceGameObject rejectingRef = new(REJECTING_GUID);
+            _assets.With(rejectingRef, rejecting.gameObject);
+
+            ThrowingDisposeController controller = new();
+            MinigameContainer minigame = new();
+            _container.Inject(minigame);
+            minigame.Set(controller, rejectingRef, _definition);
+
+            LogAssert.Expect(LogType.Error, new Regex("failed to dispose.*" + Regex.Escape(DISPOSE_FAILURE)));
+
+            try
+            {
+                await minigame.BeginAsync(_parent.transform, CancellationToken.None);
+                Assert.Fail("SetController threw, so BeginAsync had to rethrow");
+            }
+            catch (InvalidOperationException exception)
+            {
+                Assert.That(exception.Message, Does.Contain("refuses its controller"),
+                    "the caller must see the view's rejection, not the exception from the cleanup");
+            }
+
+            Assert.AreEqual(1, controller.DisposeCalls, "guard: the failed start did try to dispose the controller");
+            Assert.IsFalse(minigame.Running, "a start that threw did not start anything");
+            Assert.IsNull(minigame.ViewInstance, "the container must not still be holding the instance");
+            Assert.AreEqual(1, _definition.ReleaseContentCalls, "the content release runs before the dispose and is not skipped");
+
+            await UniTask.Yield();
+
+            Assert.AreEqual(0, _parent.transform.childCount,
+                "the instance the failed start created has to be destroyed even though the dispose threw");
 
             Object.Destroy(rejecting.gameObject);
         });
@@ -181,6 +235,23 @@ namespace Company.ChestGame.Tests.PlayMode
         {
             public override void SetController(MinigameControllerBase controller) =>
                 throw new InvalidOperationException("this view refuses its controller");
+        }
+
+        // A different exception type from the view's, so a test can tell which of the two reached it.
+        private class DisposeFailedException : Exception
+        {
+            public DisposeFailedException(string message) : base(message) { }
+        }
+
+        // Counts the call like the shared fake does, then fails the way a controller whose
+        // teardown hits something it cannot let go of would.
+        private class ThrowingDisposeController : FakeMinigameController
+        {
+            public override void Dispose()
+            {
+                base.Dispose();
+                throw new DisposeFailedException(DISPOSE_FAILURE);
+            }
         }
 
         private class TestMinigameView : MinigameViewBase

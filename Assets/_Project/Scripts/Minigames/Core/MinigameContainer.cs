@@ -57,6 +57,10 @@ namespace Company.ChestGame.Minigame.Core
             // give back.
             if (_running) throw new MinigameAlreadyRunningException(_definition != null ? _definition.Id : null);
 
+            // Set the moment injection begins, so the catch disposes a controller only once it may
+            // have taken on something Dispose gives back, and never one that was never reached.
+            bool controllerInjected = false;
+
             try
             {
                 await EnsureContentIsDownloadedAsync(ct);
@@ -64,6 +68,7 @@ namespace Company.ChestGame.Minigame.Core
                 GameObject prefab = await _assets.LoadAsync<GameObject>(ViewRef, ct);
 
                 await _definition.ConfigureControllerAsync(ControllerInstance, _assets, ct);
+                controllerInjected = true;
                 _resolver.Inject(ControllerInstance);
 
                 // Through the resolver rather than Addressables, so the view and everything under
@@ -84,6 +89,24 @@ namespace Company.ChestGame.Minigame.Core
                 }
 
                 ReleaseContent();
+
+                // Same reason, for the controller: injection is where it registers for flushing,
+                // and End, which would dispose it, is a no-op until _running is true. Last, and
+                // logged rather than thrown, so a failing Dispose cannot replace the failure the
+                // caller needs to see. The nested catch ends before the bare throw below, which is
+                // what keeps that throw pointing at the original.
+                if (controllerInjected)
+                {
+                    try
+                    {
+                        ControllerInstance.Dispose();
+                    }
+                    catch (Exception disposeException)
+                    {
+                        Debug.LogError($"The controller of minigame '{_definition.Id}' failed to dispose after its start failed: {disposeException.Message}");
+                    }
+                }
+
                 throw;
             }
         }

@@ -298,7 +298,7 @@ to end by that minigame. See [minigames.md](minigames.md).
 Both documents validate at the boundary through `ConfigValidation` and throw `GameConfigException`,
 which lives in `Common` so neither owner needs a reference to the other's assembly. A document can
 parse cleanly and still describe something unplayable: a field the server renamed, or one this client
-predates, deserializes to 0. Rewards cannot be negative, because a negative reward would be handed to
+predates, deserializes to 0. Rewards must be positive, because a zero or negative reward would be handed to
 `AddCurrency`, which rejects it and logs an error on every single win.
 
 ## Catalogs

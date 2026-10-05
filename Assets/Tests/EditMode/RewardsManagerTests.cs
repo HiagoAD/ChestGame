@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using Company.ChestGame.Common;
+using Company.ChestGame.Config;
 using Company.ChestGame.Currency;
 using Company.ChestGame.Rewards;
 using Company.ChestGame.Tests.Common;
@@ -104,6 +106,59 @@ namespace Company.ChestGame.Tests.EditMode
                 Assert.AreEqual(_currency.AddCalls[i].amount, popupData.Amount);
                 Assert.AreEqual(_currency.AddCalls[i].currency, announced[i].currency);
                 Assert.AreEqual(_currency.AddCalls[i].amount, announced[i].amount);
+            }
+        }
+
+        // --- Across the config, the rewards and the bank -------------------------------------
+
+        // Every fake above agrees with whatever it is handed, so none of them can notice two real
+        // components disagreeing. This one runs a document through the real LocalJsonGameConfig,
+        // the real RewardsManager and the real CurrencyManager. Two outcomes are acceptable: the
+        // config refuses the document up front, or the reward it describes is one the bank takes.
+        // What is not is the middle - a config that accepts a value the bank then rejects, logging
+        // an error on every win while the popup tells the player "+0". That error log fails this
+        // test by itself; the assertions below say why in plain words. LogAssert.NoUnexpectedReceived
+        // is deliberately not used: it rejects every log, and a bank that accepts the reward logs an
+        // ordinary "Added" line.
+        [TestCase(CurrencyType.Coins, @"{ ""GemsReward"": 10, ""CoinsReward"": 0 }")]
+        [TestCase(CurrencyType.Gems, @"{ ""GemsReward"": 0, ""CoinsReward"": 50 }")]
+        public void AConfigLocalJsonGameConfigAccepts_NeverYieldsARewardTheRealCurrencyManagerRejects(CurrencyType drawn, string document)
+        {
+            LocalJsonGameConfig config;
+            try
+            {
+                config = new LocalJsonGameConfig(document);
+            }
+            catch (GameConfigException)
+            {
+                // Refused at load: nothing this document describes can ever reach the bank.
+                return;
+            }
+
+            CurrencyManager currency = new(new InMemoryResourceBankSaveHandler());
+            FakePopupManager popups = new();
+            FakeRandomProvider random = new() { NextRangeResult = (int)drawn };
+            RewardsManager rewards = new(currency, config, popups, random);
+
+            List<long> announced = new();
+            rewards.OnCurrencyRewardGiven += (c, a, s) => announced.Add(a);
+
+            rewards.GiveRandomCurrencyReward("ChestsMinigame");
+
+            for (int i = 0; i < popups.SpawnCalls.Count; i++)
+            {
+                if (popups.SpawnCalls[i].data is RewardReceivedPopupData reward)
+                {
+                    Assert.Greater(reward.Amount, 0,
+                        $"the config accepted a {drawn} reward of {reward.Amount}, and the player was shown it as a reward");
+                    Assert.AreEqual(reward.Amount, currency.GetCurrencyAmount(drawn),
+                        "whatever the popup announces has to be what actually reached the bank");
+                }
+            }
+
+            foreach (long amount in announced)
+            {
+                Assert.Greater(amount, 0, $"the config accepted a {drawn} reward of {amount}, and it was announced as given");
             }
         }
     }

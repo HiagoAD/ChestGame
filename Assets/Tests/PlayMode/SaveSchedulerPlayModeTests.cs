@@ -17,12 +17,15 @@ namespace Company.ChestGame.Tests.PlayMode
     // FlushBlocking's throw over a genuinely hopping composition, and Dispose's own best-effort
     // flush and its logged loss. See docs/saving.md, "Write coalescing" through "Disposal and a
     // pending write". SaveSchedulerTests (edit mode) covers the constructor guards and
-    // CanFlushBlocking answers that need neither.
+    // CanFlushBlocking answers that need neither, and drives coalescing, FlushAsync and the
+    // failed-write retry over FakeGameClock instead of a real one.
     //
-    // Every wait below is driven by UniTask.WaitUntil against a counter or a flag this fixture
-    // controls (RecordingSaveStore.WriteCount, SaveScheduler<T>.IsFlushing) - never a fixed sleep -
-    // bounded by a generous cancellation timeout only so a genuine hang fails loudly instead of
-    // stalling the suite. Nothing here asserts on how long anything took.
+    // Every wait for something to happen is driven by UniTask.WaitUntil against a counter or a flag
+    // this fixture controls (RecordingSaveStore.WriteCount, SaveScheduler<T>.IsFlushing) - never a
+    // fixed sleep - bounded by a generous cancellation timeout only so a genuine hang fails loudly
+    // instead of stalling the suite. The only fixed waits are the ones proving something does NOT
+    // happen after a point, which no condition can signal; each is several windows long. Nothing
+    // here asserts on how long anything took.
     public class SaveSchedulerPlayModeTests
     {
         // Short so the suite stays fast - SaveScheduler<T>.DefaultCoalesceWindowMilliseconds (1000ms)
@@ -250,15 +253,17 @@ namespace Company.ChestGame.Tests.PlayMode
 
         // --- Cancellation (docs/saving.md, "Disposal and a pending write") -------------------
 
-        [Test]
-        public void Dispose_WhileACoalescingWindowIsStillCountingDown_CancelsIt_OverANonHoppingComposition()
+        [UnityTest]
+        public IEnumerator Dispose_WhileACoalescingWindowIsStillCountingDown_CancelsIt_OverANonHoppingComposition() => UniTask.ToCoroutine(async () =>
         {
             // Non-hopping: Dispose's own best-effort flush completes synchronously here (the same
             // path Dispose_WithAPendingWriteOverANonHoppingComposition_FlushesIt above proves on its
-            // own), which is what proves the window itself never got the chance to fire - if it had,
-            // MarkDirty's own coalescing would have produced this write regardless of Dispose, and
-            // this test could not tell the difference. Asserting exactly one write, made by Dispose
-            // and not by the window, is what pins InterruptWindow() actually running.
+            // own), so exactly one write exists the moment Dispose returns. Real time is then let
+            // run well past the window the MarkDirty opened: a window that survived Dispose would
+            // fire inside that time, and whatever it did - a second write, or a throw out of its
+            // continuation against a scheduler already torn down, which the test runner reports as
+            // an unhandled log - is what this waits to see. Asserting on the write count only
+            // before that time had passed could never have caught it.
             RecordingSaveStore store = TrackedStore();
             ISaveService service = new SaveService(new JsonCodec(), new NoProtection(), store);
             string key = UniqueKey(nameof(Dispose_WhileACoalescingWindowIsStillCountingDown_CancelsIt_OverANonHoppingComposition));
@@ -268,9 +273,15 @@ namespace Company.ChestGame.Tests.PlayMode
             Assert.IsFalse(scheduler.IsFlushing, "guard: the window must not have elapsed yet - nothing should be flushing");
 
             Assert.DoesNotThrow(() => scheduler.Dispose());
+            Assert.AreEqual(1, store.WriteCount, "guard: Dispose's own best-effort flush has to have written synchronously");
+
+            await UniTask.Delay(WindowMilliseconds * 3);
+            await UniTask.Yield();
+            await UniTask.Yield();
 
             Assert.AreEqual(1, store.WriteCount, "Dispose's own best-effort flush must be the only write - the cancelled window must never fire one of its own");
-        }
+            Assert.IsFalse(scheduler.HasPendingWrite, "nothing may be left pending once Dispose has flushed");
+        });
 
         [UnityTest]
         public IEnumerator Dispose_WithAPendingWriteThatNeverStartedFlushing_OverAHoppingComposition_LogsTheLossAndDoesNotThrow() => UniTask.ToCoroutine(async () =>
