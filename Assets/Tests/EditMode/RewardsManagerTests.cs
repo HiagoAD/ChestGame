@@ -117,6 +117,24 @@ namespace Company.ChestGame.Tests.EditMode
             }
         }
 
+        [Test]
+        public void GiveRandomCurrencyReward_WhenTheDrawnCurrencyHasNoMapping_ThrowsNamingItAndDoesNothingElse()
+        {
+            int unmapped = Enum.GetValues(typeof(CurrencyType)).Length;
+            _random.NextRangeResult = unmapped;
+            List<CurrencyType> announced = new();
+            _rewards.OnCurrencyRewardGiven += (c, a, s) => announced.Add(c);
+
+            UnmappedCurrencyRewardException exception = Assert.Throws<UnmappedCurrencyRewardException>(
+                () => _rewards.GiveRandomCurrencyReward("ChestsMinigame"));
+
+            Assert.AreEqual((CurrencyType)unmapped, exception.CurrencyType);
+            StringAssert.Contains(((CurrencyType)unmapped).ToString(), exception.Message);
+            CollectionAssert.IsEmpty(_currency.AddCalls);
+            CollectionAssert.IsEmpty(_popups.SpawnCalls);
+            CollectionAssert.IsEmpty(announced);
+        }
+
         /// <summary>
         /// Runs a document through the real <c>LocalJsonGameConfig</c>, <c>RewardsManager</c> and
         /// <c>CurrencyManager</c>: the config either refuses the document, or the reward it describes

@@ -572,7 +572,10 @@ that entry as the live balance; it is spent. See [saving.md](saving.md), "The le
 The planned analytics hooks and purchase flow are recorded in [WIP.md](WIP.md).
 
 `CurrencyLabelController` subscribes to the events and formats the label text; `CurrencyLabelView`
-renders it to a TextMeshPro label. `RewardsManager`
+renders it to a TextMeshPro label. The controller uses the event only as a signal and formats
+`GetCurrencyAmount`, not the event's balance argument: a listener that starts another currency
+operation makes that argument stale for every listener after it, so the last event a label hears
+could carry an older balance than the true one. `RewardsManager`
 picks a random currency reward from the config values and shows a `RewardReceivedPopup`.
 
 The balances and events used to live in a vendored third-party library, Resource Bank. It was
