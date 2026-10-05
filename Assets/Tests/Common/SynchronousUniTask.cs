@@ -3,9 +3,12 @@ using Cysharp.Threading.Tasks;
 
 namespace Company.ChestGame.Tests.Common
 {
-    // Takes the result of a UniTask that has already finished. The pending check is what keeps the
-    // edit-mode suite honest: a task that really waits fails loudly here instead of handing back a
-    // default, which is the signal to move that test to play mode.
+    /// <summary>
+    /// Takes the result of a <c>UniTask</c> that has already finished.
+    /// </summary>
+    /// <remarks>
+    /// See docs/testing.md, "SynchronousUniTask, and the signal a pending task sends".
+    /// </remarks>
     public static class SynchronousUniTask
     {
         public static T Result<T>(UniTask<T> task)
@@ -15,8 +18,7 @@ namespace Company.ChestGame.Tests.Common
             return task.GetAwaiter().GetResult();
         }
 
-        // The same for a task carrying no result. BeginAsync is one: against the fake provider
-        // every load it makes is already complete.
+        /// <summary>The same for a task carrying no result.</summary>
         public static void Complete(UniTask task)
         {
             RequireFinished(task.Status);

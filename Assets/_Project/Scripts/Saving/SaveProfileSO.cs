@@ -2,8 +2,10 @@ using UnityEngine;
 
 namespace Company.ChestGame.Saving
 {
-    // Three dropdowns and nothing else - an authoring seam for the three save components, not a
-    // working save pipeline on its own.
+    /// <summary>
+    /// Three dropdowns and nothing else: an authoring seam for the three save components, not a
+    /// working save pipeline on its own.
+    /// </summary>
     [CreateAssetMenu(menuName = "Saving/Save Profile")]
     public class SaveProfileSO : ScriptableObject
     {

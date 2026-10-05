@@ -1,7 +1,11 @@
 namespace Company.ChestGame.Core
 {
-    // Where boot tells the player what it is doing. An interface rather than a label, so the
-    // bootstrapper stays free of scene objects.
+    /// <summary>
+    /// Where boot reports what it is doing.
+    /// </summary>
+    /// <remarks>
+    /// See docs/architecture.md, "Telling the player what boot is doing".
+    /// </remarks>
     public interface IBootStatus
     {
         void Report(string message);

@@ -53,8 +53,8 @@ referencing it.
 
 ## 2. Documentation
 
-The reasoning lives under [docs/](docs/README.md), split by area. Code comments are kept to what would
-otherwise get "fixed" into a bug.
+The reasoning lives under [docs/](docs/README.md), split by area. Code comments are API documentation
+only, and future work is tracked in [docs/WIP.md](docs/WIP.md).
 
 | File | Covers |
 |---|---|
@@ -62,12 +62,14 @@ otherwise get "fixed" into a bug.
 | [asset-loading.md](docs/asset-loading.md) | `IAssetProvider`, the two load routes and their lifetime rules, handle tracking, failure translation |
 | [content-delivery.md](docs/content-delivery.md) | Addressable groups, local vs remote, load policies, timeouts, building and serving content |
 | [minigames.md](docs/minigames.md) | The minigame framework contract, container lifecycle, and the chests implementation |
+| [pooling.md](docs/pooling.md) | `IPrefabPool<T>` and its implementations, `PoolFactory`, the pool race demo, and what the pooling tests prove |
 | [saving.md](docs/saving.md) | The `ISaveService` seam, the envelope and its byte-exact round trip, versioning, the stores, the selection enums, and the factory |
 | [testing.md](docs/testing.md) | The two suites, what belongs in each, running them, CI |
 | [design-decisions.md](docs/design-decisions.md) | Why the project landed this way |
+| [WIP.md](docs/WIP.md) | Planned features, phases, pending changes, known gaps and TODOs |
 
-Working notes from the development passes, including approaches that were tried and replaced and the
-known gaps, are in [docs/context/](docs/context/). Read those before changing anything structural.
+Working notes from the development passes, including approaches that were tried and replaced, are in
+[docs/context/](docs/context/). Read those before changing anything structural.
 
 ## 3. Build and run
 

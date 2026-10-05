@@ -5,8 +5,10 @@ using Cysharp.Threading.Tasks;
 
 namespace Company.ChestGame.Tests.Common
 {
-    // Hands the content loader whatever document a test wants it to see, including none at all, and
-    // can fail the way a real fetch fails.
+    /// <summary>
+    /// Hands the content loader whatever document a test wants it to see, including none at all, and
+    /// can fail the way a real fetch fails.
+    /// </summary>
     public class FakeGameConfigSource : IGameConfigSource
     {
         public const string ValidDocument = @"{
@@ -16,8 +18,7 @@ namespace Company.ChestGame.Tests.Common
 
         public string Document { get; set; } = ValidDocument;
 
-        // Delivered through the returned task rather than thrown from the call, which is how a
-        // source that actually waits on something would report a failure.
+        /// <summary>Delivered through the returned task rather than thrown from the call.</summary>
         public Exception FailWith { get; set; }
 
         public int ReadCallCount { get; private set; }

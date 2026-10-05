@@ -1,13 +1,14 @@
 namespace Company.ChestGame.Pooling
 {
-    // Which IPrefabPool implementation a call site wants, in a form an inspector can serialize. The
-    // four differ in what they cost rather than in what they promise.
-    //
-    // Append only. These are serialized by index - ChestsMinigame.prefab stores _poolStrategy: 1
-    // for ParkedPool - so inserting a member in the middle silently repoints every authored value
-    // at a different strategy. The baseline sits last because first place is what a newly
-    // serialized field lands on, but that is a preference and appending is the rule: a fifth
-    // strategy goes after DirectSpawner, not before it. See docs/design-decisions.md.
+    /// <summary>
+    /// Which <see cref="IPrefabPool{T}"/> implementation a call site wants, in a form the
+    /// inspector can serialize. The four differ in what they cost, not in what they promise.
+    /// </summary>
+    /// <remarks>
+    /// Append new members only, after <see cref="PoolStrategy.DirectSpawner"/>: values are
+    /// serialized by index.
+    /// See docs/design-decisions.md, "What adding a pool strategy actually takes".
+    /// </remarks>
     public enum PoolStrategy
     {
         ActivationPool,

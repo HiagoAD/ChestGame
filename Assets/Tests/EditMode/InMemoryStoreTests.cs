@@ -6,9 +6,13 @@ using NUnit.Framework;
 
 namespace Company.ChestGame.Tests.EditMode
 {
-    // Nothing here touches disk or PlayerPrefs, so there is no root or prefix to isolate and
-    // nothing to clean up in TearDown - the dictionary dies with the instance. See docs/saving.md,
-    // "InMemoryStore".
+    /// <summary>
+    /// Covers <c>InMemoryStore</c>. Nothing here touches disk or PlayerPrefs, so there is no root
+    /// or prefix to isolate and nothing to clean up in <c>TearDown</c>.
+    /// </summary>
+    /// <remarks>
+    /// See docs/saving.md, "InMemoryStore".
+    /// </remarks>
     public class InMemoryStoreTests
     {
         private const string Key = "save";
@@ -28,7 +32,6 @@ namespace Company.ChestGame.Tests.EditMode
         [Test]
         public void WriteAsync_WithANullArray_ReadsBackAnEmptyArray()
         {
-            // ISaveStore: "a null array is stored as empty" - present, and empty, never absent.
             InMemoryStore store = new();
 
             SynchronousUniTask.Complete(store.WriteAsync(Key, null, CancellationToken.None));
@@ -38,8 +41,6 @@ namespace Company.ChestGame.Tests.EditMode
             CollectionAssert.IsEmpty(readBack);
             Assert.IsTrue(SynchronousUniTask.Result(store.ExistsAsync(Key, CancellationToken.None)));
         }
-
-        // --- The one behaviour that separates this from a naive dictionary --------------------
 
         [Test]
         public void WriteAsync_MutatingTheCallersArrayAfterwards_DoesNotChangeWhatWasStored()
@@ -70,8 +71,6 @@ namespace Company.ChestGame.Tests.EditMode
             CollectionAssert.AreEqual(original, secondRead,
                 "the store has to have cloned on the way out; mutating what a caller was handed must not reach the store's own copy");
         }
-
-        // --- Existence and deletion -------------------------------------------------------------
 
         [Test]
         public void ExistsAsync_IsFalseBeforeAWrite_AndTrueAfter()
@@ -105,8 +104,6 @@ namespace Company.ChestGame.Tests.EditMode
                 () => SynchronousUniTask.Complete(store.DeleteAsync("neverWritten", CancellationToken.None)));
         }
 
-        // --- Key presence still applies (the one SaveKeyPath rule that carries over) -----------
-
         [TestCase(null)]
         [TestCase("")]
         public void WriteAsync_WithNoKey_ThrowsNoKey(string key)
@@ -117,8 +114,6 @@ namespace Company.ChestGame.Tests.EditMode
                 () => SynchronousUniTask.Complete(store.WriteAsync(key, new byte[] { 1 }, CancellationToken.None)));
             StringAssert.Contains("needs a key", error.Message);
         }
-
-        // --- Cancellation: the same guard FileStoreTests pins for FileStore --------------------
 
         [Test]
         public void EveryMethod_WithAnAlreadyCancelledToken_ThrowsOperationCanceledException()

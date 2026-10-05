@@ -24,7 +24,8 @@
         "UniTask",
         "Company.ChestGame.UI",
         "Unity.Addressables",
-        "Unity.ResourceManager"
+        "Unity.ResourceManager",
+        "Company.ChestGame.Mvc"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

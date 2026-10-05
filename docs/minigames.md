@@ -39,6 +39,15 @@ The descriptor is the only thing that both names a minigame and is cheap to hold
 controller at that point would land before its own content did, so that ordering is the container's
 to keep.
 
+Each call to `Get` or `Get(id)` is a new game session, so it builds and injects a fresh container
+rather than handing back a shared one; sharing one would leak the previous round's controller state
+into the next. The id-keyed path is what `GameShellController` actually calls, so it has to reach the same
+construction the type-keyed path does rather than a construction of its own.
+
+The container itself keeps a reference to the `MinigameBaseSO` definition it was built from, because
+the definition owns the content hook (`ConfigureControllerAsync` and `ReleaseContent`) that
+`BeginAsync` runs.
+
 `MinigameContainer.BeginAsync` does the rest, in one order that is a framework promise rather than an
 accident of layout:
 
@@ -61,6 +70,15 @@ The configure-before-inject ordering is pinned by
 `MinigameContainerContentTests`. `ChestsMinigameSO` depends on it directly, because the chest list is
 sized from `ChestCount`.
 
+Because the view and the chests config document are both named through `AssetReference`s rather than
+held directly, a wrong GUID or an entry dropped from the addressable group surfaces nowhere at
+compile time or at catalog load: nothing catches it until a minigame is actually begun.
+`GameBootstrapperTests` begins the shipped chests minigame for exactly this reason, and it is also
+the only proof that the fetch-load-configure-inject-instantiate order above runs correctly outside a
+fixture built on fakes. `ChestBoardPoolingTests.BuildView` mirrors the container's own order by hand:
+it instantiates and injects a `ChestsMinigameView` first, and only then hands it a controller through
+`SetController`, before anything starts a game on it.
+
 ## Starting twice is loud
 
 `BeginAsync` on a running container throws `MinigameAlreadyRunningException`. Deliberately not
@@ -73,8 +91,27 @@ follows can only give one back.
 
 ## Failure during a start
 
-If anything in `BeginAsync` throws, the catch releases what was already taken, destroys the view
-instance if one exists, and disposes the controller if injection had begun, then rethrows.
+If anything in `BeginAsync` throws, the catch destroys the view instance if one exists, releases what
+was already taken, and then disposes the controller if injection had begun. It rethrows the original
+exception afterwards.
+
+`BeginAsync` sets a `controllerInjected` flag immediately before `Inject` is called, not after it
+returns. A failure from that point on (a throw inside `Inject` itself, view instantiation, or
+`SetController`, which throws `ArgumentException` on a controller type mismatch) disposes the
+controller, because injection may have registered something with the root scope, as the chests
+controller's `SaveScheduler` does. A failure before that point (the download, the loads,
+`ConfigureControllerAsync`, the cancellation check) disposes nothing, because nothing has been taken
+on. A controller whose `Inject` throws part way is therefore disposed, and its `Dispose` has to be safe
+on a controller that was only partly injected. A controller that registers something during `Inject`
+still registers it last, as the chests controller does with its `SaveScheduler` (see
+[saving.md](saving.md), "A scheduler the composition root cannot name has to register itself", the
+"`Register` runs last" rule), so a throw inside `Inject` leaves nothing registered for `Dispose` to undo.
+
+`BeginAsync` calls `ct.ThrowIfCancellationRequested()` after its last await, `ConfigureControllerAsync`,
+and before `Inject`. Without it, a cancel landing during that await, with a definition override or
+provider that did not observe the token, would still inject the controller and instantiate the view for
+a caller that had given up. With it, that start throws `OperationCanceledException` before any of that,
+and the catch releases the content like any other failure.
 
 Nothing else could ever let those go. `End` is a no-op until `_running` is true, which is the last
 line of the try block, so a load that threw or a start that was cancelled halfway would otherwise
@@ -88,12 +125,12 @@ undestroyable, for the rest of the session.
 
 The controller follows the same rule. Injection is where `ChestsMinigameController` registers with the
 process-wide flush registry, so a start that fails after it would otherwise leave that registration
-behind with nothing left to call `Dispose`. A failure before injection (the download, the loads,
-`ConfigureControllerAsync`) disposes nothing, because nothing has been taken on. `End` stays a no-op
-afterwards, so the controller is disposed exactly once.
+behind with nothing left to call `Dispose`. `End` stays a no-op afterwards, so the controller is
+disposed exactly once.
 
 If that `Dispose` throws, the failure is logged and swallowed, so the exception `BeginAsync` rethrows is
-always the one that made the start fail rather than one from its cleanup.
+always the one that made the start fail rather than one from its cleanup. The nested catch ends before
+the bare `throw`, which keeps the rethrow pointing at the original.
 
 ## Teardown
 
@@ -136,7 +173,7 @@ Authoring:
 11. An entry in `MinigameList.asset`, which is the one existing file that changes.
 12. A content build, if the group is remote.
 
-The shell needs no change: `GameManager` starts whatever id it is given.
+The shell needs no change: `GameShellController` starts whatever id it is given.
 
 ## The chests minigame
 
@@ -164,8 +201,20 @@ constructor when it finds one, so validation living in a constructor would run d
 and surface wrapped in `JsonSerializationException`, which `Parse` would then report as "not valid
 JSON". `Validate()` runs after deserialization instead.
 
+The failure tests pin more than just that a bad document throws. An empty string and a missing
+document both report the same `"No chests minigame config document"` message, asserted specifically
+so a change that let an empty string fall through to the branch that handles a document parsing to
+nothing (the same one a literal JSON `null` reaches) would be caught rather than passing by
+coincidence of exception type. A malformed payload is tested as a truncated JSON object, the shape a
+half-finished download actually takes, and it reports `"not valid JSON"` with the underlying parse
+error kept as `InnerException` for diagnostics.
+
 The rules: `ChestCount <= 0`, `AttempsCount <= 0` and a negative open time are rejected. A document
 can parse cleanly and still describe a round that can never be played or never end.
+
+`ChestsMinigameSO.ReleaseContent` releases `_configDocument` and nothing else: the document is only
+needed to build the controller's state in `ConfigureControllerAsync`, so nothing in the minigame
+holds it past teardown.
 
 ### The controller
 
@@ -181,8 +230,9 @@ build one for it. It also loads whatever run was left pending, holding it for th
 call rather than applying it immediately. A saved run this build cannot read is logged and discarded
 rather than thrown: it holds no reward a player earned, since the win pays out through currency's own
 save. Registration happens last, so nothing throwing above it can leave a scheduler registered for
-the lifetime of the process against a half-injected controller. `Dispose` unregisters and disposes
-the scheduler, and stays idempotent.
+the lifetime of the process. If `Inject` throws, the container still calls `Dispose` (see "Failure
+during a start"), which has to cope with the scheduler never having been built. `Dispose` unregisters
+and disposes the scheduler, and stays idempotent.
 
 A click spawns two concurrent UniTasks under one cancellation token: one updates the chest's progress
 every frame through `IGameClock.NextFrame`, which lasts exactly one update loop the way
@@ -193,15 +243,24 @@ Cancellation is registered to close the chest again, and a new game or a second 
 was opening. No locks are needed: Unity handles two simultaneous touches in series, one after the
 other, so there is no true multithreading here.
 
+Cancelling an opening chest has to unwind both of its concurrent UniTasks rather than leave them
+parked to fire later: after a new game cancels the click, `IGameClock.PendingWaiters` drops back to
+zero once the clock is advanced until idle. Re-clicking a chest that is already `Opening` is ignored
+outright rather than restarting the timer or queuing a second open, and its progress carries on
+rather than resetting. The progress loop and the open timer come due in the same frame and nothing
+promises which one resumes first, so the flow has to behave the same under either ordering. A loss is
+only reachable when attempts run out before every chest is opened, which requires the configured
+attempt count to be scarcer than the chest count.
+
 `NewGame` cancels any opening chest and closes all of them, which supports restarts. It does not
 support the number of chests changing between games.
 
 It is also where a pending run is resolved. The first call after `Inject` restores that run if it
 still fits (the saved chest count matches, no index is out of range or repeated, and the run had
-attempts left) and discards it otherwise, overwriting the save with an empty document. A restored
-run resumes its attempt count rather than starting at zero. Every later call discards first, so a
-restart is never itself resumable, and finishing a run overwrites the save in the same call that
-opens the prize chest, so a finished run never resumes.
+attempts left, and the saved index list is not null) and discards it otherwise, overwriting the save
+with an empty document. A restored run resumes its attempt count rather than starting at zero. Every
+later call discards first, so a restart is never itself resumable, and finishing a run overwrites
+the save in the same call that opens the prize chest, so a finished run never resumes.
 
 ### Prize odds
 
@@ -231,6 +290,12 @@ a model has to let go of it, or the next state change drives a MonoBehaviour tha
 parked. `ChestsMinigameView` unsubscribes in `OnDestroy`; the controller normally clears its own
 events in `Dispose` first, but a view torn down on its own must not leave handlers behind either.
 
+The game clock is injected on the view rather than the controller: the board fill belongs to the
+view, and injecting the clock there is the seam that lets a test control when a frame happens.
+`OnDestroy` calls `Release` on each chest instance immediately rather than waiting for end of frame,
+because `Object.Destroy` is deferred - an instance the pool is about to destroy would otherwise keep
+listening for the rest of the frame, with its model outliving the view.
+
 #### A chest has two lifetimes now
 
 Pooling splits the element view in half, because `Awake` runs once per instance while an acquire runs
@@ -251,6 +316,11 @@ is still alive, throws nothing, and simply follows a chest it is no longer showi
 `ParkedPool` it is not even deactivated, so a button that kept its callback would still reach the
 controller.
 
+`ADestroyedChestView_StopsListeningToItsModel` asserts `DoesNotThrow` rather than checking a flag,
+because the failure mode it guards is concrete: a view that stayed subscribed after being destroyed
+would reach into its own destroyed `Image` and `Slider` components the next time the model changed,
+and that reach is what throws.
+
 #### The board is rebuilt every game
 
 `NewGame` releases the whole board back to the pool and takes it again. The rebuild used to be skipped
@@ -268,6 +338,14 @@ is owned by the view and disposed in `OnDestroy`: the chest prefab lives in the 
 `MinigameContainer.End` releases, so a pooled instance outliving the view would be holding assets that
 can be unloaded. Its bound is the board size, because the board is handed back whole and taken again
 whole.
+
+`FillBudgetMilliseconds` is a constant rather than an authored field: a serialized zero would silently
+produce a board that fills one chest per frame. `SetController` builds the pool and the fill loop up
+front rather than lazily. The pool is created here rather than in `Awake` because its bound is the
+board size, which comes off the controller, and injection has already landed by the time
+`SetController` runs - `MinigameContainer` instantiates and injects the view before handing it the
+controller. The fill loop is built here rather than per call so a view that was never injected fails
+immediately, rather than from inside a forgotten async task later.
 
 The holder the pool parks under is built at runtime as a child of the view, with a `Canvas` component
 switched off. It cannot go under `_chestsParent`, which carries the `GridLayoutGroup` - parking under
@@ -289,6 +367,13 @@ deliberately hands nothing back: the only two things that cancel a fill are the 
 releases the board before it starts anyway, and teardown, where the continuation resumes after
 `OnDestroy` has already disposed the pool.
 
+Because the fill runs through `FrameBudgetedLoop`, its worst case is one chest built per frame - a
+cost a cold first frame after a domain reload can actually produce - so a test driving `NewGame` has
+to give the fill, plus room for the previous round's deferred `Destroy` calls to land, more than one
+frame to settle before it counts anything.
+
 `ChestsMinigameChestModel.SetOpening` and `SetOpen` are both guarded so an opened chest never walks
 back to `Opening`. The two tasks driving a chest resume in the same frame, so a progress tick arriving
-just after the chest opened would otherwise reopen it visually.
+just after the chest opened would otherwise reopen it visually. `Completition` is written before
+`CurrentState`'s change is raised on `OnStateChanged`, so a listener that reads both from inside the
+event handler never observes a chest whose progress has not caught up with its new state.

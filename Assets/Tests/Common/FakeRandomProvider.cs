@@ -3,8 +3,11 @@ using Company.ChestGame.Common;
 
 namespace Company.ChestGame.Tests.Common
 {
-    // Deterministic IRandomProvider. Either pin a single value/result, or queue a sequence that is
-    // consumed one draw at a time; a queue that runs dry falls back to the pinned value.
+    /// <summary>
+    /// Deterministic <see cref="IRandomProvider"/>. Either pin a single value/result, or queue a
+    /// sequence that is consumed one draw at a time; a queue that runs dry falls back to the pinned
+    /// value.
+    /// </summary>
     public class FakeRandomProvider : IRandomProvider
     {
         public float NextValue { get; set; }

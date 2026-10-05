@@ -5,8 +5,12 @@ using UnityEngine;
 
 namespace Company.ChestGame.Config
 {
-    // Fetches the config document through the asset provider, and is the only place that knows the
-    // key. The local stand-in for an HTTP fetch against a real remote config service.
+    /// <summary>
+    /// Fetches the config document through the asset provider.
+    /// </summary>
+    /// <remarks>
+    /// See docs/architecture.md, "Config pipeline".
+    /// </remarks>
     public class AddressablesGameConfigSource : IGameConfigSource
     {
         private const string CONFIG_KEY = "GameConfig";
@@ -15,12 +19,18 @@ namespace Company.ChestGame.Config
 
         public AddressablesGameConfigSource(IAssetProvider assets) => _assets = assets;
 
+        /// <summary>
+        /// Returns null when the config's document slot was found but is empty.
+        /// </summary>
+        /// <exception cref="AssetLoadException">The key resolved but the load itself failed.</exception>
+        /// <exception cref="MissingAssetException">The key is not in the shipped catalog.</exception>
+        /// <remarks>
+        /// See docs/architecture.md, "Config pipeline".
+        /// </remarks>
         public async UniTask<string> ReadAsync(CancellationToken ct)
         {
             TextAsset asset = await _assets.LoadAsync<TextAsset>(CONFIG_KEY, ct);
 
-            // Null rather than a throw, because "no config shipped" is the parser's failure to
-            // describe. A key that is not in the catalog never gets this far.
             return asset == null ? null : asset.text;
         }
     }

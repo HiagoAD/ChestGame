@@ -2,12 +2,18 @@ using System;
 
 namespace Company.ChestGame.Common
 {
-    // Content did not arrive inside the time the game was willing to wait. Distinct from
-    // AssetLoadException, which means a request actually failed: a stalled download never fails at
-    // all, and without a deadline it leaves a button dead for the rest of the session.
+    /// <summary>
+    /// Content did not arrive inside the time the game was willing to wait.
+    /// </summary>
+    /// <remarks>
+    /// See docs/architecture.md, "Exception hierarchy".
+    /// See docs/content-delivery.md, "Timeouts".
+    /// </remarks>
     public class ContentDownloadTimeoutException : ChestGameException
     {
-        // The label identifies which fetch gave up, the way MissingAssetException carries its key.
+        /// <summary>
+        /// The label of the fetch that did not finish in time.
+        /// </summary>
         public string Label { get; }
 
         public TimeSpan Timeout { get; }

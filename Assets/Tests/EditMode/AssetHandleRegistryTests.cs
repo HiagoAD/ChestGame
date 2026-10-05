@@ -6,10 +6,12 @@ using UnityEngine.ResourceManagement.AsyncOperations;
 
 namespace Company.ChestGame.Tests.EditMode
 {
-    // The provider's bookkeeping, and the only half testable without a real content catalog. It
-    // protects two bugs production could never have shown: keying on the AssetReference instance,
-    // which every production caller happens to satisfy, and releasing every handle at once, which
-    // only matters when two callers hold the same asset.
+    /// <summary>
+    /// The provider's bookkeeping, and the only half testable without a real content catalog. It
+    /// protects two bugs production could never have shown: keying on the AssetReference instance,
+    /// which every production caller happens to satisfy, and releasing every handle at once, which
+    /// only matters when two callers hold the same asset.
+    /// </summary>
     public class AssetHandleRegistryTests
     {
         private const string GUID = "11111111111111111111111111111111";
@@ -17,9 +19,9 @@ namespace Company.ChestGame.Tests.EditMode
 
         private AssetHandleRegistry _registry;
 
-        // Real completed operations rather than default handles: every
-        // default(AsyncOperationHandle) compares equal to every other, so the fixture could not
-        // tell "handed back both" from "handed back the same one twice".
+        /// <remarks>
+        /// See docs/testing.md, "AssetHandleRegistryTests, and why its handles are real operations".
+        /// </remarks>
         private ResourceManager _resourceManager;
 
         [SetUp]
@@ -35,12 +37,12 @@ namespace Company.ChestGame.Tests.EditMode
         private AsyncOperationHandle HandleNamed(string name) =>
             _resourceManager.CreateCompletedOperation(name, null);
 
+        /// <remarks>
+        /// See docs/asset-loading.md, "AssetHandleRegistry".
+        /// </remarks>
         [Test]
         public void AssetReference_StillHasNoValueSemanticsOfItsOwn()
         {
-            // The premise the rest of this fixture rests on, asserted rather than assumed. If the
-            // package ever gives AssetReference an Equals, keying on the runtime key stops being
-            // necessary.
             AssetReference authored = new(GUID);
             AssetReference rebuilt = new(GUID);
 
@@ -49,11 +51,12 @@ namespace Company.ChestGame.Tests.EditMode
                 "AssetReference now compares by value; AssetHandleRegistry's key can be simplified");
         }
 
+        /// <remarks>
+        /// See docs/asset-loading.md, "AssetHandleRegistry".
+        /// </remarks>
         [Test]
         public void AReferenceRebuiltFromTheSameGuid_TakesWhatTheFirstOneLeft()
         {
-            // The first bug in one test: a caller holding a GUID rather than the definition asset's
-            // own field used to get a silent no-op and an unreleasable handle.
             AsyncOperationHandle loaded = HandleNamed("view");
             _registry.Remember(new AssetReference(GUID), loaded);
 
@@ -66,7 +69,6 @@ namespace Company.ChestGame.Tests.EditMode
         [Test]
         public void AReferenceToADifferentAsset_TakesNothing()
         {
-            // The other half of value semantics: same-key must match, different-key must not.
             _registry.Remember(new AssetReference(GUID), HandleNamed("view"));
 
             Assert.IsFalse(_registry.TryTake(new AssetReference(OTHER_GUID), out AsyncOperationHandle taken));
@@ -76,11 +78,12 @@ namespace Company.ChestGame.Tests.EditMode
                 "and the miss must not have consumed the entry it did not match");
         }
 
+        /// <remarks>
+        /// See docs/asset-loading.md, "AssetHandleRegistry".
+        /// </remarks>
         [Test]
         public void AReferenceNamingASubObject_IsNotTheSameEntryAsItsParent()
         {
-            // The runtime key carries the sub-object name, which is why it beats the bare GUID: a
-            // sprite out of an atlas and the atlas itself are separate loads.
             AssetReference subObject = new(GUID) { SubObjectName = "Chest" };
 
             _registry.Remember(subObject, HandleNamed("sprite"));
@@ -89,11 +92,12 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.IsTrue(_registry.TryTake(new AssetReference(GUID) { SubObjectName = "Chest" }, out _));
         }
 
+        /// <remarks>
+        /// See docs/asset-loading.md, "AssetHandleRegistry".
+        /// </remarks>
         [Test]
         public void TwoLoadsOfOneAsset_NeedTwoReleasesAndYieldBothHandles()
         {
-            // Addressables ref-counts per load. Keeping only the newest handle would leak the one
-            // it replaced, and one release covering both would drop a count nobody paid.
             AsyncOperationHandle first = HandleNamed("first");
             AsyncOperationHandle second = HandleNamed("second");
 
@@ -109,12 +113,13 @@ namespace Company.ChestGame.Tests.EditMode
                 "and nothing beyond them, or a third release drops a count that was never taken");
         }
 
+        /// <remarks>
+        /// See docs/asset-loading.md, "AssetHandleRegistry".
+        /// See docs/asset-loading.md, "One release per load".
+        /// </remarks>
         [Test]
         public void OneRelease_LeavesTheOtherLiveLoadsHandleAlone()
         {
-            // The second bug, in the shape it occurs: two containers running the same minigame,
-            // each having loaded its view. Take used to remove the whole list, so the first to end
-            // pulled the asset out from under the second.
             AsyncOperationHandle stillRunning = HandleNamed("container-a");
             AsyncOperationHandle endingNow = HandleNamed("container-b");
 
@@ -130,11 +135,12 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.AreEqual(stillRunning, survivor);
         }
 
+        /// <remarks>
+        /// See docs/asset-loading.md, "AssetHandleRegistry".
+        /// </remarks>
         [Test]
         public void TakingTwiceForOneLoad_YieldsNothingTheSecondTime()
         {
-            // Taking is what stops tracking, so a caller that releases twice does not release the
-            // same handle twice, which Addressables reports as an error.
             _registry.Remember(new AssetReference(GUID), HandleNamed("view"));
 
             _registry.TryTake(new AssetReference(GUID), out _);
@@ -143,11 +149,12 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.IsFalse(taken.IsValid());
         }
 
+        /// <remarks>
+        /// See docs/asset-loading.md, "AssetHandleRegistry".
+        /// </remarks>
         [Test]
         public void AnAssetLoadedAgainAfterItsLastReleaseIsTrackedAgain()
         {
-            // The entry is dropped with its last handle, and loading again has to start tracking
-            // rather than find a hole where it used to be.
             _registry.Remember(new AssetReference(GUID), HandleNamed("first run"));
             _registry.TryTake(new AssetReference(GUID), out _);
 
@@ -158,11 +165,13 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.AreEqual(reloaded, taken);
         }
 
+        /// <remarks>
+        /// See docs/asset-loading.md, "AssetHandleRegistry".
+        /// See docs/minigames.md, "Teardown".
+        /// </remarks>
         [Test]
         public void TakingAReferenceNothingWasLoadedFor_IsSafe()
         {
-            // End and BeginAsync's unwind both release unconditionally, which only works because
-            // nothing tracked yields nothing rather than failing.
             Assert.IsFalse(_registry.TryTake(new AssetReference(GUID), out AsyncOperationHandle nothing));
             Assert.IsFalse(nothing.IsValid());
 

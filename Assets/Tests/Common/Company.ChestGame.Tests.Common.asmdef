@@ -11,7 +11,8 @@
         "Company.ChestGame.Rewards",
         "UniTask",
         "Unity.Addressables",
-        "VContainer"
+        "VContainer",
+        "Company.ChestGame.Mvc"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

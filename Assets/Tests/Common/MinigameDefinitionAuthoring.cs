@@ -5,19 +5,28 @@ using UnityEngine.AddressableAssets;
 
 namespace Company.ChestGame.Tests.Common
 {
-    // MinigameBaseSO's authored fields are serialized and private, so a definition built with
-    // CreateInstance carries empty ones. Tests write them directly, which means no production type
-    // has to open a setter it does not otherwise need.
+    /// <summary>
+    /// Writes <see cref="MinigameBaseSO"/>'s private serialized authoring fields directly, for a
+    /// definition built with <c>CreateInstance</c> that needs them populated for a test.
+    /// </summary>
+    /// <remarks>
+    /// See docs/testing.md, "MinigameDefinitionAuthoring, and why it reaches through reflection".
+    /// </remarks>
     public static class MinigameDefinitionAuthoring
     {
         private static readonly FieldInfo IdField =
             typeof(MinigameBaseSO).GetField("_id", BindingFlags.Instance | BindingFlags.NonPublic);
 
+        /// <summary>
+        /// Sets <see cref="MinigameBaseSO"/>'s private <c>_id</c> field on
+        /// <paramref name="definition"/>.
+        /// </summary>
+        /// <exception cref="MissingFieldException">
+        /// When <see cref="MinigameBaseSO"/> no longer has an <c>_id</c> field.
+        /// </exception>
         public static TDefinition WithId<TDefinition>(this TDefinition definition, string id)
             where TDefinition : MinigameBaseSO
         {
-            // A rename would otherwise surface as a NullReferenceException from a helper nobody
-            // suspects.
             if (IdField == null)
             {
                 throw new MissingFieldException(
@@ -28,8 +37,12 @@ namespace Company.ChestGame.Tests.Common
             return definition;
         }
 
-        // The two fields the delivery work reads, authored together because they are one decision:
-        // a label with no policy names content nothing will fetch.
+        /// <summary>
+        /// Sets the content label and load policy on <paramref name="definition"/> together.
+        /// </summary>
+        /// <exception cref="MissingFieldException">
+        /// When <see cref="MinigameBaseSO"/> no longer has the backing field for either value.
+        /// </exception>
         public static TDefinition WithContent<TDefinition>(
             this TDefinition definition, string contentLabel, MinigameLoadPolicy loadPolicy)
             where TDefinition : MinigameBaseSO
@@ -54,8 +67,14 @@ namespace Company.ChestGame.Tests.Common
             field.SetValue(definition, value);
         }
 
-        // The view reference lives on the generic base, so the field is found by walking up from
-        // the concrete definition's own type.
+        /// <summary>
+        /// Sets <paramref name="viewRef"/> on the <c>_viewRef</c> field declared by the generic
+        /// <c>MinigameBase&lt;TController, TView, TMinigame&gt;</c> base, found by walking up from
+        /// <paramref name="definition"/>'s own type.
+        /// </summary>
+        /// <exception cref="MissingFieldException">
+        /// When no type in the hierarchy still declares a <c>_viewRef</c> field.
+        /// </exception>
         public static TDefinition WithViewReference<TDefinition>(this TDefinition definition, AssetReferenceGameObject viewRef)
             where TDefinition : MinigameBaseSO
         {

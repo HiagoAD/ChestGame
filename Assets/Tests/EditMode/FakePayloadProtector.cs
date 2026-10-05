@@ -2,9 +2,10 @@ using Company.ChestGame.Saving;
 
 namespace Company.ChestGame.Tests.EditMode
 {
-    // The baseline protector with every field a test can override - in particular IsTextSafe,
-    // which the two real implementations (NoProtection and JsonCodec) never set to false between
-    // them, so the base64 body branch is otherwise unreachable through anything real.
+    /// <summary>
+    /// A baseline <see cref="IPayloadProtector"/> test double whose <see cref="Id"/> and
+    /// <see cref="IsTextSafe"/> a test can set directly.
+    /// </summary>
     public class FakePayloadProtector : IPayloadProtector
     {
         public string Id { get; set; } = "fake-protector";

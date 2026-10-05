@@ -7,9 +7,14 @@ using UnityEngine;
 
 namespace Company.ChestGame.Tests.EditMode
 {
-    // PopupManager is a catalog lookup, a parent choice, and a hand-off of data. With the catalog
-    // and the parent supplied rather than loaded, all three are reachable here instead of in the
-    // play-mode suite. Only spawning the real shipped prefabs still needs play mode.
+    /// <summary>
+    /// Covers <see cref="PopupManager"/> against a real <see cref="PopupCatalog"/> and a supplied
+    /// parent provider.
+    /// </summary>
+    /// <remarks>
+    /// See docs/architecture.md, "Popups".
+    /// See docs/testing.md, "What lives where".
+    /// </remarks>
     public class PopupManagerTests
     {
         private PopupCatalog _catalog;
@@ -20,14 +25,15 @@ namespace Company.ChestGame.Tests.EditMode
         private GameObject _defaultParent;
         private readonly List<GameObject> _spawned = new();
 
+        /// <remarks>
+        /// See docs/testing.md, "The save suites never touch a real save".
+        /// </remarks>
         [SetUp]
         public void SetUp()
         {
             _prefab = new GameObject("TestPopupPrefab").AddComponent<TestPopup>();
             _defaultParent = new GameObject("DefaultParent");
 
-            // The real catalog rather than a fake: it takes a plain list, so using it costs
-            // nothing and keeps this test honest about how lookups actually resolve.
             _catalog = new PopupCatalog(new List<PopupBase> { _prefab });
             _parentProvider = new FakePopupParentProvider { Parent = _defaultParent.transform };
 

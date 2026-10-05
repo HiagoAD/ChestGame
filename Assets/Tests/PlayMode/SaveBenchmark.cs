@@ -12,20 +12,20 @@ using Debug = UnityEngine.Debug;
 
 namespace Company.ChestGame.Tests.PlayMode
 {
-    // A measurement, not a behaviour test - see PoolBenchmark's own header for why: every duration
-    // below is logged, never asserted on, so a slow CI machine cannot make this suite flaky.
-    //
-    // Every codec/protector pair SaveComponentFactory can build (SavePipelineProbeTests's own
-    // combination space), all against SaveStorage.InMemory: the encoded bytes are identical
-    // whichever store carries them, and InMemory is the one backend that cannot touch
-    // Application.persistentDataPath or a real PlayerPrefs table - this project destroyed a
-    // developer's real save once already, and a benchmark that runs on every test pass is not the
-    // place to risk it again.
+    /// <summary>
+    /// A measurement, not a behaviour test: every duration below is logged, never asserted on.
+    /// Exercises every codec/protector pair <see cref="SaveComponentFactory"/> can build, all against
+    /// <see cref="SaveStorage"/>.InMemory.
+    /// </summary>
+    /// <remarks>
+    /// See docs/saving.md, "SaveBenchmark, and the number the plan got wrong".
+    /// See docs/saving.md, "Sealing the boot path a test cannot pass arguments through".
+    /// </remarks>
     public class SaveBenchmark
     {
-        // Averaged per combination so one write/read pair's own noise does not read as the
-        // combination's cost - repeating InMemory's sub-millisecond operations is what makes the
-        // average mean something.
+        /// <remarks>
+        /// See docs/saving.md, "SaveBenchmark, and the number the plan got wrong".
+        /// </remarks>
         private const int Iterations = 200;
         private const SaveStorage Storage = SaveStorage.InMemory;
 
@@ -34,11 +34,9 @@ namespace Company.ChestGame.Tests.PlayMode
         [SetUp]
         public void SetUp() => _inputs = SaveFactoryInputs.Defaults();
 
-        // Two sizes, not one, because a single size answers the wrong question. A save this game
-        // actually writes is tens of bytes, and at that size gzip costs more than it saves - its
-        // header and trailer, plus the base64 the envelope owes any non-text-safe body, outweigh
-        // everything compression can find. Measuring only that would read as "gzip is useless";
-        // measuring only a large one would read as "always compress". The crossover is the finding.
+        /// <remarks>
+        /// See docs/saving.md, "SaveBenchmark, and the number the plan got wrong".
+        /// </remarks>
         [UnityTest]
         public IEnumerator Measure_EveryCodecAndProtectorPair_AgainstThePlaintextBaseline()
         {
@@ -55,14 +53,14 @@ namespace Company.ChestGame.Tests.PlayMode
                 new SaveInspectorDocument { Balance = 1250, Nickname = LargeNickname(), Level = 5 },
                 report);
 
-            // The whole point of the class: a human reads this out of the run log.
             Debug.Log(report.ToString());
         }
 
         private const int LargeNicknameLength = 4000;
 
-        // Repetitive on purpose and labelled as such in the report: this is compression's best case,
-        // not a typical payload, and the number it produces is the ceiling rather than an estimate.
+        /// <remarks>
+        /// See docs/saving.md, "SaveBenchmark, and the number the plan got wrong".
+        /// </remarks>
         private static string LargeNickname() =>
             new StringBuilder().Insert(0, "chest-run-segment-", LargeNicknameLength / 18).ToString();
 
@@ -83,6 +81,9 @@ namespace Company.ChestGame.Tests.PlayMode
             }
         }
 
+        /// <remarks>
+        /// See docs/saving.md, "SaveBenchmark, and the number the plan got wrong".
+        /// </remarks>
         private IEnumerator MeasureOne(SaveCodec codec, SaveProtection protection, SaveInspectorDocument document,
             SaveProbeResult baseline, StringBuilder report)
         {
@@ -96,8 +97,6 @@ namespace Company.ChestGame.Tests.PlayMode
                 SaveProbeResult result = SynchronousUniTask.Result(
                     SavePipelineProbe.RunAsync(Storage, codec, protection, _inputs, key, document, CancellationToken.None));
 
-                // The deterministic half, and the only thing asserted: the round trip actually
-                // carried the value, and produced something to size at all.
                 Assert.AreEqual(document.Balance, result.Loaded.Balance, $"{codec}/{protection} did not round-trip Balance");
                 Assert.Greater(result.ByteCount, 0, $"{codec}/{protection} produced no bytes");
 

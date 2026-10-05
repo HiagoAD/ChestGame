@@ -51,6 +51,11 @@ unrecoverable, because there is no way to learn what you are holding.
 can open a save and read or hand-edit it. Otherwise it is base64. `enc` records which, because
 nothing about the other three fields says so.
 
+A byte-exactness assertion alone would also pass a base64-only implementation that happened to
+round-trip cleanly, so `SaveEnvelopeTests.ARawBody_IsEmbeddedLiterallyRatherThanAsAQuotedString` pins
+the raw branch's own shape directly: the body has to sit in the envelope as literal JSON, not as text
+wrapped in quotes the way a base64 body would appear.
+
 ### Value-exactness, and where the formatting stops
 
 Every **value** in a text-safe body round-trips through `GetBody(Wrap(x))` exactly, and that is the
@@ -98,6 +103,32 @@ back still wrapped in the quotes it was written with, and handing that to `Conve
 throws. `Parse` unwraps it after the read loop rather than inside the switch, because JSON field
 order is not guaranteed — `enc` can arrive after `body`, so the end of the loop is the first point at
 which both are known.
+
+Byte-exactness is not merely nice to have here: a protector that signs or encrypts the body signs or
+encrypts the exact bytes `GetBody` hands it, so a body that merely decoded to something value-equal
+would fail `HmacSignedProtector`'s signature check (or `AesProtector`'s) on every valid save.
+`SaveEnvelopeTests` asserts on the raw bytes `GetBody` returns for this reason, never on a value
+decoded from them.
+
+For every codec, the value itself survives `GetBody(Wrap(x))` regardless of what happens to
+formatting; per codec, `SaveCodecEnvelopeValueExactnessTests.AssertSurvives` pins one further thing
+explicitly. `JsonCodec`'s output is already compact, so `Parse` has nothing to normalise and the
+bytes come back unchanged — the same guarantee `SaveEnvelopeTests` pins with a fake codec.
+For `PrettyJsonCodec`, `AssertSurvives` does not compare against `JsonCodec`'s bytes, so it does not
+care whether the indentation is stripped or kept. It parses the bytes the codec encoded and the
+bytes read back from `GetBody` with `DateParseHandling.None` and `FloatParseHandling.Decimal` (the
+settings `SaveEnvelope.Parse` uses) and requires `JToken.DeepEquals` on the two documents, so a
+dropped field or a changed value fails. `DeepEquals` compares numbers by value, so `1.50` and `1.5`
+would agree; each document is therefore also re-written compact by the same writer and the two
+compared as text, which keeps the trailing zero honest whatever the original indentation was. The
+default reader would turn `"2026-09-01"` into a `DateTime` and `1.50` into a `double`, and two
+documents could then compare equal while their text did not say the same thing; that is why the
+helper `ParseExactly` sets both options. The codec list comes from `Enum.GetValues(typeof(SaveCodec))`,
+so a fourth codec is picked up automatically, and `CodecFor`'s default arm throws rather than
+skipping it, for the reason `SaveServiceFactory`'s switches give: a missing arm has to be visible
+rather than quietly wrong. `GzipJsonCodec` is not text-safe, so its body only ever travels as base64,
+already proven exact on its own in `SaveEnvelopeTests`; there is nothing further to pin about
+formatting for it.
 
 ## Loading, and the three ways a version goes wrong
 
@@ -150,6 +181,13 @@ took. `GzipJsonCodec` decompresses first, then defers to `JsonCodec.ToJson` for 
 is a real constraint stated on purpose, not hidden: a codec that were not JSON-shaped under its own
 encoding could not participate in migration at all, and nothing here pretends otherwise.
 
+`SaveCodecToJsonTests` asserts each codec's `ToJson` against exactly what its own `Encode` produced,
+never against a value merely equal after a fresh deserialize: a comparison by re-deserializing would
+not catch `ToJson` quietly reformatting the JSON, or routing through the wrong underlying codec. For
+`GzipJsonCodec` specifically, since it composes `JsonCodec` rather than duplicating its serialization,
+`ToJson` has to hand back exactly what a plain `JsonCodec` would have produced for the same value, not
+merely something that deserializes to an equal object.
+
 ### `ISaveMigration` and `SaveMigrator`
 
 `ISaveMigration` is one step: `FromVersion` and `JObject Apply(JObject document)`, from `FromVersion`
@@ -158,6 +196,11 @@ stored version up to a target, strictly ascending and one version at a time — 
 never applying two at once. It takes no Unity type anywhere in its surface, so it is exercised by a
 plain NUnit test with no player loop, the same reason `SaveMigrator` and `SaveEnvelope` both stay free
 of `UnityEngine`.
+
+`SaveMigrator`'s constructor accepts a null migrations collection and treats it as an empty chain
+(`Array.Empty<ISaveMigration>()` in the constructor's null-coalesce) rather than throwing: a
+`fromVersion == toVersion` walk over it takes zero steps and succeeds, and a walk of one step fails as
+`NoMigrationPath` exactly as it would for an explicitly empty collection.
 
 Four failures are construction- or call-site errors, all `SaveMigrationException` rather than
 `SaveException`: two migrations declaring the same `FromVersion` is a wiring mistake only a developer
@@ -196,6 +239,12 @@ it: both are Newtonsoft over the same document, one reading it from the codec's 
 from the chain's own output. Nothing about the codec/protector id checks changes for a migrated
 save — those still run first, for every version, because they answer "did the configured pipeline
 write this" rather than "what shape is inside it".
+
+`SaveServiceMigrationTests.LoadAsync_WhenVersionIsBelowCurrent_AndAMigratorIsConfigured_WalksTheChainAndMaterialisesTheMigratedDocument`
+is shaped so that every link in the chain depends on the one before it. The stored body reaches
+`ToJson`, `ToJson`'s text reaches the migration, and the migration builds on the value it was handed
+(5 becomes 15) rather than overwriting it, so a wrong input at any link changes the result.
+`FakeSaveCodec.ToJsonFromInput` and `LastToJsonInput` are what make the first link observable.
 
 ### What adding a schema version takes
 
@@ -255,7 +304,16 @@ not corrupted. That is also the idempotency guarantee: running the import twice 
 whole branch unreachable regardless of what `IsPresent()` would have answered. A failure to `Clear()`
 itself is swallowed rather than allowed to fail an otherwise-successful load — the same best-effort
 reasoning `AtomicFileStore`'s own temp-file cleanup follows — because the new save already exists and a
-leftover legacy entry is inert, not lost.
+leftover legacy entry is inert, not lost. It is also logged as an error (`SaveService.ImportLegacyOrFreshAsync`'s
+own catch), so a legacy `Clear()` that keeps failing is still visible somewhere even though it never
+fails the load itself.
+
+Cancellation follows the same ordering guarantee. Cancelling before `SaveAsync`'s write completes has
+to actually abort the write rather than let the import path race ahead of it, so nothing durable ever
+lands under the key and `Clear()` never runs. Cancelling after the write has already succeeded, while
+`Clear()` itself is running, must not be able to turn a completed import back into a failed load — the
+imported value is already durable by that point, so a cancellation token from here on cannot un-succeed
+it.
 
 ### `TargetKey`, and the defect a second save key exposed
 
@@ -305,7 +363,10 @@ predate it, not against a convenient fiction.
 a menu command under `Tools/Saving/`, so producing one is a deliberate, reproducible action logged in
 source control rather than a manual paste into a text editor. It refuses to overwrite a file that
 already exists, for the reason above; extending it for a new schema version is part of step 4 in "What
-adding a schema version takes".
+adding a schema version takes". `GenerateV1` blocks on the awaiter (`GetAwaiter().GetResult()`) when
+saving and reading back the fixture; that is safe rather than a deadlock risk because every component
+in this pipeline (`InMemoryStore`, `SaveService`, `JsonCodec`, `NoProtection`) completes
+synchronously.
 
 ### The fixture values are chosen, not incidental
 
@@ -323,7 +384,11 @@ against `JsonConvert.DeserializeObject<SaveEnvelope>` — the implementation thi
 warns against reintroducing. Only the values below came back *different* between those two:
 
 - `Multiplier` keeps a trailing zero (`1.50`). Stripped of `FloatParseHandling.Decimal`, it comes back
-  `1.5`.
+  `1.5`. `SaveGoldenCorpusTests.V1Json_OnDisk_StillLiteralyContainsTheTrailingZero_NotShortenedTo1Point5`
+  is independent of the read-side check above: it pins that the corpus file itself, as committed, still
+  carries `"1.50"` verbatim — the write-time half of the same guarantee. A round trip that happened to
+  fix up the read path but wrote a shortened `"1.5"` on some other occasion would not be caught by the
+  read-side test alone.
 - `HighPrecisionTimestamp` carries nine fractional-second digits — one more than the seven (100ns
   ticks) a .NET `DateTime` can hold. Anything that round-trips it through `DateTime` truncates it to
   seven, silently.
@@ -367,13 +432,42 @@ the reason the flag exists at all: `PrettyJsonCodec`'s output is still JSON, so 
 `GzipJsonCodec`'s is gzip's own magic bytes, which would corrupt the envelope if embedded raw the same
 way a bare unquoted string would.
 
-On the way back, `GzipJsonCodec` checks the gzip trailer — the CRC32 and length of the uncompressed
-bytes — against what it decompressed, and throws `InvalidDataException` on a mismatch. Unity's Mono
-`GZipStream` does not reliably throw on a stream cut short: it can return nothing, or part of the
-document, which would decode to `null` or hand a migration an empty string. The trailer is read from
-the last 8 bytes, which holds because `Encode` writes exactly one gzip member. So a multi-member stream,
-or one with bytes appended, is refused even though another gzip reader would accept it. Nothing but
-this codec writes these saves, so that costs nothing today.
+`GzipJsonCodec.Encode` compresses through a `GZipStream` constructed with `leaveOpen: true` over the
+destination `MemoryStream`. `GZipStream`'s own `Dispose` is what flushes the compressed trailer, so
+it has to run (via the inner `using` block) before `compressed.ToArray()` reads the result; disposing
+`compressed` afterward as well would be redundant, since nothing further writes to it once the gzip
+stream has flushed.
+
+On the way back, `Decode<T>` and `ToJson` share one `Decompress` step, so both fail the same way on
+the same bad input. `Decompress` checks the gzip trailer - the CRC32 and length of the uncompressed
+bytes - against what it decompressed, and throws `InvalidDataException` on a mismatch; input shorter
+than the smallest valid gzip member (20 bytes) is refused the same way before decompression starts.
+Unity's Mono `GZipStream` does not reliably throw on a stream cut short: it can return nothing, or
+part of the document, which would decode to `null` or hand a migration an empty string, so the codec
+does not lean on it to throw. The trailer is read from the last 8 bytes, which holds because `Encode`
+writes exactly one gzip member. `GzipJsonCodec` carries its own CRC32 (`Crc32Table`, `Crc32`) because
+.NET Standard has no CRC32 of its own; it uses the IEEE polynomial, reflected, which is what gzip's
+trailer uses, so the value it computes can be compared with the trailer `Decompress` reads. So a
+multi-member stream, or one with bytes appended, is refused even
+though another gzip reader would accept it. Nothing but this codec writes these saves, so that costs
+nothing today. Bytes that are not gzip at all throw whatever exception type `GZipStream` throws on
+the runtime, or `InvalidDataException` from the trailer check; the tests catch the base type rather
+than assume which.
+
+Truncation is refused inside the codec because `ISaveCodec`'s contract is two outcomes, the value or a
+throw. A truncated gzip stream that decompressed to zero bytes without the stream complaining would
+make `Decode<T>` return `null` and `ToJson` return `""`, a third outcome, silent corruption, that
+every caller would have to know to check for. `SaveService` happens to null-guard `Decode<T>`, but a
+migration fed `""` fails somewhere else entirely, and nothing else that holds a codec is protected at
+all. So truncation is refused where it is detected, through either entry point. The tests pin that
+something is thrown, not which exception type: the truncated cases use `Assert.Catch<Exception>`,
+and the not-gzip case catches the base type and holds `ToJson` to whatever type `Decode<T>` threw on
+this runtime's `GZipStream`, because `Assert.Throws` would require the exact type in advance.
+`GzipJsonCodecTests` tests truncation directly on the codec (`Decode_OnTruncatedBytes...`,
+`ToJson_OnTruncatedBytes...`, cut inside the gzip header at 5 bytes and inside the compressed data at
+20) and through `LoadAsync`. The `LoadAsync_With...` tests use `Assert.Throws<SaveException>`, which
+already fails if anything else escapes, a raw `InvalidDataException` included, so no separate
+negative assertion is needed for that.
 
 ### Why there is no binary codec
 
@@ -490,6 +584,17 @@ a different key than the one `LoadAsync` is configured with fails its comparison
 genuinely tampered body does, and `IPayloadProtector` has no way to tell the two apart. A protector
 proves the bytes match what *some* key produced; it cannot prove which key that was.
 
+`AesProtectorTests` is shaped around what a degenerate protector would still pass. Every other test in
+the fixture would pass for a protector that wrote `IV || plaintext || tag`: the round trip works, the
+IV still differs per save, and the tag still catches an edit. Encryption is the one thing such a
+protector would not do, so `Protect_DoesNotCarryAnyBlockOfThePlaintextInTheClear` checks it directly:
+no 16-byte block-sized run of a distinctive plaintext may appear anywhere in the output. Real
+ciphertext matching 16 chosen bytes by chance is not a failure mode worth guarding. The tag is the
+last 32 bytes and is the only region `SaveServiceTamperDetectionTests` ever flips. A MAC computed over
+the ciphertext alone would pass that and still let the IV be edited, which under CBC rewrites the first
+plaintext block at will, so `Unprotect_WithOneByteFlippedOutsideTheTag_IsRejectedAsTampering` flips the
+first IV byte (index 0) and the first ciphertext byte (index 16) directly.
+
 ## `SaveProfileValidator`
 
 A static method, `Validate`, returning human-readable warnings for a profile's codec and protector —
@@ -501,12 +606,21 @@ they deliver.
 **`JsonPretty` paired with anything but `SaveProtection.None`** spends bytes indenting a body for a
 person to read, then hands that body to a protector whose entire `IsTextSafe` is false — the
 indentation is paid for and immediately made unreadable by the next stage of the same pipeline.
+`Validate_JsonPrettyWithAnyNonNoneProtection_Warns` checks the warning text, not just that some
+warning exists: `Base64`, `Xor` and `Hmac` each warn on their own whatever the codec, so "some
+warning" is true of three of the four non-None cases even with the `JsonPretty` check deleted. The
+warning has to be the one naming `JsonPretty`, and the same protection paired with `Json` must not
+carry it, so it is the codec that earns it.
 
 **`Base64` protection, on any codec,** always produces the doubled base64 encoding described under
 `Base64Obfuscator` above.
 
 **`Hmac` protection, on any codec,** is flagged as proving integrity without confidentiality, so a
-profile picking it for privacy rather than tamper-evidence is told what it actually got.
+profile picking it for privacy rather than tamper-evidence is told what it actually got. The warning
+is asserted against the implementation's own wording ("proves a save was not modified" / "does not
+hide it"), never against the abstract vocabulary ("integrity" / "confidentiality") used to describe it
+in prose: asserting the literal words would be testing a paraphrase the warning message never promised
+to use.
 
 **`Xor` protection, on any codec,** is flagged with the same obfuscation-not-encryption reasoning as
 its type header.
@@ -647,6 +761,19 @@ goes on the end of whichever enum it belongs to — phase 3 appended `JsonPretty
 `SaveCodec` and `Base64`, `Xor`, `Hmac` and `Aes` to `SaveProtection`, in that order, after the
 member each enum already had.
 
+`File` is `SaveStorage`'s first member because first place is what a newly serialized field lands
+on: a `SaveProfileSO` field added before any asset authors a value defaults to index 0, so whichever
+member sits there is the backend a never-configured profile silently gets.
+
+`SaveInspectorPanel` labels each segmented button by reading the enum value at that index
+(`SaveInspectorController.Storages`, `Codecs` and `Protections`, built from `Enum.GetValues`) and
+mapping it through a `ShortNameOf` switch, rather than hardcoding a display order or trusting what
+SaveInspector.uxml happens to say at that index. That keeps it safe against the one reordering the
+append-only rule above does not rule out by itself: even if a future edit changed declaration order
+in a way
+that still respected "append only," every button would still show the label for the value it
+actually selects.
+
 **No `SaveProfileSO` asset ships in this project today**, so the rule above is forward-looking rather
 than protecting anything currently authored. Do not read `SaveProfileSO` and `SaveProfileValidator` as
 the thing that configures the shipped save: they are an authoring seam with no asset behind it, and
@@ -741,6 +868,22 @@ destroyed `SaveProfileSO` is Unity-null rather than C#-null and only the overloa
 that. `Create` and `CreateFrom` both take an optional `SaveFactoryInputs`, defaulting to
 `SaveFactoryInputs.Defaults()` when left null, so a caller that does not care about the file root,
 the PlayerPrefs prefix, or any protector's key keeps getting exactly what it always got.
+
+Driving a `SaveProfileSO`'s private serialized fields through `SerializedObject` rather than through
+reflection matters because the point is to prove `SaveServiceFactory` actually reads what the
+inspector's dropdowns write, not a value only a test's own reflection could see.
+`AProfileAuthoredForAStorage_DrivesTheFactoryToTheMatchingBackend` proves round-tripping end to end,
+but a round trip alone cannot catch `CreateCodec`/`CreateProtector` always falling back to its default
+arm regardless of what the dropdown says, because the same (wrong) component would then be used for
+both the save and the load and still agree with itself.
+`AProfileAuthoredForACodec_WritesThatCodecsIdIntoTheEnvelope` and
+`AProfileAuthoredForAProtection_WritesThatProtectionsIdIntoTheEnvelope` instead pin the id actually
+written into the envelope on disk against what each enum member is supposed to produce — the same
+check `AFreshlySerializedProfile_NamesJsonAndNoneInTheWrittenEnvelope` already runs for the default
+(Json, None) pair, extended to every member of both enums. `AProfileAuthoredForACodec_StillRoundTrips`
+and `AProfileAuthoredForAProtection_StillRoundTrips` complete the coverage the other direction: not
+just that the right id lands in the envelope, but that what comes back out through a full save/load is
+also correct.
 
 **The ceiling is stated as a rule, not left to be inferred from what this type happens not to take
 yet: `SaveServiceFactory` will never grow a parameter for a `SaveMigrator`, an `ILegacyImport`, a
@@ -868,9 +1011,9 @@ The hop instead lives in a new type that wraps a store from the outside: **`Thre
 `ISaveStore` decorating another `ISaveStore`. `SaveService` never knows it exists — it just calls
 `_store.WriteAsync`/`ReadAsync`/`ExistsAsync`/`DeleteAsync` exactly as it always has, on whatever
 `ISaveStore` it was constructed with. Nothing in this phase wires `ThreadHoppingStore` into
-`SaveServiceFactory` or any composition root, and "What is deliberately still open" below records
-that this is still true. So today it is available but inert,
-proven by the scratch harness this phase's own review used rather than by a shipped call site.
+`SaveServiceFactory` or any composition root, and it remains unwired into every composition this game
+ships today. So it is available but inert, proven by the scratch harness this phase's own review used
+rather than by a shipped call site.
 
 `ThreadHoppingStore` checks `inner is IMainThreadOnlyStore` once, in its constructor, and every member
 either calls straight through (main-thread-only inner store — today, only `PlayerPrefsStore`) or hops
@@ -982,6 +1125,26 @@ overwrites it rather than queuing a history of them — is what gets saved. That
 "coalescing" means here: many calls, one window, one write, carrying the newest state rather than the
 first or an average of them.
 
+`WaitThenFlushAsync` catches `OperationCanceledException` around the clock delay without clearing
+`_waiting` itself. Cancellation reaches that catch only two ways: `Dispose` cancelling `_disposedCts`,
+or `InterruptWindow` cancelling `_windowCts` when a flush pre-empts the window. Both call sites already
+set `_waiting = false` before cancelling, so by the time the catch runs there is nothing left for it to
+clear.
+
+A `MarkDirty` call after a coalescing window has already fired starts dirtying state again from
+scratch, not more of the window that just closed, so it produces its own later write:
+`SaveSchedulerPlayModeTests.MarkDirty_SeveralCallsInsideOneWindow_ProduceExactlyOneWrite_CarryingTheLastState`
+follows its first, coalesced write with one more `MarkDirty` call and asserts a second write follows,
+distinct from the first.
+
+`CurrencySaveHandlerTests.ABurstOfAddsAndSpends_CoalescesWithoutChangingTheFinalBalance` never
+advances the fake clock, so the coalescing window has not elapsed and nothing has been written when it
+first reads the balance. That proves the balance came from `CurrencyManager`'s own in-memory state and
+not from a write that had already landed, and the `HasPendingWrite` and `IsFlushing` guards assert the
+burst is still waiting. All 35 calls returned immediately, since `Save()` never blocks. Forcing the one
+coalesced write through with `FlushBlocking` must leave the balance unchanged, and a fresh reload must
+carry the final balance, not an intermediate one.
+
 ### A frozen clock is a frozen save
 
 The countdown `MarkDirty` starts is `IGameClock.Delay`, and `UnityGameClock` — the only implementation
@@ -1007,6 +1170,10 @@ way `ElapsedMilliseconds` on this type already reads real time rather than scale
 budget's own sake), or accept that a paused save is a bounded, resumed-on-unpause delay rather than a
 lost one and document that trade-off explicitly wherever the pause menu itself gets built. Nothing
 about this phase needs to pick between them, because nothing about this phase can trigger the trap.
+
+`UnityGameClock.Delay` leaves `ignoreTimeScale` at `UniTask.Delay`'s own false default rather than
+passing it explicitly, so that a future change to it shows up as an argument appearing in a diff
+rather than as a silent edit to an already-present one.
 
 ### One write in flight
 
@@ -1097,6 +1264,20 @@ pump forever, verified directly against `PlayerLoopHelper`'s edit-mode initialis
 was designed. `FlushBlocking` refuses to be that caller. Waiting is the only thing that can deadlock
 here, and this method never waits.
 
+When the synchronous `SaveAsync` call throws instead, `FlushSynchronousCore` puts the claimed state
+back into `_pending` and calls `ScheduleWindowIfNeeded()` before rethrowing. `FlushBlocking`
+interrupts the window `MarkDirty` opened, so by the time the write fails the state is pending with
+nothing counting down; a window is opened here, as the `finally` of `RunFlushLoopAsync` does for the
+asynchronous path, or the state sits stranded until something else calls in. The failure is not logged
+here: `FlushBlocking` callers get the exception, and `Dispose` logs it. Two tests pin this path.
+`FlushBlocking_WhenTheWriteFails_ThrowsAndKeepsTheStatePending` holds that `HasPendingWrite`, defined
+as state neither durably saved nor currently being saved, is still true after a `FlushBlocking` that
+threw, for the next flush or window to try again rather than the state being discarded.
+`FlushBlocking_WhenTheWriteFails_LeavesAWindowCountingDown_AndTheRetryLandsWithoutAnotherCall`
+covers the window, and supplies nothing else: no second flush and no `MarkDirty`, only the clock. No
+log is expected, because `FlushBlocking` reports through its exception and the retry's write
+succeeds.
+
 This pushes a real, load-bearing obligation onto whatever composes a `SaveScheduler<T>` that will ever
 have `FlushBlocking` called on it: build it over an `ISaveService` whose store never hops off the
 calling thread — a raw `FileStore`, `AtomicFileStore`, `PlayerPrefsStore` or `InMemoryStore`, never one
@@ -1155,6 +1336,29 @@ logs that case by name too, distinctly from the synchronous-attempt-failed case 
 is the one place in this phase where a loss is accepted rather than prevented, and it is now reported as
 well as documented: call `FlushBlocking` yourself before disposing — or check `CanFlushBlocking` first —
 if the guarantee matters more than the convenience of not having to.
+
+`Dispose_WhileACoalescingWindowIsStillCountingDown_CancelsIt_OverANonHoppingComposition` pins that
+the countdown really gets cancelled: over a non-hopping composition, `Dispose`'s own best-effort
+flush is synchronous, so if the coalescing window had fired instead, `MarkDirty`'s own write would
+have produced the same single write regardless of `Dispose`, making the two paths indistinguishable;
+asserting exactly one write, attributable to `Dispose` and not to the window, is what pins
+`InterruptWindow()` actually running. `Dispose_WithAPendingWriteThatNeverStartedFlushing_OverAHoppingComposition_LogsTheLossAndDoesNotThrow`
+and `Dispose_WithAWriteMidHopAndANewerOneQueued_LogsNamingTheKey_AndDoesNotThrow` exercise the two
+different ways a hopping composition can lose a write on `Dispose`: the first when the window is
+still counting down and `Dispose`'s own synchronous attempt is what has to leave the calling thread,
+the second when a flush is already running and a newer write is queued behind it. Both log the key
+and neither throws. After the abandoned write lands, nothing about the scheduler reacts to it: no
+new coalescing window, no retry, no further write —
+`Dispose_WhileAFlushIsGenuinelyInFlight_StopsCleanly_AndNothingKeepsRunningAfterwards` pins that once
+disposed, the scheduler stays inert even after the background write it could not wait for finally
+completes.
+
+`Dispose_WhileACoalescingWindowIsStillCountingDown_CancelsIt_OverANonHoppingComposition` lets real time
+run past three windows after `Dispose` returns, not only until the write count is read. A window that
+survived `Dispose` would fire inside that time, and what it did (a second write, or a throw out of its
+continuation against a scheduler already torn down, which the test runner reports as an unhandled log)
+is what the test waits to see. Asserting on the write count before that time had passed could never
+have caught it.
 
 ### What was validated without a test
 
@@ -1328,7 +1532,10 @@ whatever its subscribers throw. The cost is one log entry per throw, so a HUD la
 fails on every change logs on every change and breaks neither saves nor rewards. In
 Unity tests an unexpected `LogException` fails the test, so a test with a throwing listener has to
 declare it with `LogAssert.Expect`. `FakeCurrencyManager` does not isolate listeners, so a test of
-this behaviour has to use the real `CurrencyManager` over `InMemoryCurrencySaveHandler`.
+this behaviour has to use the real `CurrencyManager` over `InMemoryCurrencySaveHandler`. The
+listener-throws test in `RewardsManagerTests` is built that way for the same reason, over the real
+manager rather than `FakeCurrencyManager`: the real manager logs a throwing listener and carries on,
+which is what keeps a broken HUD label from cancelling the reward it was told about.
 
 A `Save` that throws is not isolated. The exception reaches the caller unchanged and nothing has
 happened: no balance change, no events, no success log. In production the only synchronous `Save`
@@ -1347,6 +1554,20 @@ which came from the revamp on main and were renamed when the library went;
 `AnAddWhoseChangedListenerAlwaysThrows_IsStillWrittenByTheBlockingFlush`, and the two
 `..._AfterTheSchedulerIsDisposed_ThrowsSaveException_AndChangesNothing` tests. `RewardsManagerTests`
 has `GiveRandomCurrencyReward_WhenACurrencyListenerThrows_StillCreditsShowsThePopupAndAnnounces`.
+
+The listener-failure tests in `CurrencyManagerTests` only throw or capture inside a listener, and make
+every assertion after the call, because an assertion that failed inside a listener would be caught and
+logged by the isolation instead of failing the test. Each isolation test runs for both
+`InvalidOperationException` and `NullReferenceException`: a `NullReferenceException` is the realistic
+failure (a broken label or a destroyed view), and a `catch` narrowed to one exception type must not
+pass them. `ExpectLoggedException` matches on the message alone, escaped, because `Debug.LogException`
+logs "ExceptionType: message", so the message identifies the listener whatever its type, and a looser
+pattern could let a different failure through. `SavedAndHeld` reads what the save handler held when
+its last `Save` ran (`InMemoryCurrencySaveHandler.LastSavedBalances`, -1 before any) next to
+`GetCurrencyAmount`, and deliberately not `Stored`: `Stored` is live and would show a document the
+manager finished after handing it over. `CheatResetCurrencyAmount_OnAZeroBalance_DoesNothing` has no
+`LogAssert.Expect` because the cheat does not go through `TrySpendCurrency`, so a zero balance is
+refused without logging; an error log there would fail the test.
 
 ### `CurrencySaveDocument`, and a `new()` constraint the library's model could not satisfy
 
@@ -1469,11 +1690,25 @@ pause or a load actually depended on either:
 - `CurrencySaveHandler`'s constructor throws `SaveException.SynchronousLoadNeedsNonHoppingStore()`
   if the `ISaveService` it was given does not answer `CompletesOnCallingThread == true` — see "`Load()`
   blocks" above for why `Load()` cannot be correct without this.
-- The factory registering `SaveScheduler<CurrencySaveDocument>` throws
-  `SaveException.SchedulerCannotFlushBlocking(key)` if the scheduler it just built does not answer
+- Registering the `SaveScheduler<CurrencySaveDocument>` with `SaveFlushRegistry` throws
+  `SaveException.SchedulerCannotFlushBlocking(key)` if the scheduler does not answer
   `CanFlushBlocking == true` — because `GameLifetimeScope` calls `FlushBlocking` on it from both
   `OnApplicationPause(true)` and `OnApplicationQuit()`, and a scheduler that could ever answer false
   there would throw on every real pause and quit instead of saving.
+
+`GameLifetimeScope.RegisterCoreServices` hardcodes `SaveStorage.AtomicFile` for the currency store, so
+nothing reachable through its own public parameters (`currencySaveInputs`,
+`legacyCurrencyPlayerPrefsKey`) can make the `SaveFlushRegistry.Register` call inside it actually throw
+`SchedulerCannotFlushBlocking`: the composition can only ever build a non-hopping scheduler, so the
+registration inside `RegisterCoreServices` cannot be made to throw from a test.
+`CurrencySaveHandlerTests.RegisteringTheCurrencySchedulerOverAHoppingService_IsRefused_NamingTheKey`
+reaches the real throw site anyway: it builds a `SaveScheduler<CurrencySaveDocument>` under
+`CurrencySaveHandler.SaveKey` over a `ThreadHoppingStore`-backed service and calls
+`SaveFlushRegistry.Register` on it directly, which is the same call over the same scheduler type and
+key that the composition makes. It asserts that the refusal names the key and mentions
+`FlushBlocking`, and that nothing was registered. This is the wiring mistake the guard exists to
+refuse before the one moment a pause flush would need it. Only the registration inside
+`RegisterCoreServices` itself stays unexercised.
 
 Both checks currently prove the same underlying fact twice, once from each consumer's own point of
 view, because this composition's scheduler and handler share one `ISaveService` instance — that
@@ -1502,6 +1737,17 @@ scene load and already owns the one `Awake()` that builds the container everythi
 resolved from; a separate component would need its own `DontDestroyOnLoad` and its own path to the
 same container for no behaviour a second object would add.
 
+`_saveFlushRegistry` is held in a field rather than resolved on demand, because the callbacks that
+use it (`OnApplicationPause`, `OnApplicationQuit`) can fire at any time, including while the container
+is unavailable. `Awake` calls `base.Awake()` first, deliberately: that is where VContainer builds the
+container and dispatches the bootstrapper, so anything the override does afterwards, including
+resolving `ISaveFlushRegistry` and the `DontDestroyOnLoad` call, depends on that having already run.
+`DontDestroyOnLoad(gameObject)` is necessary because the game scene's own scope descends from this
+one, so this scope has to survive the scene load or the game scene's injection has nothing to parent
+to. `OnApplicationQuit` exists as its own callback because `OnApplicationPause(true)` does not fire
+on most desktop platforms on quit, so `OnApplicationQuit` is the equivalent close for the same window
+there.
+
 #### Why the flush stopped being one field
 
 This was originally a single resolved `SaveScheduler<CurrencySaveDocument>` field, flushed by name.
@@ -1523,6 +1769,12 @@ when `CanFlushBlocking` is false. Registering is a declaration that this save wa
 pause/quit, and one that cannot guarantee the flush ever succeeds is a wiring error — the same rule
 `GameLifetimeScope`'s currency factory used to assert on its own. That duplicate check is gone: one
 rule, enforced once, for every flushable rather than re-derived per composition.
+
+`OnApplicationPause_True_WhenAFlushableThrows_LogsRatherThanPropagating` disposes its scheduler only
+after registering it, not before: `Register` asserts `CanFlushBlocking` at the point it runs, and
+disposal does not change what `CanFlushBlocking` reports, so a scheduler registered while healthy and
+disposed afterward reaches the flush call already broken, and the exception `FlushBlocking` then
+throws is `SchedulerDisposed` — a real exception from the real type, not a fake standing in for one.
 
 `FlushAll()` is fault-isolating over a snapshot. One flushable throwing is caught, logged naming its
 key, and the loop continues, because this runs from a lifecycle callback where nothing may propagate
@@ -1560,8 +1812,9 @@ resolves `ICurrencyManager` writes a real file under the real `Application.persi
 that machine has a legacy `"ResourceBankSaveData_CurrencyType"` PlayerPrefs entry, which any developer
 who ever played the game before this phase does — actually performs the real legacy import: it imports
 that data and then deletes it, for good, from production code, the first time a test happens to resolve
-`ICurrencyManager`. `InMemoryCurrencySaveHandler`'s own comment already states the rule this would
-otherwise break: a test "neither read[s] nor clobber[s] the real editor save." Losing data a developer
+`ICurrencyManager`. `InMemoryCurrencySaveHandler` already states the rule this would
+otherwise break (see [testing.md](testing.md#the-in-memory-currency-save-handler)): a test neither
+reads nor clobbers the real editor save. Losing data a developer
 cannot get back is worse than the debris a leaked key merely leaves behind, and the fix costs nothing
 in production: `RegisterCoreServices(builder, status, currencySaveInputs, legacyCurrencyPlayerPrefsKey)`
 takes both as optional parameters, precisely the shape `status` already established on this same method
@@ -1598,7 +1851,7 @@ with no way for anything to thread an argument through — and its body is
 `currencySaveInputs` nor `legacyCurrencyPlayerPrefsKey`. `GameBootstrapperTests` is a `PlayMode` test
 that loads the real Boot scene and lets it run exactly as a player's device would: `Awake()` →
 `Configure()` → this exact zero-argument call → `ICurrencyManager` resolved for the game scene's
-`CurrencyWatcher` → `CurrencyManager`'s constructor → `CurrencySaveHandler.Load()` → the
+the game scene's currency labels → `CurrencyManager`'s constructor → `CurrencySaveHandler.Load()` → the
 real `CurrencyLegacyImport` against the real `"ResourceBankSaveData_CurrencyType"` PlayerPrefs entry.
 Nothing about the previous section's two optional parameters touches any step of that chain, because
 none of it is reachable from outside `Configure()`'s own fixed signature.
@@ -1652,6 +1905,20 @@ assumes a pristine first run see leftover state from an earlier one. That is a t
 imperfection, not a data-loss risk, and is the trade this phase makes on purpose: recoverable debris
 under a clearly test-owned name, never the real thing.
 
+`GameLifetimeScopePauseQuitFlushTests` covers `OnApplicationPause`/`OnApplicationQuit` by keeping its
+`GameLifetimeScope` out of this exact path rather than by overriding anything: the `GameObject` it adds
+the component to is left inactive for its whole life, and Unity never calls `Awake` on a component
+whose `GameObject` has not yet been active, so the container is never built and `Configure()` never
+runs. `GuardSetup_NeverRanAwake` pins that directly — a null `Container` is exactly what "`Configure()`
+never ran" looks like from outside, so that assertion failing means `Awake()` ran and the rest of the
+fixture's isolation claim no longer holds.
+
+With `Awake()` never running, the private `_saveFlushRegistry` field — the only state either callback
+touches — is set directly through reflection to a real `SaveFlushRegistry` holding a scheduler built
+over an isolated in-memory `FakeSaveStore`, and the private `OnApplicationPause`/`OnApplicationQuit`
+methods are likewise invoked through reflection, since nothing in an EditMode test actually pauses or
+quits the application to call them.
+
 ## Beyond currency: chests and meta
 
 Phase 7 adds two more keys — `"chests"` and `"meta"` — over the one `ISaveService` currency already
@@ -1696,10 +1963,14 @@ Three ordering rules inside `Inject`, each closing a real failure rather than a 
   anything is built, because the restore load blocks the calling thread exactly the way
   `CurrencySaveHandler.Load()` does. The existing exception already describes "a caller
   that blocks on `LoadAsync`'s result" generically, so this reuses it rather than adding a twin.
-- **`Register` runs last.** `MinigameContainer.BeginAsync` destroys the view and releases content
-  when injection fails, but it does not `Dispose()` the controller — so a scheduler registered before
-  a throw would stay in the singleton registry for the life of the process, flushed at every
-  pause/quit, holding a dead controller's state, and accumulating one more per failed start.
+- **`Register` runs last.** `MinigameContainer.BeginAsync` disposes the controller whenever injection
+  had begun and a step fails, including a throw inside `Inject` itself, so a half-injected controller
+  is disposed too. `Register` running last keeps that safe: a throw before it leaves nothing
+  registered for `Dispose` to undo, and `Dispose` null-checks the scheduler. A scheduler registered
+  before a throw, with nothing disposing the controller, would stay in the singleton registry for the
+  life of the process, flushed at every pause/quit and accumulating one more per failed start.
+  `SaveScheduler` does not hold the controller; the stale registration is a scheduler that nothing
+  marks dirty.
 - **A corrupt run is discarded, not fatal.** A `SaveException` from the load is logged and answered
   with no pending restore. This is the same call-site policy `GameBootstrapper` applies to meta and it
   rests on the same test: a chests run holds nothing a player earned, because the win pays out through
@@ -1719,7 +1990,7 @@ call only** — the field is consumed and nulled — so every later call, which 
 the same path a fresh install would.
 
 That placement is what makes the view free. `MinigameContainer.BeginAsync` injects, instantiates the
-view, and calls `SetController`, and only then does `GameManager` call `NewGame()` — by which point
+view, and calls `SetController`, and only then does `GameShellController` call `NewGame()` — by which point
 the view is subscribed to `OnStateChange`/`OnAttemptsChanged`, and `ChestsMinigameChestElementView.Init`
 re-drives itself from `ChestsMinigameChestModel.CurrentState` the moment the pool binds it. Restoring
 through the existing `Attempts` setter and `SetOpen` therefore needed **no view code at all**: the view
@@ -1727,11 +1998,14 @@ was already built to re-derive its display from whatever the model holds, for th
 chest opening live. Restore runs after every chest is `SetClosed()`, because `SetOpen` returns early
 on an already-open chest.
 
-A saved run is discarded rather than restored under three conditions, each a state a save can
+A saved run is discarded rather than restored under four conditions, each a state a save can
 legitimately be in: `ChestCount` differs from the configured count (a server-side config change, which
 is the only thing that field exists to catch); an index is out of range or duplicated (a hand-edited
-or truncated save); or the opened count already reaches `TotalAttempts` (a run that had ended).
-Discarding also clears what is stored, so it is not re-read next launch. **A restart discards
+or truncated save); the opened count already reaches `TotalAttempts` (a run that had ended); or
+`OpenedChestIndices` is null. The last comes from a file that writes an explicit `"OpenedChestIndices":
+null`: Newtonsoft assigns it over the document's `= new()` initializer, while an absent key keeps the
+empty list, and restoring from a null list would throw. Discarding starts a fresh run and marks the
+fresh document dirty, which overwrites the bad file, so it is not re-read next launch. **A restart discards
 unconditionally too**, even when the saved run was perfectly valid: a player who restarts mid-run must
 not find that run resumable later.
 
@@ -1782,16 +2056,20 @@ corrupt balance to zero — would be indefensible, and the contrast is the point
 is deliberately unguarded: a failure in `MarkDirty` is a bug in this phase's own code, not a corrupt
 save.
 
+`StartAsync_WhenTheMetaSaveIsCorrupt_LogsAndStillPropagatesTheContentFailure` seeds bytes
+`SaveService`'s own pipeline could never have written (the literal string `"not json"`) rather than a
+hand-crafted truncated envelope, because any bytes `JObject.Parse` cannot read surface as the same
+`SaveException.PayloadUnreadable` a genuinely truncated save would report — the test does not need to
+reproduce truncation to exercise the recovery path.
+
 ### One `ISaveService`, three keys — and a naming debt
 
 `BuildCurrencySaveService`, `CurrencySaveInputsOverride` and `LegacyCurrencyPlayerPrefsKeyOverride`
-keep their currency-flavoured names, but the service they build is now what all three keys read and
-write through. That is safe for the reason phase 7a exists: `ILegacyImport.TargetKey` is checked
-before `IsPresent()` is asked anything, so `CurrencyLegacyImport` is never consulted for a `"chests"`
-or `"meta"` load — both simply read as a first run when nothing is stored. Renaming the three would
-touch `GameBootstrapperTests`, `GameLifetimeScopeTests` and this file for no behavioural gain, so the
-names stay and their declarations say what they actually govern now. It is a debt, and it is recorded
-as one.
+keep their currency-flavoured names, but the service they build is what all three keys — `currency`,
+`chests` and `meta` — read and write through. That is safe for the reason phase 7a exists:
+`ILegacyImport.TargetKey` is checked before `IsPresent()` is asked anything, so `CurrencyLegacyImport`
+is never consulted for a `"chests"` or `"meta"` load — both simply read as a first run when nothing is
+stored.
 
 ## The save inspector
 
@@ -1806,6 +2084,24 @@ It is also placed the way the pooling demo is: an instance of
 `Assets/_Project/UI/SaveInspector/SaveInspector.prefab` sits at the root of `Game.unity`, so it ships
 in the player and a floating **Saving Demo** button opens it from the running game. Nothing in code
 refers to it; the scene does.
+
+`SaveInspectorDocument`'s `Nickname` and `Level` fields exist only so a rendered save has more than
+one field worth looking at in the inspector UI; `Balance` is the one field that carries meaning, as
+the value `SaveTamper` rewrites.
+
+### SaveInspectorPanel, binding, keys and truncation
+
+`SaveInspectorPanel.Start` runs rather than `Awake` because `UIDocument` builds `rootVisualElement`
+in `OnEnable`; binding to the tree any earlier would find nothing to query. `BindChrome` sets
+`pickingMode = PickingMode.Ignore` on both the chrome root and the toggle root because both
+`UIDocument`s fill the whole screen — without opting out of picking, whichever one is on top would
+swallow every tap meant for whatever is underneath it, including its own sibling's controls.
+`MaxRenderedCharacters` caps the readout at 4000 characters; nothing the shipped demo document
+produces comes close to that size, and the cap exists so a much larger payload still leaves the
+layout intact rather than to guard against anything currently saved. `ShortNameOf(SaveStorage)`
+abbreviates its labels because the four enum names run wider than a segmented button on a narrow
+phone; the full name still leads the combo readout once a result comes back, so nothing is lost by
+shortening the button.
 
 ### Two overlays in one scene, and why the save inspector uses two documents
 
@@ -1832,15 +2128,19 @@ while both are collapsed.
 
 The two toggles also have to read as one stack, and the label is what decides that. Each toggle is as
 wide as its label needs above a shared `min-width: 280px`, declared equal in both stylesheets
-(`SaveInspector.uss` and `PoolingDemo.uss`). The floor was first 240 px, and "Pooling Demo" at
-26 px bold plus 20 px of padding each side resolves to 248 px: it outgrew the floor, so it sat 8 px
-wider than the save inspector's button and left a ragged left edge on the stack. The floor now sits
-well above both labels ("Pooling Demo" 248 px, "Saving Demo" narrower), so both buttons resolve to
+(`SaveInspector.uss` and `PoolingDemo.uss`). The floor has to clear the *longest* label rather than
+the shortest. It was first 240 px, and "Pooling Demo" at 26 px bold plus 20 px of padding each side
+resolves to 248 px: it outgrew the floor, so it sat 8 px wider than the save inspector's button and
+left a ragged left edge on the stack. "Save Inspector" had overflowed it as well, so its button grew,
+and squeezed its own padding to almost nothing beside the button above it. The floor now sits well
+above both labels ("Pooling Demo" 248 px, "Saving Demo" narrower), so both buttons resolve to
 exactly 280 x 96 with aligned edges. The save inspector's button reads **Saving Demo**, following the
 convention the existing toggle set - the button names a topic, the panel it opens carries the full
 title, the same way "Pooling Demo" opens "Object Pooling". A future label that outgrows 280 px widens
-only its own button; `DemoOverlaysPlayModeTests` fails on exactly that, rather than a reviewer having
-to notice it. Game UI canvases sort at 0, so 99 still draws above the game.
+only its own button and breaks the alignment again;
+`DemoOverlaysPlayModeTests.Collapsed_TheTwoDemoToggles_FormOneAlignedColumn` fails on exactly that,
+rather than a reviewer having to notice it. Game UI canvases sort at 0, so 99 still draws above the
+game.
 
 This is a fixed arrangement for exactly two overlays. A third full-screen overlay would need its
 toggle below both existing chromes and its chrome above both existing toggles, and past that point
@@ -1870,6 +2170,13 @@ prefabs, and the three sort orders keep the save inspector's toggle below the po
 chrome above it. `DemoOverlaysPlayModeTests` instantiates both prefabs and asserts the collapsed
 toggles do not overlap and form one aligned column: equal width, matching edges, equal height.
 
+Both tests wait two frames after instantiating the two prefabs before reading layout, because a
+`UIDocument` binds its visual tree in `Start` and UI Toolkit resolves layout on the panel's own next
+update; reading `worldBound` any earlier would see zero-sized elements. The two toggles come from two
+different `UIDocument`s, each with its own `PanelSettings`, so comparing their `worldBound` rects
+directly is only meaningful because both `PanelSettings` scale to the same reference resolution the
+same way — a panel pixel means the same screen area in either document.
+
 ### Why the probe builds from `SaveComponentFactory` rather than `SaveServiceFactory`
 
 `SavePipelineProbe.RunAsync` needs the concrete `ISaveStore` back after the write, so it can read the
@@ -1888,6 +2195,11 @@ plaintext JSON, and a non-text-safe body always travels the envelope's own base6
 being embedded raw. So the hex fallback in `SavePipelineProbe.Render` is real, exercised code, but
 unreachable for anything shipped today, and it is commented as such rather than left looking
 load-bearing.
+
+`SavePipelineProbe` decodes with a strict `UTF8Encoding` (`throwOnInvalidBytes: true`) rather than
+the default one, which silently replaces a bad byte sequence with U+FFFD instead of reporting it.
+Replacing rather than throwing would hide exactly the case `Render` exists to catch: a decode
+failure is what routes a combination's output to the hex-dump path instead of text.
 
 What this makes visible on screen is the more interesting thing anyway: the envelope header stays
 readable in every single combination while the body stops being readable, which is the design rule
@@ -1917,6 +2229,16 @@ out its random IV producing a lucky pass, and both were checked with gzip in the
 compressed body puts gzip's magic bytes *inside* the protected region without changing which edit
 path applies.
 
+`SaveInspectorController.TamperAsync` reads the combination from `SavedStorage`/`SavedCodec`/
+`SavedProtection`, captured when Save last ran, rather than from whatever the segmented controls
+show at the moment Tamper is pressed — tampering with a combination nothing was saved under would
+just fail to parse, which is not the demonstration this button exists for. Its `catch
+(SaveInspectorException)` looks unreachable given the button is disabled until `HasSaved` is true,
+but stays reachable if something else clears the key it saved under first. The controller reports the
+outcome and `SaveInspectorPanel.ShowTamperResult` is the whole point of the panel made visible: it
+toggles CSS classes so an accepted edit and a refused one are styled differently and cannot be
+mistaken for each other. See [mvc.md](mvc.md) for what the split leaves each half deciding.
+
 ### `SaveBenchmark`, and the number the plan got wrong
 
 `SaveBenchmark` walks all fifteen codec/protector pairs over `SaveStorage.InMemory` — never `File`,
@@ -1925,6 +2247,10 @@ real `PlayerPrefs` table, and the encoded bytes are identical whichever store ca
 and **asserts on no duration at all**, the rule `PoolBenchmark`'s own header gives: a timing assertion
 on a shared machine is the flaky test `docs/testing.md` exists to prevent. The only assertions are
 that a combination round-tripped its value and produced a positive byte count.
+
+Each combination is measured 200 times and averaged, not measured once, so one write/read pair's own
+timing noise does not read as the combination's cost — `SaveStorage.InMemory`'s operations are
+sub-millisecond individually, and repeating them is what makes the average mean something.
 
 It measures **two document sizes**, and that is the whole reason it is worth reading. The plan
 estimated gzip at "−70%". Measured:
@@ -1951,20 +2277,3 @@ near-constant in bytes, so it is punishing on a small save and negligible on a l
 The large document is a repetitive 4000-character field, labelled as such in the report, because that
 is compression's best case rather than a typical payload — the 5% figure is a ceiling, not an
 estimate.
-
-## What is deliberately still open
-
-The save inspector is built - see "The save inspector" above for the panel, the probe, the tamper
-button and the benchmark. What follows is what remains open by choice rather than by omission.
-
-`SaveServiceFactory` still takes no
-parameter for a `SaveMigrator`, an `ILegacyImport`, a `ThreadHoppingStore` or a `SaveScheduler<T>`, by
-design — see "`SaveComponentFactory`, `SaveFactoryInputs` and `SaveServiceFactory`" for why that
-ceiling is permanent rather than provisional. `GameLifetimeScope` is no longer the only place a
-`SaveScheduler<T>` is assembled: the chests minigame builds and registers its own across an assembly
-boundary the composition root cannot cross. `ThreadHoppingStore` remains unwired into every
-composition this game ships — see "`Load()` blocks" for why `CurrencySaveHandler` structurally refuses
-to be paired with one, and `ChestsMinigameController.Inject` now refuses for the same reason — so the
-frame cost of encoding and writing still lands on the main thread, same as it always did under the
-library's `DefaultResourceBankSaveHandle`, just bounded to once per coalescing window rather than once
-per coin.

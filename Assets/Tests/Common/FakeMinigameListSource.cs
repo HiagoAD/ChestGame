@@ -7,8 +7,12 @@ using Cysharp.Threading.Tasks;
 
 namespace Company.ChestGame.Tests.Common
 {
-    // Hands the content loader an authored minigame list without an asset behind it. There is
-    // still no fake catalog: MinigameCatalog takes a plain list, so tests use the real one.
+    /// <summary>
+    /// Hands the content loader an authored minigame list without an asset behind it.
+    /// </summary>
+    /// <remarks>
+    /// See docs/testing.md, "The save suites never touch a real save".
+    /// </remarks>
     public class FakeMinigameListSource : IMinigameListSource
     {
         public IReadOnlyList<MinigameBaseSO> Entries { get; set; } = new List<MinigameBaseSO>();

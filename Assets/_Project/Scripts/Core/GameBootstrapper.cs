@@ -10,10 +10,13 @@ using VContainer.Unity;
 
 namespace Company.ChestGame.Core
 {
-    // Boot scene's only job: load the content, build the scope that consumes it, fetch whatever
-    // the minigames want up front, then open the game scene with that scope already standing.
-    // Nothing downstream exists before its data arrived, so no service ever has to ask whether
-    // loading has finished.
+    /// <summary>
+    /// Boot scene's only job: load the content, build the scope that consumes it, fetch whatever
+    /// the minigames want up front, then open the game scene with that scope already standing.
+    /// </summary>
+    /// <remarks>
+    /// See docs/architecture.md, "Boot".
+    /// </remarks>
     public class GameBootstrapper : IAsyncStartable
     {
         public const string GAME_SCENE_NAME = "Game";
@@ -22,9 +25,12 @@ namespace Company.ChestGame.Core
         private const string PREPARING_MESSAGE = "Preparing content...";
         private const string STARTING_MESSAGE = "Starting...";
 
-        // What the boot screen says instead of sitting on "Loading..." forever. Only the
-        // exception's Message follows it: a stack trace on a boot screen hides the one line that
-        // might tell a player something.
+        /// <summary>
+        /// Prefix for the boot screen's failure line; <see cref="Exception.Message"/> follows it.
+        /// </summary>
+        /// <remarks>
+        /// See docs/architecture.md, "Telling the player what boot is doing".
+        /// </remarks>
         private const string FAILED_MESSAGE = "Could not start the game.";
 
         private readonly GameContentLoader _loader;
@@ -45,14 +51,26 @@ namespace Company.ChestGame.Core
             _metaScheduler = metaScheduler;
         }
 
-        // A failure is reported to the label, then rethrown rather than swallowed. Returning
-        // normally here would claim the game scene loaded and its services exist when neither did.
+        /// <summary>
+        /// Runs the boot sequence: records the launch, loads content, builds the loaded-content
+        /// scope, preloads minigame content, then loads the game scene.
+        /// </summary>
+        /// <param name="cancellation">
+        /// Token observed throughout boot. A cancellation is not reported as a failure.
+        /// </param>
+        /// <exception cref="Exception">
+        /// Rethrown, after being reported through <see cref="IBootStatus"/>, for any failure other
+        /// than cancellation.
+        /// </exception>
+        /// <remarks>
+        /// See docs/architecture.md, "Boot".
+        /// See docs/architecture.md, "Telling the player what boot is doing".
+        /// See docs/context/self-contained-minigames.md, "6. Traps - Addressables and Unity 6".
+        /// </remarks>
         public async UniTask StartAsync(CancellationToken cancellation)
         {
             try
             {
-                // Early, so a content failure below still gets recorded as a launch. Meta's own
-                // failure never becomes a boot failure - see RecordLaunchAsync.
                 await RecordLaunchAsync(cancellation);
 
                 _status.Report(LOADING_MESSAGE);
@@ -61,26 +79,17 @@ namespace Company.ChestGame.Core
 
                 _gameScope = _rootScope.CreateChild(builder => GameLifetimeScope.RegisterLoadedServices(builder, content));
 
-                // Resolved from the scope just built: the preloader needs the catalog, which does
-                // not exist until the content it was built from arrived.
                 _status.Report(PREPARING_MESSAGE);
                 await _gameScope.Container.Resolve<MinigameContentPreloader>()
                     .PreloadAsync(new DownloadStatus(_status), cancellation);
 
                 _status.Report(STARTING_MESSAGE);
 
-                // Makes the game scene's own scope a child of the one built above, without that
-                // scene holding a reference to an object that did not exist when it was authored.
                 using (LifetimeScope.EnqueueParent(_gameScope))
                 {
-                    // ToUniTask rather than awaiting the AsyncOperation: UniTask compiles that
-                    // awaiter out under #if !UNITY_2023_1_OR_NEWER, so on this editor
-                    // `await operation` binds to the IEnumerator overload and fails to compile.
                     await SceneManager.LoadSceneAsync(GAME_SCENE_NAME).ToUniTask(cancellationToken: cancellation);
                 }
             }
-            // Cancellation is the scope disposing as the application quits, not boot failing, and
-            // there is nobody left to read a message by then.
             catch (Exception failure) when (failure is not OperationCanceledException)
             {
                 _status.Report($"{FAILED_MESSAGE} {failure.Message}");
@@ -88,9 +97,14 @@ namespace Company.ChestGame.Core
             }
         }
 
-        // Only the load is guarded: an unreadable meta save is reset to a fresh document rather
-        // than failing boot. A failure past this point is a bug, not a corrupt save, and fails
-        // boot like any other.
+        /// <summary>
+        /// Loads the meta save, increments the launch count, stamps the play times, and hands the
+        /// result to the meta scheduler.
+        /// </summary>
+        /// <param name="ct">Cancellation token for the load.</param>
+        /// <remarks>
+        /// See docs/architecture.md, "Boot".
+        /// </remarks>
         private async UniTask RecordLaunchAsync(CancellationToken ct)
         {
             GameMetaSaveDocument meta;
@@ -113,7 +127,12 @@ namespace Company.ChestGame.Core
             _metaScheduler.MarkDirty(meta);
         }
 
-        // The preloader reports a number because a number is all it knows; wording is the shell's.
+        /// <summary>
+        /// Turns the preloader's 0..1 progress fraction into a boot status line.
+        /// </summary>
+        /// <remarks>
+        /// See docs/content-delivery.md, "Progress reporting".
+        /// </remarks>
         private sealed class DownloadStatus : IProgress<float>
         {
             private readonly IBootStatus _status;

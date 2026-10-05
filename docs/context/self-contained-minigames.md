@@ -64,8 +64,8 @@ at once.
 
 ## 2. How this work was run, and how to continue it
 
-The project owner set a specific working protocol. **It is still in force** — anyone continuing
-this should follow it rather than inventing their own.
+The project owner set a specific working protocol. **It is still in force** — anyone continuing this should
+follow it rather than inventing their own.
 
 1. **Subagents write the code**, one per phase, briefed with that phase's plan section plus the
    working agreements it has to honour. The lead session does not write production code itself.
@@ -79,8 +79,8 @@ this should follow it rather than inventing their own.
    anything depend on a concrete loader or path where a seam already exists?). Report every
    deviation with its severity, including ones inherited rather than introduced.
 4. **Agents never commit.** Work stays in the tree for review.
-5. **Stop at the end of every phase** until the project owner explicitly says to proceed. Silence
-   is not approval; a follow-up question is not approval.
+5. **Stop at the end of every phase** until the project owner explicitly says to proceed. Silence is not
+   approval; a follow-up question is not approval.
 
 This is not ceremony. It caught defects that green suites did not: two silent-leak bugs, an entirely
 untested exception-translation path, and a false claim that had been written into both a code comment
@@ -225,7 +225,8 @@ for the content-build script, the three test assemblies, and the four this argum
 the overload. The reference is the mechanism — it is what
 stops a descriptor from depending on its own bundle — so the narrower invariant was the thing that
 had to give. Splitting the seam into two interfaces would buy the second bullet back, at the cost of
-a caller having to know which one it wants. That decision is still open; see section 12.
+a caller having to know which one it wants. That decision is still open; it is tracked in
+[WIP.md](../WIP.md), "Open decisions, awaiting the project owner".
 
 All the agreements in the other file still hold, unchanged.
 
@@ -466,12 +467,6 @@ side of one `await` in `MinigameContainer.BeginAsync` — and the assertion, whi
 `MinigameContainerContentTests.BeginAsync_ConfiguresTheControllerBeforeInjectingIt`, fails under
 mutation. It was kept for exactly the refactor that arrived.
 
-**A view prefab with no `MinigameViewBase` on it is an untyped failure.** `BeginAsync` does
-`prefab.GetComponent<MinigameViewBase>()` and hands the result straight to the resolver, so an
-`AssetReference` pointing at the wrong prefab surfaces as a `NullReferenceException` rather than as
-something under `ChestGameException`. A wrong or absent GUID is covered — that is a
-`MissingAssetException` — but a right GUID on the wrong asset is not.
-
 **A start that is cancelled mid-load no longer leaks**, but the fix lives in the wrong-looking place.
 `GameManager` still only records the container once `BeginAsync` returns; what closed the gap is
 `BeginAsync` releasing its own partial work on the way out. That is the only place that can, and it
@@ -485,17 +480,11 @@ identical — a released handle and a leaked one look the same from outside, and
 only counter (`OperationCacheCount`) is `internal`. Extracting the registry was what made the fix
 assertable at all.
 
-**A stalled fetch is bounded, but only by a deadline nobody has watched fire in a real session.**
-Both the on-demand path and the preloader translate a deadline into a typed failure, and both are
-tested against a fake that stalls on demand. Neither has been exercised against a real server that
-stops answering mid-download, which is what section 11's manual check is for.
-
-**Nothing asserts the boot status label actually updates.** `IBootStatus` is registered and resolved
-under test, and `BootStatusLabel` is three lines, but no test drives boot and reads the label back.
-
-The gaps that predate this work, `GameManager` untested, `CurrencyWatcher` untested, the dormant
-play-mode ordering test and `FakeGameClock`'s caveat, are all still open and are described in the
-other file. A fifth, `ICurrencyManager` leaking `ResourceBankCallbacks`, is resolved; see
+The gaps this work left open, and those that predate it, are tracked in [WIP.md](../WIP.md): the
+untyped failure for a right-GUID-wrong-prefab view, the deadline nobody has watched fire against a
+real server, the untested boot status label, and the older ones this file used to point to in
+[assemblies-and-tests.md](assemblies-and-tests.md).
+One of those older gaps, `ICurrencyManager` leaking `ResourceBankCallbacks`, is resolved; see
 [dropping-resource-bank.md](dropping-resource-bank.md).
 
 ---
@@ -512,25 +501,9 @@ checked by mutation. The content build was verified at bundle level:
 `ChestsMinigame` and **no** `Core` assets, while `core_assets_all_….bundle` stayed local under
 `Library/`.
 
-**Not verified.**
-
-- **No player session has been run across the boot-scene, Addressables or delivery work.** Everything
-  is verified by test suite and by inspecting built bundles. Nobody has pressed Play and watched the
-  game work.
-- **The remote load path has never been exercised.** Fast Mode ignores group load paths entirely, so
-  the suites pass with nothing serving `ServerData`. The outstanding check: run
-  `ci/build-addressables.sh`, start `python3 -m http.server 8080 --directory ServerData`, play from
-  `Boot.unity`, then **kill the server mid-session** and confirm `AssetLoadException` reaches a popup
-  rather than hanging. Clearing the bundle cache and relaunching exercises the cold path. An Android
-  build should confirm the chests group is absent from the APK. Launching `Game.unity` directly is
-  expected to fail, and is worth confirming gives a clear message rather than a null.
-- **`GameManager`'s two new behaviours** — the start button going non-interactable while a start is
-  in flight, and a `ChestGameException` becoming a `ContentUnavailablePopup` — are asserted nowhere.
-- **The new timeout and retry values are not covered by any test**, and cannot usefully be: nothing
-  in either suite reads them, because Fast Mode ignores load paths entirely. A test would only assert
-  the YAML back to itself. They are also **baked into the catalog at content-build time**, so
-  `ci/build-addressables.sh` has to run again before they mean anything on the wire — the bundles
-  currently in `ServerData/` still carry 0.
+**Not verified at the time.** A player session across this work and the remote load path check have
+since been done. The checks still outstanding (`GameManager`'s behaviours unasserted, the timeout
+values baked in at content-build time) are tracked in [WIP.md](../WIP.md).
 
 Remote download stays a documented manual check rather than a CI test: a fixture that starts a web
 server is exactly the flakiness the project's testing agreements argue against.
@@ -539,31 +512,20 @@ server is exactly the flakiness the project's testing agreements argue against.
 
 ## 12. Open decisions, awaiting the project owner
 
-Raised during review, none ruled on. **Do not act on these without asking.**
+Moved to [WIP.md](../WIP.md), "Open decisions, awaiting the project owner", which keeps the rule that none of
+them is acted on without asking.
 
-1. **Split `IAssetProvider` in two**, so assemblies that only ever load by key stop being forced to
-   reference Addressables. Nine asmdefs reference it now; one did before, and two of the nine
-   (`Config` and `Popups`) gain nothing from it. Trade-off in section 5. Worth deciding together
-   with `Release(string)`, which the seam still does not have: everything loaded by key today has
-   session lifetime, so nothing needs it, and if the seam is ever split the key half is its natural
-   home. The asymmetry is documented on `IAssetProvider` rather than fixed.
-2. **The unused `TView` type parameter** on `MinigameBase<TController, TView, TMinigame>`. It
-   constrains nothing now that the view is an `AssetReferenceGameObject`.
-3. **The untyped `NullReferenceException`** on a right-GUID-wrong-prefab, described in section 10.
-4. **Filter the Addressables package's own test** out of `ci/run-tests.sh` via `-assemblyNames`, so
-   the EditMode count is 254 rather than a 255 that needs explaining.
-
-Also raised, and deliberately kept out of scope so it would not muddy these diffs: **`ICurrencyManager`
-leaked `ResourceBankCallbacks<CurrencyType>`**, forcing every consumer — including
-`Company.ChestGame.UI` — to reference the vendored library. It got its own pass and is resolved; see
+`ICurrencyManager` leaking `ResourceBankCallbacks<CurrencyType>`, forcing every consumer, including
+`Company.ChestGame.UI`, to reference the vendored library, was also raised here and kept out of scope
+so it would not muddy these diffs. It got its own pass and is resolved; see
 [dropping-resource-bank.md](dropping-resource-bank.md).
 
 ---
 
 ## 13. Picking this up
 
-1. **Do the manual verification in section 11.** It is the single largest gap: everything about
-   remote delivery is currently believed rather than observed.
-2. **Ask before starting anything in section 12.** The protocol in section 2 is still in force.
+1. **Check [WIP.md](../WIP.md) for what is still open**, including "Pending verification".
+2. **Ask before starting anything in [WIP.md](../WIP.md), "Open decisions, awaiting the project owner".** The
+   protocol in section 2 is still in force.
 3. Read the other context file too. Most of what it records about seams, testing discipline and Unity
    behaviour is still exactly right, and this work leaned on all of it.

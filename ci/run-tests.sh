@@ -2,10 +2,6 @@
 #
 # Runs the EditMode and PlayMode suites headlessly and exits nonzero if either fails.
 #
-# Deliberately free of any CI provider: a pipeline only has to check out the repo, supply a
-# licensed Unity, and call this. Everything provider-specific (licence activation, caching,
-# artifact upload) stays outside.
-#
 # Usage:
 #   ci/run-tests.sh                 both suites
 #   ci/run-tests.sh EditMode        one suite
@@ -54,8 +50,6 @@ fi
 
 mkdir -p "$RESULTS_DIR"
 
-# Pulls the counts off the NUnit <test-run> root so the summary does not depend on reading
-# the log. Absent when the run failed before producing results, which is reported as such.
 summarize() {
     local xml="$1" attribute="$2"
     [[ -f "$xml" ]] || return
@@ -91,8 +85,6 @@ if [[ ${#SUITES[@]} -eq 0 ]]; then
     SUITES=(EditMode PlayMode)
 fi
 
-# Every suite runs even when an earlier one fails, so one invocation reports everything
-# broken rather than only the first thing to break.
 overall=0
 for suite in "${SUITES[@]}"; do
     run_suite "$suite" || overall=1

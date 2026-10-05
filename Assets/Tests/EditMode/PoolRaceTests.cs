@@ -7,15 +7,17 @@ using Company.ChestGame.Tests.Common;
 using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.TestTools;
-// System brings a second Object with it; the alias keeps DestroyImmediate meaning what it did.
 using Object = UnityEngine.Object;
 
 namespace Company.ChestGame.Tests.EditMode
 {
-    // PoolRace<T>'s orchestration: one FrameBudgetedLoop per lane, all reading the same clock and
-    // budget, started together and cancelled together. What is proven here is that shape, not what a
-    // real pool costs - FakeGameClock cannot see a real engine, so the cost-sensitive tests race
-    // FakePrefabPool lanes with a chosen cost, the way FrameBudgetedLoopTests races synthetic steps.
+    /// <summary>
+    /// <see cref="PoolRace{T}"/>'s orchestration: one <see cref="FrameBudgetedLoop"/> per lane, all
+    /// reading the same clock and budget, started together and cancelled together.
+    /// </summary>
+    /// <remarks>
+    /// See docs/pooling.md, "How the race is measured".
+    /// </remarks>
     public class PoolRaceTests
     {
         private const double BudgetMilliseconds = 10d;
@@ -51,14 +53,12 @@ namespace Company.ChestGame.Tests.EditMode
                 new FakePrefabPool<RectTransform>(_clock, costPerGetMilliseconds, () => NewRect("Instance")),
                 NewRect($"{strategy}Fill"));
 
-        // --- The shared clock drives every lane, not just the first ------------------------------
-
+        /// <remarks>
+        /// See docs/pooling.md, "How the race is measured".
+        /// </remarks>
         [Test]
         public void StartRace_EveryLaneAdvancesInTheSameFrames()
         {
-            // Same shape as FrameBudgetedLoopTests: four milliseconds a unit against a ten
-            // millisecond budget places three a frame. All four lanes cost the same on purpose -
-            // this is about whether one clock pumps every lane, not about which gets further.
             PoolRaceLane<RectTransform>[] lanes =
             {
                 FakeLane(PoolStrategy.ActivationPool, 4d),
@@ -84,8 +84,6 @@ namespace Company.ChestGame.Tests.EditMode
             }
         }
 
-        // --- The core claim of the whole phase ----------------------------------------------------
-
         [Test]
         public void StartRace_ACheaperLanePlacesMoreItemsPerFrame_ThanAnExpensiveOneAtTheSameBudget()
         {
@@ -101,10 +99,9 @@ namespace Company.ChestGame.Tests.EditMode
                 "if the cheaper lane does not visibly get further in the same frame, the race is counting items per lane rather than budgeting time, and the whole demonstration shows nothing");
         }
 
-        // The same claim read off the metrics rather than the pool: a lane that finishes sooner has
-        // to report a smaller elapsed time. Only true if each lane's finish is timestamped inside
-        // its own task - stamping it after every lane has been awaited together would give them all
-        // the slowest lane's finish time.
+        /// <remarks>
+        /// See docs/pooling.md, "How the race is measured".
+        /// </remarks>
         [Test]
         public void StartRace_ACheaperLaneReportsLessElapsedTime_ThanAnExpensiveOneAtTheSameBudget()
         {
@@ -136,8 +133,6 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.Fail($"no lane metrics for {strategy}");
             return default;
         }
-
-        // --- Cancellation ---------------------------------------------------------------------------
 
         [Test]
         public void CancelRace_StopsEveryLane_NotJustTheFirst()
@@ -171,8 +166,6 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.IsNull(race.LastResult, "a cancelled race never settles, so it must never publish a result either");
         }
 
-        // --- Finishing -------------------------------------------------------------------------------
-
         [Test]
         public void StartRace_EachLaneFinishesWithExactlyTheRequestedCount()
         {
@@ -196,13 +189,12 @@ namespace Company.ChestGame.Tests.EditMode
             }
         }
 
-        // --- Prewarming ------------------------------------------------------------------------------
-
+        /// <remarks>
+        /// See docs/pooling.md, "How the race is measured".
+        /// </remarks>
         [Test]
         public void StartRace_Prewarmed_InstantiatesNothingDuringTheRace()
         {
-            // The baseline is left out on purpose: DirectSpawner has nowhere to hold a prewarmed
-            // instance, so it always instantiates on Get. That is correct behaviour for it.
             RectTransform prefab = NewRect("Prefab");
             const int boardSize = 10;
 
@@ -226,15 +218,12 @@ namespace Company.ChestGame.Tests.EditMode
             }
         }
 
-        // --- Reuse -----------------------------------------------------------------------------------
-
+        /// <remarks>
+        /// See docs/pooling.md, "How the race is measured".
+        /// </remarks>
         [Test]
         public void StartRace_Reuse_InstantiatesNothingOnPooledLanes_ButTheFullBoardOnTheBaseline()
         {
-            // What Cold and Prewarmed cannot show: a second race finding what the first one placed
-            // already parked, the way ChestsMinigameView's NewGame finds the board it released last
-            // time. DirectSpawner has nowhere to have parked anything - its release is a real
-            // destroy - so it is the one lane that pays the instantiate cost again.
             RectTransform prefab = NewRect("Prefab");
             const int boardSize = 10;
 
@@ -246,13 +235,10 @@ namespace Company.ChestGame.Tests.EditMode
             PoolRaceLane<RectTransform>[] lanes = PoolRaceLaneFactory.BuildAll(prefab, laneRoots, maxSize: 50);
             PoolRace<RectTransform> race = new(lanes, _clock, BudgetMilliseconds);
 
-            // The first pass is what builds the stock a reuse race is supposed to find waiting.
             race.StartRace(boardSize, FillMode.Cold, solo: false, PoolStrategy.ActivationPool);
             _clock.AdvanceUntilIdle();
             Assert.IsTrue(race.LastResult.HasValue, "guard: the first race has to have settled");
 
-            // Releasing the baseline's board before the second race starts destroys it for real in
-            // edit mode - see PrefabPoolTests.ExpectDestroys for why this is pinned, not silenced.
             ExpectDestroys(boardSize);
             race.StartRace(boardSize, FillMode.Reuse, solo: false, PoolStrategy.ActivationPool);
             _clock.AdvanceUntilIdle();
@@ -275,17 +261,156 @@ namespace Company.ChestGame.Tests.EditMode
             }
         }
 
-        // Matched by regex rather than an exact message, for the reason PrefabPoolTests gives.
-        // Declared before the act that causes it: a release the baseline is about to make is part
-        // of the arrange, not a side effect to react to afterwards.
+        [Test]
+        public void NewRace_SelectionDefaults_MatchWhatTheDemoOpensWith()
+        {
+            PoolRace<RectTransform> race = new(new[] { FakeLane(PoolStrategy.ActivationPool, 1d) }, _clock, BudgetMilliseconds);
+
+            Assert.AreEqual(1, race.BoardSizeIndex);
+            Assert.AreEqual(FillMode.Cold, race.FillMode);
+            Assert.IsFalse(race.Solo);
+            Assert.AreEqual(PoolStrategy.ActivationPool, race.SoloStrategy);
+        }
+
+        [Test]
+        public void BoardSizes_LargestValue_EqualsMaxBoardSize()
+        {
+            PoolRace<RectTransform> race = new(new[] { FakeLane(PoolStrategy.ActivationPool, 1d) }, _clock, BudgetMilliseconds);
+
+            Assert.AreEqual(PoolRace<RectTransform>.MaxBoardSize, race.BoardSizes[race.BoardSizes.Count - 1],
+                "the largest selectable board size has to be exactly what every lane's pool was built with room for, or the biggest selection could ask a lane to hold more than it has space for");
+        }
+
+        [Test]
+        public void SetBoardSize_ChangesBoardSizeIndex_AndRaisesOnSelectionChanged()
+        {
+            PoolRace<RectTransform> race = new(new[] { FakeLane(PoolStrategy.ActivationPool, 1d) }, _clock, BudgetMilliseconds);
+            int raised = 0;
+            race.OnSelectionChanged += () => raised++;
+
+            race.SetBoardSize(2);
+
+            Assert.AreEqual(2, race.BoardSizeIndex);
+            Assert.AreEqual(1, raised);
+        }
+
+        [Test]
+        public void CycleFillMode_GoesColdThenPrewarmedThenReuseThenBackToCold()
+        {
+            PoolRace<RectTransform> race = new(new[] { FakeLane(PoolStrategy.ActivationPool, 1d) }, _clock, BudgetMilliseconds);
+
+            race.CycleFillMode();
+            Assert.AreEqual(FillMode.Prewarmed, race.FillMode);
+
+            race.CycleFillMode();
+            Assert.AreEqual(FillMode.Reuse, race.FillMode);
+
+            race.CycleFillMode();
+            Assert.AreEqual(FillMode.Cold, race.FillMode);
+        }
+
+        [Test]
+        public void ToggleSolo_FlipsSolo_AndRaisesOnSelectionChanged()
+        {
+            PoolRace<RectTransform> race = new(new[] { FakeLane(PoolStrategy.ActivationPool, 1d) }, _clock, BudgetMilliseconds);
+            int raised = 0;
+            race.OnSelectionChanged += () => raised++;
+
+            race.ToggleSolo();
+            Assert.IsTrue(race.Solo);
+
+            race.ToggleSolo();
+            Assert.IsFalse(race.Solo);
+
+            Assert.AreEqual(2, raised);
+        }
+
+        [Test]
+        public void SetSoloStrategy_ChangesSoloStrategy_AndRaisesOnSelectionChanged()
+        {
+            PoolRaceLane<RectTransform>[] lanes = { FakeLane(PoolStrategy.ActivationPool, 1d), FakeLane(PoolStrategy.UnityPool, 1d) };
+            PoolRace<RectTransform> race = new(lanes, _clock, BudgetMilliseconds);
+            int raised = 0;
+            race.OnSelectionChanged += () => raised++;
+
+            race.SetSoloStrategy(PoolStrategy.UnityPool);
+
+            Assert.AreEqual(PoolStrategy.UnityPool, race.SoloStrategy);
+            Assert.AreEqual(1, raised);
+        }
+
+        [Test]
+        public void StartRace_Parameterless_RunsTheCurrentlySelectedBoardSizeFillModeAndStrategy()
+        {
+            PoolRaceLane<RectTransform>[] lanes = { FakeLane(PoolStrategy.ActivationPool, 1d), FakeLane(PoolStrategy.ParkedPool, 1d) };
+            PoolRace<RectTransform> race = new(lanes, _clock, BudgetMilliseconds);
+
+            race.SetBoardSize(0);
+            race.ToggleSolo();
+            race.SetSoloStrategy(PoolStrategy.ParkedPool);
+
+            race.StartRace();
+            _clock.AdvanceUntilIdle();
+
+            Assert.IsTrue(race.LastResult.HasValue, "guard: the race has to have settled");
+            Assert.IsTrue(race.LastResult.Value.Solo, "the solo selection should have carried into the parameterless start");
+            Assert.AreEqual(1, race.LastResult.Value.Lanes.Count, "solo carries exactly one lane");
+            Assert.AreEqual(PoolStrategy.ParkedPool, race.LastResult.Value.Lanes[0].Strategy,
+                "the selected solo strategy should have carried into the parameterless start");
+            Assert.AreEqual(race.BoardSizes[0], race.LastResult.Value.Lanes[0].PlacedCount,
+                "the selected board size should have carried into the parameterless start");
+        }
+
+        [Test]
+        public void Tick_WhileRunning_TracksThePeakDeltaTime_AndClearsOnTheNextRace()
+        {
+            PoolRaceLane<RectTransform>[] lanes =
+            {
+                FakeLane(PoolStrategy.ActivationPool, 4d),
+                FakeLane(PoolStrategy.ParkedPool, 4d)
+            };
+            PoolRace<RectTransform> race = new(lanes, _clock, BudgetMilliseconds);
+
+            race.StartRace(9, FillMode.Cold, solo: false, PoolStrategy.ActivationPool);
+            Assert.AreEqual(0f, race.PeakFrameSeconds, "guard: a freshly started race has nothing recorded yet");
+
+            race.Tick(0.016f);
+            race.Tick(0.033f);
+            race.Tick(0.02f);
+
+            Assert.AreEqual(0.033f, race.PeakFrameSeconds, 0.0001f,
+                "the peak has to be the largest tick handed to it, not the last one or their sum");
+
+            _clock.AdvanceUntilIdle();
+            Assert.IsTrue(race.LastResult.HasValue, "guard: the race has to have settled");
+
+            race.StartRace(9, FillMode.Cold, solo: false, PoolStrategy.ActivationPool);
+            Assert.AreEqual(0f, race.PeakFrameSeconds, "starting a new race has to clear the previous race's peak");
+        }
+
+        [Test]
+        public void Tick_WhileNotRunning_DoesNothing()
+        {
+            PoolRace<RectTransform> race = new(new[] { FakeLane(PoolStrategy.ActivationPool, 1d) }, _clock, BudgetMilliseconds);
+
+            race.Tick(5f);
+
+            Assert.AreEqual(0f, race.PeakFrameSeconds, "a race that never started has nothing to measure");
+        }
+
+        /// <summary>
+        /// Expects exactly <paramref name="count"/> occurrences of the edit-mode destroy-refusal
+        /// error log, matched by regex. Call before the action that triggers them.
+        /// </summary>
+        /// <remarks>
+        /// See docs/pooling.md, "How the tests prove a release actually destroyed something".
+        /// </remarks>
         private static void ExpectDestroys(int count)
         {
             for (int i = 0; i < count; i++) LogAssert.Expect(LogType.Error, EditModeDestroy);
         }
 
         private static readonly Regex EditModeDestroy = new("Destroy may not be called from edit mode");
-
-        // --- What it refuses to be set up with ------------------------------------------------------
 
         [Test]
         public void Constructing_WithoutLanesOrAClockOrABudget_ThrowsPoolRaceException()

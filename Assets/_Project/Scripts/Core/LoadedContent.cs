@@ -5,9 +5,13 @@ using Company.ChestGame.Popups.Internal;
 
 namespace Company.ChestGame.Core
 {
-    // Everything the game has to have in hand before the services that consume it can be built. A
-    // carrier and nothing else, which keeps the ordering guarantee structural: nothing downstream
-    // needs an "is it loaded yet" guard.
+    /// <summary>
+    /// Everything the game needs on hand before the services that consume it are built.
+    /// </summary>
+    /// <remarks>
+    /// A carrier only, with no loading, parsing or validation of its own.
+    /// See docs/architecture.md, "Boot".
+    /// </remarks>
     public class LoadedContent
     {
         public string GameConfigDocument { get; }

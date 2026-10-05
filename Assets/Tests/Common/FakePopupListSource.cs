@@ -6,7 +6,7 @@ using Cysharp.Threading.Tasks;
 
 namespace Company.ChestGame.Tests.Common
 {
-    // Hands the content loader an authored popup list without an asset behind it.
+    /// <summary>Hands the content loader an authored popup list without an asset behind it.</summary>
     public class FakePopupListSource : IPopupListSource
     {
         public IReadOnlyList<PopupBase> Entries { get; set; } = new List<PopupBase>();

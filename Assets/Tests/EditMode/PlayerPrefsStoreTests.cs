@@ -8,19 +8,28 @@ using UnityEngine;
 
 namespace Company.ChestGame.Tests.EditMode
 {
-    // Against the real PlayerPrefs, since that is the entire seam this store wraps - never
-    // PlayerPrefs.DeleteAll, and every key this fixture writes is namespaced under a
-    // per-test-run GUID prefix and deleted in TearDown, including on failure, so a broken
-    // assertion never leaves a stray entry in the developer's real editor prefs. See
-    // docs/saving.md, "PlayerPrefsStore, and why it base64s".
+    /// <summary>
+    /// Covers <see cref="PlayerPrefsStore"/> against the real PlayerPrefs, since that is the entire
+    /// seam this store wraps. Every key this fixture writes is namespaced under a per-test-run GUID
+    /// prefix and deleted in TearDown, including on failure, so a broken assertion never leaves a
+    /// stray entry in the developer's real editor prefs.
+    /// </summary>
+    /// <remarks>
+    /// See docs/saving.md, "PlayerPrefsStore, and why it base64s".
+    /// See docs/testing.md, "The save suites never touch a real save".
+    /// </remarks>
     public class PlayerPrefsStoreTests
     {
         private string _prefix;
         private PlayerPrefsStore _store;
 
-        // Every (prefix, key) pair this test intends to touch, recorded before the write that
-        // might throw, so TearDown can clean up regardless of how the test ends. PlayerPrefs.DeleteKey
-        // on a key that was never set is a no-op, so recording intent rather than only successes is safe.
+        /// <summary>
+        /// Every (prefix, key) pair this test intends to touch, recorded before the write that might
+        /// throw so <see cref="TearDown"/> still cleans it up.
+        /// </summary>
+        /// <remarks>
+        /// See docs/testing.md, "The save suites never touch a real save".
+        /// </remarks>
         private readonly List<(string prefix, string key)> _touched = new();
 
         [SetUp]
@@ -39,14 +48,10 @@ namespace Company.ChestGame.Tests.EditMode
             }
             _touched.Clear();
 
-            // A DeleteKey that is never saved does not persist in batch mode, which is how a leaked
-            // key was first noticed - see docs/testing.md.
             PlayerPrefs.Save();
         }
 
         private void Track(string prefix, string key) => _touched.Add((prefix, key));
-
-        // --- Round trip and HasKey semantics ---------------------------------------------------
 
         [Test]
         public void WriteAsync_ThenReadAsync_ReturnsIdenticalBytesThroughBase64()
@@ -64,7 +69,6 @@ namespace Company.ChestGame.Tests.EditMode
         [Test]
         public void WriteAsync_WithANullArray_ReadsBackAnEmptyArray()
         {
-            // ISaveStore: "a null array is stored as empty" - present, and empty, never absent.
             const string key = "profile";
             Track(_prefix, key);
 
@@ -101,16 +105,11 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.IsFalse(SynchronousUniTask.Result(_store.ExistsAsync(key, CancellationToken.None)));
         }
 
-        // --- Corrupt value under an existing key (property 4) ----------------------------------
-
         [Test]
         public void ReadAsync_WhenTheStoredStringIsNotValidBase64_ThrowsSaveExceptionRatherThanFormatException()
         {
             const string key = "corrupt";
             Track(_prefix, key);
-            // Written directly, bypassing WriteAsync: simulates a value that did not come from this
-            // store, or one that has been hand-edited, rather than something WriteAsync itself
-            // could ever produce.
             PlayerPrefs.SetString(_prefix + key, "not-valid-base64-!!!");
             PlayerPrefs.Save();
 
@@ -119,8 +118,6 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.IsInstanceOf<FormatException>(error.InnerException,
                 "the FormatException Convert.FromBase64String throws must be preserved as the inner exception, not swallowed");
         }
-
-        // --- Key presence still applies (the one SaveKeyPath rule that carries over) -----------
 
         [TestCase(null)]
         [TestCase("")]
@@ -131,8 +128,6 @@ namespace Company.ChestGame.Tests.EditMode
             StringAssert.Contains("needs a key", error.Message);
         }
 
-        // --- Constructing without a prefix ------------------------------------------------------
-
         [TestCase(null)]
         [TestCase("")]
         public void Constructing_WithNoKeyPrefix_ThrowsNoKeyPrefix(string prefix)
@@ -140,8 +135,6 @@ namespace Company.ChestGame.Tests.EditMode
             SaveException error = Assert.Throws<SaveException>(() => new PlayerPrefsStore(prefix));
             StringAssert.Contains("needs a key prefix", error.Message);
         }
-
-        // --- The reason the prefix exists at all ------------------------------------------------
 
         [Test]
         public void TwoStoresWithDifferentPrefixes_DoNotSeeEachOthersKeys()
@@ -165,8 +158,6 @@ namespace Company.ChestGame.Tests.EditMode
             CollectionAssert.AreEqual(new byte[] { 1, 2, 3 }, stillOriginal,
                 "writing the same logical key under a different prefix must not have overwritten this prefix's value");
         }
-
-        // --- Cancellation: the same guard FileStoreTests pins for FileStore --------------------
 
         [Test]
         public void EveryMethod_WithAnAlreadyCancelledToken_ThrowsOperationCanceledException()

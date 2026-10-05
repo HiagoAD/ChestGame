@@ -3,14 +3,20 @@ using System.Security.Cryptography;
 
 namespace Company.ChestGame.Saving
 {
-    // Prepends an HMAC-SHA256 of the payload to the payload itself, so Unprotect can prove the
-    // bytes it was handed are exactly what this key signed, not a modified stand-in for them.
-    // IsTextSafe is false: the signature is arbitrary bytes, not JSON. Proves integrity only - the
-    // payload itself travels unencrypted underneath the signature, readable by anyone who reaches
-    // it.
+    /// <summary>
+    /// Prepends an HMAC-SHA256 of the payload to the payload itself, so <see cref="Unprotect"/> can
+    /// prove the bytes it was handed are exactly what this key signed, not a modified stand-in for
+    /// them.
+    /// </summary>
+    /// <remarks>
+    /// IsTextSafe is false: the signature is arbitrary bytes, not JSON. Proves integrity only: the
+    /// payload itself travels unencrypted underneath the signature, readable by anyone who reaches
+    /// it.
+    /// </remarks>
     public class HmacSignedProtector : IPayloadProtector
     {
-        private const int SignatureLength = 32; // SHA-256 output size, fixed regardless of key length.
+        /// <summary>SHA-256 output size, fixed regardless of key length.</summary>
+        private const int SignatureLength = 32;
 
         private readonly byte[] _key;
 
@@ -34,8 +40,11 @@ namespace Company.ChestGame.Saving
             return result;
         }
 
-        // A too-short payload and a mismatched signature mean the same thing to a protector with no
-        // key of its own to explain the difference: both throw PayloadTamperedException.
+        /// <summary>
+        /// A too-short payload and a mismatched signature mean the same thing to a protector with no
+        /// key of its own to explain the difference: both throw
+        /// <see cref="PayloadTamperedException"/>.
+        /// </summary>
         public byte[] Unprotect(byte[] stored)
         {
             if (stored.Length < SignatureLength)

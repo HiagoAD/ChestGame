@@ -6,8 +6,10 @@ using Cysharp.Threading.Tasks;
 
 namespace Company.ChestGame.Tests.Common
 {
-    // Hands the content loader a popup parent prefab the test owns, with none of the real source's
-    // Resources lookup.
+    /// <summary>
+    /// Hands the content loader a popup parent prefab the test owns, with none of the real source's
+    /// Resources lookup.
+    /// </summary>
     public class FakePopupParentSource : IPopupParentSource
     {
         public PopupParent Prefab { get; set; }

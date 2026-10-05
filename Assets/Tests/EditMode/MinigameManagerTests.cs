@@ -12,8 +12,10 @@ using VContainer;
 
 namespace Company.ChestGame.Tests.EditMode
 {
-    // What is worth pinning about MinigameManager: it builds the right container type, injects it,
-    // and fails clearly when asked for a minigame it does not know about.
+    /// <summary>
+    /// Covers what is worth pinning about MinigameManager: it builds the right container type,
+    /// injects it, and fails clearly when asked for a minigame it does not know about.
+    /// </summary>
     public class MinigameManagerTests
     {
         private MinigameCatalog _catalog;
@@ -21,18 +23,19 @@ namespace Company.ChestGame.Tests.EditMode
         private IObjectResolver _container;
         private MinigameManager _manager;
 
+        /// <remarks>
+        /// See docs/testing.md, "The save suites never touch a real save".
+        /// See docs/testing.md, "What the minigame fixtures choose not to fake".
+        /// </remarks>
         [SetUp]
         public void SetUp()
         {
-            // The real catalog rather than a fake, because it is constructible from a plain list.
             _minigameSO = FakeMinigameSO.Create();
             _catalog = new MinigameCatalog(new List<MinigameBaseSO> { _minigameSO });
 
             ContainerBuilder builder = new();
             builder.Register<IRandomProvider, UnityRandomProvider>(Lifetime.Singleton);
 
-            // The container reaches its content through the provider, so a resolver that cannot
-            // supply one cannot inject it.
             builder.RegisterInstance<IAssetProvider>(new FakeAssetProvider());
             _container = builder.Build();
 
@@ -66,11 +69,12 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.IsInstanceOf<FakeMinigameController>(minigame.ControllerInstance);
         }
 
+        /// <remarks>
+        /// See docs/minigames.md, "Nothing loads while the container is built".
+        /// </remarks>
         [Test]
         public void Get_HandsBackAFreshInstanceEachTime()
         {
-            // Each request is a new game session; sharing one container would leak the previous
-            // round's controller state.
             FakeMinigameContainer first = _manager.Get<FakeMinigameContainer>();
             FakeMinigameContainer second = _manager.Get<FakeMinigameContainer>();
 
@@ -87,11 +91,12 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.IsFalse(minigame.Running, "a minigame only starts running once Begin is called");
         }
 
+        /// <remarks>
+        /// See docs/minigames.md, "Nothing loads while the container is built".
+        /// </remarks>
         [Test]
         public void GetById_BuildsTheContainerRegisteredForThatId()
         {
-            // The id path is what the shell uses, so it has to reach the same construction the
-            // typed path does.
             MinigameContainer minigame = _manager.Get("fake");
 
             Assert.IsInstanceOf<FakeMinigameContainer>(minigame);
@@ -108,12 +113,12 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.AreEqual("no-such-minigame", error.Id);
         }
 
+        /// <remarks>
+        /// See docs/minigames.md, "Nothing loads while the container is built".
+        /// </remarks>
         [Test]
         public void Get_BuildsTheContainerWithoutConfiguringOrLoadingAnything()
         {
-            // Get builds and injects the container and stops there, because a definition names its
-            // content rather than holding it. The hook and the controller's injection live in
-            // BeginAsync, pinned by MinigameContainerContentTests.
             FakeMinigameContainer minigame = _manager.Get<FakeMinigameContainer>();
             FakeMinigameController controller = (FakeMinigameController)minigame.ControllerInstance;
 
@@ -123,10 +128,12 @@ namespace Company.ChestGame.Tests.EditMode
                 "and so does injecting it, or it would be injected before its own content existed");
         }
 
+        /// <remarks>
+        /// See docs/architecture.md, "Exception hierarchy".
+        /// </remarks>
         [Test]
         public void Get_ForAnUnknownMinigame_ThrowsMinigameNotFound()
         {
-            // Typed so this cannot be satisfied by an unrelated NullReferenceException inside Get.
             MinigameNotFoundException error = Assert.Throws<MinigameNotFoundException>(
                 () => _manager.Get<UnregisteredMinigameContainer>());
 

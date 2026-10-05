@@ -11,9 +11,12 @@ namespace Company.ChestGame.Popups
         public ContentUnavailablePopupData(string message) => Message = message;
     }
 
-    // What the player is shown when something the game had to fetch did not arrive. It carries a
-    // message rather than a failure type, so one popup covers a missing key and a broken download
-    // alike and nothing about it names Addressables.
+    /// <summary>
+    /// What the player is shown when something the game had to fetch did not arrive.
+    /// </summary>
+    /// <remarks>
+    /// See docs/architecture.md, "Popups".
+    /// </remarks>
     public class ContentUnavailablePopup : PopupBase<ContentUnavailablePopup, ContentUnavailablePopupData>
     {
         [SerializeField] private TextMeshProUGUI _messageText;
@@ -25,6 +28,6 @@ namespace Company.ChestGame.Popups
 
         protected override void OnInitialize() => _messageText.text = Data.Message;
 
-        private void Close() => Destroy(gameObject);
+        private void Close() => RequestClose();
     }
 }

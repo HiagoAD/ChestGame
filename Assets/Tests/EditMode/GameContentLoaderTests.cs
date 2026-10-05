@@ -11,8 +11,12 @@ using UnityEngine;
 
 namespace Company.ChestGame.Tests.EditMode
 {
-    // GameContentLoader is the whole of booting worth testing: the bootstrapper around it is a
-    // scene load and a CreateChild call. Fakes throughout, with no scene and no scope.
+    /// <summary>
+    /// Covers <see cref="GameContentLoader"/> against fakes, with no scene and no scope.
+    /// </summary>
+    /// <remarks>
+    /// See docs/architecture.md, "Boot".
+    /// </remarks>
     public class GameContentLoaderTests
     {
         private FakeGameConfigSource _configSource;
@@ -43,10 +47,12 @@ namespace Company.ChestGame.Tests.EditMode
             if (_parentPrefab != null) Object.DestroyImmediate(_parentPrefab.gameObject);
         }
 
+        /// <remarks>
+        /// See docs/architecture.md, "Boot".
+        /// </remarks>
         [Test]
         public void LoadAsync_ReadsEverySourceExactlyOnce()
         {
-            // Once, not merely at least once: a source read twice is a source downloaded twice.
             SynchronousUniTask.Result(_loader.LoadAsync(CancellationToken.None));
 
             Assert.AreEqual(1, _configSource.ReadCallCount, nameof(FakeGameConfigSource));
@@ -86,8 +92,9 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.AreEqual(cancellation.Token, _popupParentSource.LastToken, nameof(FakePopupParentSource));
         }
 
-        // A source failing is the ordinary case. The typed exception has to survive the trip out
-        // through the async machinery, or the caller cannot tell it from anything else.
+        /// <remarks>
+        /// See docs/architecture.md, "Exception hierarchy".
+        /// </remarks>
         [Test]
         public void AFailingConfigSource_PropagatesItsTypedException()
         {
@@ -130,11 +137,12 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.AreEqual("Popups/PopupParent", error.AssetPath);
         }
 
+        /// <remarks>
+        /// See docs/architecture.md, "Boot".
+        /// </remarks>
         [Test]
         public void AFailingSource_StopsTheLoadRatherThanHandingBackHalfTheContent()
         {
-            // Nothing downstream may see a LoadedContent with a hole in it, which is why the
-            // services that consume it need no "has it loaded" guard.
             _minigameListSource.FailWith = new MissingAssetException("Minigames/MinigameList", "Minigame list");
 
             Assert.Throws<MissingAssetException>(

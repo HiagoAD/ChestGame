@@ -4,18 +4,21 @@ using Newtonsoft.Json;
 
 namespace Company.ChestGame.Minigame.Chests
 {
-    // The chests minigame's own config document, parsed and validated by the minigame that owns it.
-    // Immutable once built, like LocalJsonGameConfig, so "validated" is a durable guarantee. Create
-    // and Parse are the only two ways in and both validate.
+    /// <summary>
+    /// The chests minigame's own config document, parsed and validated by the minigame that owns it.
+    /// </summary>
+    /// <remarks>
+    /// See docs/minigames.md, "Its own config document".
+    /// </remarks>
     public class ChestsMinigameConfig
     {
         [JsonProperty] public int ChestCount { get; private set; }
         [JsonProperty] public int AttempsCount { get; private set; }
         [JsonProperty] public int TimeToOpenChestMiliseconds { get; private set; }
 
-        // Private and parameterless on purpose: Json.NET picks a public parameterized constructor
-        // when it finds one, so validation in a constructor would surface wrapped in
-        // JsonSerializationException and Parse would report it as "not valid JSON".
+        /// <remarks>
+        /// See docs/minigames.md, "Its own config document".
+        /// </remarks>
         private ChestsMinigameConfig()
         {
         }
@@ -61,8 +64,9 @@ namespace Company.ChestGame.Minigame.Chests
             return parsedObject;
         }
 
-        // A document can parse cleanly and still describe an unplayable round: a field the server
-        // renamed, or one this client predates, deserializes to 0.
+        /// <remarks>
+        /// See docs/minigames.md, "Its own config document".
+        /// </remarks>
         private void Validate()
         {
             ConfigValidation.Require(ChestCount > 0, nameof(ChestCount), ChestCount);

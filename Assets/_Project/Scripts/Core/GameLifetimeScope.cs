@@ -9,49 +9,53 @@ using Company.ChestGame.Popups;
 using Company.ChestGame.Popups.Internal;
 using Company.ChestGame.Rewards;
 using Company.ChestGame.Saving;
+using Company.ChestGame.UI;
 using UnityEngine;
 using VContainer;
 using VContainer.Unity;
 
 namespace Company.ChestGame.Core
 {
-    // The root scope, and the only one authored in a scene. Place it in the boot scene; it survives
-    // every scene load afterwards, and every other scope in the game descends from it.
-    //
-    // What it registers is split in two. RegisterCoreServices is everything that can be built
-    // immediately; RegisterLoadedServices is everything that needs content to exist first.
+    /// <summary>
+    /// Root <see cref="LifetimeScope"/>, and the only one authored in a scene. Registration is split
+    /// in two: <see cref="RegisterCoreServices"/> is everything buildable immediately,
+    /// <see cref="RegisterLoadedServices"/> is everything that needs content to exist first.
+    /// </summary>
+    /// <remarks>
+    /// Place it in the boot scene; it survives every scene load afterwards, and every other scope in
+    /// the game descends from it.
+    /// See docs/architecture.md, "Boot".
+    /// See docs/architecture.md, "Registration, in two halves".
+    /// </remarks>
     public class GameLifetimeScope : LifetimeScope
     {
-        // Held rather than resolved on demand, because the callbacks that use it can fire at any
-        // time, including while the container is unavailable.
+        /// <remarks>
+        /// See docs/saving.md, "The pause/quit flush lives on GameLifetimeScope".
+        /// </remarks>
         private ISaveFlushRegistry _saveFlushRegistry;
 
+        /// <remarks>
+        /// See docs/saving.md, "The pause/quit flush lives on GameLifetimeScope".
+        /// </remarks>
         protected override void Awake()
         {
-            // Base first: that is where the container is built and the bootstrapper dispatched.
             base.Awake();
 
-            // The game scene's scope descends from this one, so it has to survive the scene load.
             DontDestroyOnLoad(gameObject);
 
             _saveFlushRegistry = Container.Resolve<ISaveFlushRegistry>();
         }
 
-        // The last callback with any durability guarantee on mobile, so anything holding an
-        // unwritten save has to be flushed here or risk losing it whenever the OS kills a
-        // backgrounded app.
         private void OnApplicationPause(bool pauseStatus)
         {
             if (pauseStatus) FlushAllSavesOrLog();
         }
 
-        // OnApplicationPause(true) does not fire on most desktop platforms on quit, so this is the
-        // equivalent close for the same window there.
         private void OnApplicationQuit() => FlushAllSavesOrLog();
 
-        // Wrapped because a pause or quit callback that throws is worse than one that logs and
-        // returns. This catches the disk write itself failing - a full disk, a revoked permission -
-        // not a wiring mistake, which is refused earlier.
+        /// <remarks>
+        /// See docs/saving.md, "The pause/quit flush lives on GameLifetimeScope".
+        /// </remarks>
         private void FlushAllSavesOrLog()
         {
             try
@@ -64,36 +68,65 @@ namespace Company.ChestGame.Core
             }
         }
 
-        // Optional. Wire it in the inspector to show boot progress; leave it empty and boot reports
-        // nowhere.
+        /// <summary>
+        /// Wire in the inspector to show boot progress. Left empty, boot reports nowhere.
+        /// </summary>
+        /// <remarks>
+        /// See docs/architecture.md, "Telling the player what boot is doing".
+        /// </remarks>
         [SerializeField] private BootStatusLabel _bootStatus;
 
-        // The == comparison is deliberate and must not become `is not null`: a missing or destroyed
-        // component only compares equal to null through Unity's overloaded operator.
-        protected override void Configure(IContainerBuilder builder) =>
-            RegisterCoreServices(builder, _bootStatus != null ? _bootStatus : null,
-                CurrencySaveInputsOverride, LegacyCurrencyPlayerPrefsKeyOverride);
+        /// <summary>
+        /// Builds the boot-scene container by delegating to <see cref="RegisterCoreServices"/>.
+        /// </summary>
+        /// <param name="builder">The container builder VContainer provides.</param>
+        /// <remarks>
+        /// See docs/architecture.md, "Telling the player what boot is doing".
+        /// </remarks>
+        protected override void Configure(IContainerBuilder builder)
+        {
+            BootStatusModel bootStatus = new();
+            if (_bootStatus != null) _bootStatus.Bind(bootStatus);
 
-        // Everything that can be built the moment the container is, needing no loaded asset. Public
-        // and separate from Configure so a caller can build the same container without a scene.
-        //
-        // Leave the last two null for the real game. Pass them to redirect saving away from the
-        // real save location and the real PlayerPrefs entry - which any caller that resolves a save
-        // or a currency service must do, or it reads and overwrites the running player's own data.
+            RegisterCoreServices(builder, bootStatus, CurrencySaveInputsOverride, LegacyCurrencyPlayerPrefsKeyOverride);
+        }
+
+        /// <summary>
+        /// Registers everything buildable the moment the container is, needing no loaded asset.
+        /// </summary>
+        /// <param name="builder">The container builder to register into.</param>
+        /// <param name="status">Where boot progress is reported. Defaults to a no-op when null.</param>
+        /// <param name="currencySaveInputs">
+        /// Left null for the real game. Pass a value to redirect the currency save composition away
+        /// from the real save location.
+        /// </param>
+        /// <param name="legacyCurrencyPlayerPrefsKey">
+        /// Left null for the real game. Pass a value to redirect the legacy currency import away from
+        /// the real PlayerPrefs entry.
+        /// </param>
+        /// <remarks>
+        /// Public and separate from <see cref="Configure"/> so a caller can build the same container
+        /// without a scene. Any caller that resolves a save or a currency service must leave
+        /// <paramref name="currencySaveInputs"/> and <paramref name="legacyCurrencyPlayerPrefsKey"/>
+        /// null, or it reads and overwrites the running player's own data.
+        /// See docs/architecture.md, "Registration, in two halves".
+        /// See docs/architecture.md, "Engine seams: clock and random".
+        /// See docs/architecture.md, "Telling the player what boot is doing".
+        /// See docs/context/self-contained-minigames.md, "5. The agreement this work added".
+        /// See docs/context/self-contained-minigames.md, "4. First attempts that were replaced".
+        /// See docs/saving.md, "Why the flush stopped being one field".
+        /// See docs/saving.md, "An unregistered save looks exactly like a registered one".
+        /// </remarks>
         public static void RegisterCoreServices(IContainerBuilder builder, IBootStatus status = null,
             SaveFactoryInputs currencySaveInputs = null, string legacyCurrencyPlayerPrefsKey = null)
         {
-            // Substituted rather than left null, so no caller downstream needs a guard.
             builder.RegisterInstance<IBootStatus>(status ?? new SilentBootStatus());
 
-            // Engine-facing seams: everything downstream draws randomness and time through these.
             builder.Register<IRandomProvider, UnityRandomProvider>(Lifetime.Singleton);
             builder.Register<IGameClock, UnityGameClock>(Lifetime.Singleton);
 
-            // Swapping the loading technology is this one line.
             builder.Register<IAssetProvider, AddressablesAssetProvider>(Lifetime.Singleton);
 
-            // Sources, each the only place that knows a concrete key.
             builder.Register<IGameConfigSource, AddressablesGameConfigSource>(Lifetime.Singleton);
             builder.Register<IMinigameListSource, AddressablesMinigameListSource>(Lifetime.Singleton);
             builder.Register<IPopupListSource, AddressablesPopupListSource>(Lifetime.Singleton);
@@ -101,11 +134,8 @@ namespace Company.ChestGame.Core
 
             builder.Register<ISaveFlushRegistry, SaveFlushRegistry>(Lifetime.Singleton);
 
-            // One service, shared by every save key in this composition.
             builder.RegisterInstance<ISaveService>(BuildCurrencySaveService(currencySaveInputs, legacyCurrencyPlayerPrefsKey));
 
-            // A factory rather than plain injection, because the key is a plain string the
-            // container has nothing to resolve it from.
             builder.Register<SaveScheduler<CurrencySaveDocument>>(resolver =>
             {
                 SaveScheduler<CurrencySaveDocument> scheduler = new(
@@ -113,17 +143,11 @@ namespace Company.ChestGame.Core
                     CurrencySaveHandler.SaveKey,
                     resolver.Resolve<IGameClock>());
 
-                // Inside the factory, so every route to this singleton registers it exactly once.
-                // Registering also throws if this scheduler could never be flushed, which is what
-                // turns a bad composition into a startup failure instead of a silent data loss.
                 resolver.Resolve<ISaveFlushRegistry>().Register(scheduler);
 
                 return scheduler;
             }, Lifetime.Singleton);
 
-            // Not redundant, do not delete: registering for the pause/quit flush is a side effect of
-            // resolving, so a scheduler nothing resolves is one nothing flushes. Add a line here for
-            // every scheduler registered above.
             builder.RegisterBuildCallback(resolver => resolver.Resolve<SaveScheduler<CurrencySaveDocument>>());
 
             builder.Register<ICurrencySaveHandler, CurrencySaveHandler>(Lifetime.Singleton);
@@ -143,17 +167,26 @@ namespace Company.ChestGame.Core
             builder.RegisterBuildCallback(resolver => resolver.Resolve<SaveScheduler<GameMetaSaveDocument>>());
 
             builder.Register<ICurrencyManager, CurrencyManager>(Lifetime.Singleton);
+            builder.Register<CurrencyLabelControllerFactory>(Lifetime.Singleton);
 
             builder.Register<GameContentLoader>(Lifetime.Singleton);
 
-            // As its interfaces rather than as an entry point, so it runs from a real scope but
-            // stays inert in a container built by hand.
             builder.Register<GameBootstrapper>(Lifetime.Singleton).AsImplementedInterfaces().AsSelf();
         }
 
-        // Readable, unprotected JSON, written so a kill mid-write cannot leave a torn file behind.
-        // Despite the name, the service it returns is the one every save key in this composition
-        // shares, not currency's alone. See docs/saving.md for why this combination ships.
+        /// <summary>
+        /// Builds the single <see cref="ISaveService"/> every save key in this composition shares,
+        /// despite the currency-flavoured name.
+        /// </summary>
+        /// <param name="inputs">Save file inputs. Defaults to the real save location when null.</param>
+        /// <param name="legacyPlayerPrefsKey">
+        /// The legacy PlayerPrefs key to import from. Defaults to the real key when null.
+        /// </param>
+        /// <remarks>
+        /// Readable, unprotected JSON, written so a kill mid-write cannot leave a torn file behind.
+        /// See docs/saving.md, "What ships, and where the composition asserts its own constraints".
+        /// See docs/saving.md, "One ISaveService, three keys - and a naming debt".
+        /// </remarks>
         private static ISaveService BuildCurrencySaveService(SaveFactoryInputs inputs, string legacyPlayerPrefsKey)
         {
             inputs ??= DefaultCurrencySaveInputs();
@@ -167,13 +200,20 @@ namespace Company.ChestGame.Core
                 legacyImport: new CurrencyLegacyImport(legacyPlayerPrefsKey));
         }
 
-        // What a caller loading the boot scene has instead of arguments, since Unity fixes the
-        // signature of the callback that builds this container. Assign both before the scene loads
-        // and clear them afterwards; they are global and outlive whatever set them.
-        //
-        // Both must be null in a real run, or a player's own save is redirected somewhere they
-        // cannot see. Do not make them conditional on a scripting define: UNITY_INCLUDE_TESTS is set
-        // for the whole editor compilation, not only while tests run.
+        /// <summary>
+        /// Redirects <see cref="RegisterCoreServices"/>'s currency save composition away from the
+        /// real save location, for a caller loading the boot scene that cannot pass arguments through
+        /// <see cref="Configure"/>. <see cref="LegacyCurrencyPlayerPrefsKeyOverride"/> is its
+        /// companion for the legacy PlayerPrefs key.
+        /// </summary>
+        /// <remarks>
+        /// Assign both before the scene loads and clear them afterwards; they are global and outlive
+        /// whatever set them. Both must be null in a real run, or a player's own save is redirected
+        /// somewhere they cannot see. Do not make them conditional on a scripting define:
+        /// UNITY_INCLUDE_TESTS is set for the whole editor compilation, not only while tests run.
+        /// See docs/saving.md, "Redirecting this composition away from a developer's real save".
+        /// See docs/saving.md, "Sealing the boot path a test cannot pass arguments through".
+        /// </remarks>
         public static SaveFactoryInputs CurrencySaveInputsOverride { get; set; }
 
         public static string LegacyCurrencyPlayerPrefsKeyOverride { get; set; }
@@ -186,8 +226,17 @@ namespace Company.ChestGame.Core
                 ? CurrencyLegacyImport.DefaultLegacyKey
                 : LegacyCurrencyPlayerPrefsKeyOverride;
 
-        // The half that needs content. Everything derived from a loaded asset is registered already
-        // built, so nothing here can exist without its data.
+        /// <summary>
+        /// Registers the half that needs content: everything derived from a loaded asset, plus the
+        /// services built from them.
+        /// </summary>
+        /// <param name="builder">The container builder to register into.</param>
+        /// <param name="content">The already-loaded content to register services from.</param>
+        /// <remarks>
+        /// Everything derived from a loaded asset is registered already built, so nothing here can
+        /// exist without its data.
+        /// See docs/architecture.md, "Registration, in two halves".
+        /// </remarks>
         public static void RegisterLoadedServices(IContainerBuilder builder, LoadedContent content)
         {
             builder.RegisterInstance<IGameConfig>(new LocalJsonGameConfig(content.GameConfigDocument));

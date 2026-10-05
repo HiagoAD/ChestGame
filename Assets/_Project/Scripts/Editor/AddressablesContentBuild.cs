@@ -7,12 +7,20 @@ using UnityEngine;
 
 namespace Company.ChestGame.Editor
 {
-    // Shipped tooling: Minigame.Chests loads from a remote path, so a content build is needed on
-    // every release. Editor-only assembly, so game code cannot reference it by accident.
+    /// <summary>
+    /// Shipped tooling that runs the Addressables content build.
+    /// </summary>
+    /// <remarks>
+    /// See docs/content-delivery.md, "Building and serving".
+    /// </remarks>
     public static class AddressablesContentBuild
     {
-        // Entry point for ci/build-addressables.sh. Exits the editor itself, because -executeMethod
-        // otherwise reports a thrown exception and a clean return with the same code.
+        /// <summary>
+        /// Entry point for <c>ci/build-addressables.sh</c>.
+        /// </summary>
+        /// <remarks>
+        /// See docs/content-delivery.md, "Building and serving".
+        /// </remarks>
         public static void BuildFromCommandLine()
         {
             try
@@ -49,7 +57,7 @@ namespace Company.ChestGame.Editor
             Debug.LogError($"Addressables content build failed: {error}");
         }
 
-        // The build's own error string, empty when it succeeded, so both callers decide.
+        /// <returns>The build's own error string, empty when it succeeded, so both callers decide.</returns>
         private static string Build()
         {
             AddressableAssetSettings settings = AddressableAssetSettingsDefaultObject.Settings;

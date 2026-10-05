@@ -3,7 +3,10 @@ using Company.ChestGame.Common;
 
 namespace Company.ChestGame.Minigame
 {
-    // A minigame was requested that the catalog does not list, by container type or by id.
+    /// <summary>
+    /// Thrown when a minigame was requested that the catalog does not list, by container type or
+    /// by id.
+    /// </summary>
     public class MinigameNotFoundException : ChestGameException
     {
         public Type ContainerType { get; }

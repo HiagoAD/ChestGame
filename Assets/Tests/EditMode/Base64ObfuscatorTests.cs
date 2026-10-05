@@ -5,9 +5,14 @@ using NUnit.Framework;
 
 namespace Company.ChestGame.Tests.EditMode
 {
-    // Base64Obfuscator takes no constructor argument - unlike Xor, Hmac and Aes, there is no key
-    // for it to reject, so there is no NoProtectorKey case to test here. See docs/saving.md,
-    // "Base64Obfuscator".
+    /// <summary>
+    /// Tests <see cref="Base64Obfuscator"/> directly. Unlike <see cref="XorObfuscator"/>,
+    /// <see cref="HmacSignedProtector"/> and <see cref="AesProtector"/>, it takes no constructor
+    /// key, so there is no <c>NoProtectorKey</c> case to test here.
+    /// </summary>
+    /// <remarks>
+    /// See docs/saving.md, "The protectors, and what a key shipping inside the binary buys".
+    /// </remarks>
     public class Base64ObfuscatorTests
     {
         [Test]

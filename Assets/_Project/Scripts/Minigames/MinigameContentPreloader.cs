@@ -9,9 +9,13 @@ using UnityEngine;
 
 namespace Company.ChestGame.Minigame
 {
-    // Fetches, before the player can ask for any of it, the content of every minigame whose
-    // descriptor says it wants to arrive that way. A plain class with no scene and no scope, so the
-    // bootstrapper is left holding one call and this can run against a fake provider in edit mode.
+    /// <summary>
+    /// Fetches, before the player can ask for any of it, the content of every minigame whose
+    /// descriptor says it wants to arrive that way.
+    /// </summary>
+    /// <remarks>
+    /// See docs/content-delivery.md, "When content arrives".
+    /// </remarks>
     public class MinigameContentPreloader
     {
         private readonly IMinigameCatalog _catalog;
@@ -23,13 +27,27 @@ namespace Company.ChestGame.Minigame
             _assets = assets;
         }
 
-        // How long any single label may go without answering before boot gives up on it. Per label
-        // rather than across the whole preload, so the budget measures a stall rather than the
-        // amount of content. See docs/content-delivery.md.
+        /// <summary>
+        /// How long a single label's fetch may go unanswered before boot gives up on it.
+        /// </summary>
+        /// <remarks>
+        /// See docs/content-delivery.md, "Timeouts".
+        /// </remarks>
         protected virtual TimeSpan LabelDownloadTimeout => TimeSpan.FromSeconds(90);
 
-        // Progress is aggregate rather than per label, which is why the sizes are gathered first:
-        // the share each label is worth cannot be known until the whole total is.
+        /// <summary>
+        /// Downloads every label whose minigame is set to preload, reporting one aggregate
+        /// progress figure across all of them.
+        /// </summary>
+        /// <param name="progress">
+        /// Reports the aggregate fraction downloaded across every preloaded label; may be null.
+        /// </param>
+        /// <exception cref="AssetLoadException">A label resolved but the size query failed.</exception>
+        /// <exception cref="MissingAssetException">A label is not in the shipped catalog.</exception>
+        /// <exception cref="ContentDownloadTimeoutException">A label's fetch stalled past its timeout.</exception>
+        /// <remarks>
+        /// See docs/content-delivery.md, "When content arrives", "Progress reporting" and "Timeouts".
+        /// </remarks>
         public async UniTask PreloadAsync(IProgress<float> progress, CancellationToken ct)
         {
             List<string> labels = LabelsToPreload();
@@ -45,7 +63,6 @@ namespace Company.ChestGame.Minigame
                 total += sizes[i];
             }
 
-            // Everything is already cached or shipped local: nothing to wait for, nothing to say.
             if (total <= 0) return;
 
             long fetched = 0;
@@ -54,29 +71,26 @@ namespace Company.ChestGame.Minigame
                 string label = labels[i];
                 IProgress<float> share = ShareOf(progress, fetched, sizes[i], total);
 
-                // AsAsyncUnitUniTask because Bounded is generic and this route returns nothing.
                 await Bounded(
                     token => _assets.DownloadAsync(label, share, token).AsAsyncUnitUniTask(), label, ct);
 
                 fetched += sizes[i];
 
-                // Reported again on completion rather than trusting the inner reporter to have
-                // finished at exactly its own 1.
                 progress?.Report((float)fetched / total);
             }
         }
 
+        /// <remarks>
+        /// See docs/content-delivery.md, "When content arrives".
+        /// </remarks>
         private List<string> LabelsToPreload()
         {
             List<string> labels = new();
 
-            // The type-keyed lookup: an entry whose id was never authored is missing from the
-            // id-keyed one, and its content still has to arrive.
             foreach (MinigameBaseSO minigame in _catalog.Minigames.Values)
             {
                 if (minigame.LoadPolicy != MinigameLoadPolicy.Preload) continue;
 
-                // The blank-label rule belongs to the descriptor, which owns the field.
                 if (!minigame.TryGetContentLabel(out string label)) continue;
 
                 labels.Add(label);
@@ -85,9 +99,15 @@ namespace Company.ChestGame.Minigame
             return labels;
         }
 
-        // A stalled fetch is not a failed one: nothing throws, nothing returns, and the boot screen
-        // sits on "Preparing content..." indefinitely. The linked source ends the wait when the app
-        // is quitting.
+        /// <summary>
+        /// Runs <paramref name="operation"/> under a deadline linked to <paramref name="ct"/>.
+        /// </summary>
+        /// <exception cref="ContentDownloadTimeoutException">
+        /// The deadline elapsed before <paramref name="operation"/> answered.
+        /// </exception>
+        /// <remarks>
+        /// See docs/content-delivery.md, "Timeouts" and "Which token fired".
+        /// </remarks>
         private async UniTask<T> Bounded<T>(
             Func<CancellationToken, UniTask<T>> operation, string label, CancellationToken ct)
         {
@@ -100,8 +120,6 @@ namespace Company.ChestGame.Minigame
             {
                 return await operation(deadline.Token);
             }
-            // Boot being cancelled is the application quitting, so it travels out untouched. Both
-            // at once counts as the caller's, which is the safe way round.
             catch (OperationCanceledException) when (!ct.IsCancellationRequested)
             {
                 throw new ContentDownloadTimeoutException(label, budget);
@@ -111,7 +129,9 @@ namespace Company.ChestGame.Minigame
         private static IProgress<float> ShareOf(IProgress<float> outer, long already, long size, long total) =>
             outer == null || size <= 0 ? null : new AggregateProgress(outer, already, size, total);
 
-        // Maps one label's own 0..1 onto the slice of the whole download that label is worth.
+        /// <summary>
+        /// Maps one label's own 0..1 onto the slice of the whole download that label is worth.
+        /// </summary>
         private sealed class AggregateProgress : IProgress<float>
         {
             private readonly IProgress<float> _outer;

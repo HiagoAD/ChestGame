@@ -2,13 +2,12 @@ using System;
 
 namespace Company.ChestGame.Pooling.Demo
 {
-    // A race was set up or asked to run something it cannot honestly do. Typed for the same reason
-    // PoolException and FrameBudgetException are: a test asserting "this throws" must not be
-    // satisfied by an unrelated NullReferenceException from somewhere inside the call.
-    //
-    // Deliberately not under ChestGameException, for the same reason those two are not: everything
-    // here is a demo wired wrong, not a player-facing content failure. See the exception hierarchy
-    // in docs/architecture.md.
+    /// <summary>
+    /// A race was set up, or asked to run something it cannot honestly do.
+    /// </summary>
+    /// <remarks>
+    /// See docs/architecture.md, "Exception hierarchy".
+    /// </remarks>
     public class PoolRaceException : InvalidOperationException
     {
         public PoolRaceException(string message) : base(message) { }
@@ -28,8 +27,9 @@ namespace Company.ChestGame.Pooling.Demo
         public static PoolRaceException CountBelowOne(int count) =>
             new($"A race needs at least one item to place, got {count}");
 
-        // Solo mode names a strategy rather than an index, so a caller can only ask for one this
-        // race actually has a lane for.
+        /// <remarks>
+        /// See docs/pooling.md, "PoolRace's cancellation and identity traps".
+        /// </remarks>
         public static PoolRaceException UnknownSoloStrategy(PoolStrategy strategy) =>
             new($"Solo mode asked for '{strategy}', which is not one of this race's lanes");
 
@@ -39,8 +39,9 @@ namespace Company.ChestGame.Pooling.Demo
         public static PoolRaceException NoFillParent() =>
             new("A lane needs a parent to fill placed instances into, and was handed none");
 
-        // The panel's four. Authoring faults rather than runtime ones, but they go through the same
-        // door, so the wording stays in one place.
+        /// <remarks>
+        /// See docs/pooling.md, "PoolRaceException, and why authoring faults share one door".
+        /// </remarks>
         public static PoolRaceException NoDocument() =>
             new("The pooling demo panel has no UIDocument assigned, so there is no chrome to bind to");
 

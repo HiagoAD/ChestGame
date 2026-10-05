@@ -8,15 +8,14 @@ using UnityEngine.TestTools;
 
 namespace Company.ChestGame.Tests.PlayMode
 {
-    // ThreadHoppingStore's actual hop cannot be proven in edit mode at all - Tests.Common's
-    // SynchronousUniTask fails loudly the instant anything really suspends, by design. Only a real
-    // player loop and real thread identity can prove the hop genuinely leaves the calling thread,
-    // and that a main-thread-only store is left alone rather than hopped. See docs/saving.md, "The
-    // thread hop", and ThreadHoppingStoreTests for what edit mode already covers without either.
-    //
-    // The thread checks below are deterministic identity comparisons - which thread a call ran on -
-    // never timing, and the one cancellation check waits on a counter rather than a clock. Nothing
-    // here asserts on how long anything took.
+    /// <summary>
+    /// Proves in a real player loop that <c>ThreadHoppingStore</c> leaves the calling thread and
+    /// returns to it, and that a main-thread-only store is left alone rather than hopped.
+    /// </summary>
+    /// <remarks>
+    /// <c>ThreadHoppingStoreTests</c> covers what edit mode can without a player loop.
+    /// See docs/saving.md, "The thread hop, and why it is not inside SaveService".
+    /// </remarks>
     public class ThreadHoppingStorePlayModeTests
     {
         private static readonly TimeSpan PollTimeout = TimeSpan.FromSeconds(10);
@@ -55,15 +54,12 @@ namespace Company.ChestGame.Tests.PlayMode
                 "control has to be back on the main thread once the awaited read completes");
         });
 
+        /// <remarks>
+        /// See docs/saving.md, "The thread hop, and why it is not inside SaveService".
+        /// </remarks>
         [UnityTest]
         public IEnumerator Write_CancelledAfterTheWrappedWriteHasStarted_IsNotReportedAsCancelled() => UniTask.ToCoroutine(async () =>
         {
-            // ISaveStore observes cancellation only before a write begins, never after, so a
-            // cancelled call has changed nothing. The converse is what this pins: once the write
-            // has reached the wrapped store, cancelling must not turn it into a reported
-            // cancellation - the bytes are on their way to disk regardless, and a caller told
-            // "cancelled" would believe they were not. This is why HopAsync hands RunOnThreadPool
-            // CancellationToken.None instead of the caller's token.
             RecordingSaveStore inner = new();
             ThreadHoppingStore store = new(inner);
             using CancellationTokenSource cancellation = new();

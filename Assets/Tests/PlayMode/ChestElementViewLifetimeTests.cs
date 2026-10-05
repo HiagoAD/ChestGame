@@ -9,10 +9,15 @@ using UnityEngine.UI;
 
 namespace Company.ChestGame.Tests.PlayMode
 {
-    // A chest's model belongs to the controller and outlives the view showing it, so when the
-    // element view stops showing that model it has to let go of it. There are two ways that happens
-    // and they are not the same: the view is destroyed, or the view is released back to a pool and
-    // goes on existing. The second is the one that looks like nothing is wrong.
+    /// <summary>
+    /// Covers what a chest element view must let go of when it stops showing a model, across both
+    /// ways that happens: the view is destroyed, or the view is released back to a pool and goes on
+    /// existing.
+    /// </summary>
+    /// <remarks>
+    /// See docs/minigames.md, "The views".
+    /// See docs/minigames.md, "A chest has two lifetimes now".
+    /// </remarks>
     public class ChestElementViewLifetimeTests
     {
         private GameObject _viewObject;
@@ -34,8 +39,14 @@ namespace Company.ChestGame.Tests.PlayMode
             _spriteAssets.Clear();
         }
 
-        // Wired by the prefab in the real game; set directly here, with the object inactive so
-        // Awake does not run before they exist.
+        /// <summary>
+        /// Builds a chest element view the way the real prefab wires it: fields set directly, with
+        /// the object left inactive while they are assigned so <c>Awake</c> does not run before they
+        /// exist.
+        /// </summary>
+        /// <remarks>
+        /// See docs/testing.md, "ChestElementViewLifetimeTests, and its fixture choices".
+        /// </remarks>
         private ChestsMinigameChestElementView BuildView()
         {
             _viewObject = new GameObject("Chest");
@@ -43,9 +54,6 @@ namespace Company.ChestGame.Tests.PlayMode
 
             ChestsMinigameChestElementView view = _viewObject.AddComponent<ChestsMinigameChestElementView>();
 
-            // Three distinct sprites rather than the prefab's art. What matters is only that they
-            // tell each other apart: with all three left null, every chest state paints the same
-            // nothing and a view showing the wrong one would look right.
             _closedSprite = NewSprite();
             _openedEmptySprite = NewSprite();
             _openedFullSprite = NewSprite();
@@ -53,8 +61,6 @@ namespace Company.ChestGame.Tests.PlayMode
             Set(view, "_openedEmptySprite", _openedEmptySprite);
             Set(view, "_openedFullSprite", _openedFullSprite);
 
-            // Children, as in the real prefab: they have to die with the view, or a leaked
-            // subscription would keep working against live objects and go unnoticed.
             Set(view, "_chestImage", AddChild<Image>("Image"));
             Set(view, "_timerSlider", AddChild<Slider>("Slider"));
             Set(view, "_button", AddChild<Button>("Button"));
@@ -90,6 +96,9 @@ namespace Company.ChestGame.Tests.PlayMode
                 .GetField(fieldName, BindingFlags.NonPublic | BindingFlags.Instance)
                 .GetValue(target);
 
+        /// <remarks>
+        /// See docs/minigames.md, "A chest has two lifetimes now".
+        /// </remarks>
         [UnityTest]
         public IEnumerator ADestroyedChestView_StopsListeningToItsModel()
         {
@@ -100,7 +109,6 @@ namespace Company.ChestGame.Tests.PlayMode
             Object.Destroy(_viewObject);
             yield return null;
 
-            // A still-subscribed view would reach into its destroyed Image and Slider and throw.
             Assert.DoesNotThrow(() => model.SetOpening(0.5f));
             Assert.DoesNotThrow(() => model.SetOpen(true));
         }
@@ -108,7 +116,6 @@ namespace Company.ChestGame.Tests.PlayMode
         [UnityTest]
         public IEnumerator ALiveChestView_StillFollowsItsModel()
         {
-            // The counterpart: unsubscribing on destroy must not mean unsubscribing early.
             ChestsMinigameChestModel model = new();
             ChestsMinigameChestElementView view = BuildView();
             view.Init(model, _ => { });
@@ -123,12 +130,12 @@ namespace Company.ChestGame.Tests.PlayMode
             Assert.IsTrue(slider.gameObject.activeSelf, "the timer shows while a chest is opening");
         }
 
+        /// <remarks>
+        /// See docs/minigames.md, "A chest has two lifetimes now".
+        /// </remarks>
         [UnityTest]
         public IEnumerator AReleasedChestView_StopsListeningToItsModel()
         {
-            // The mirror of the destroyed case, and the one pooling introduces. A released view is
-            // still alive and still wired to everything it was wired to, so a subscription left on
-            // it throws nothing and shows nothing: it simply follows a chest it is no longer for.
             ChestsMinigameChestModel model = new();
             ChestsMinigameChestElementView view = BuildView();
 
@@ -145,9 +152,6 @@ namespace Company.ChestGame.Tests.PlayMode
                 "a released chest that still shows its old chest's timer is still subscribed to it");
             Assert.AreEqual(0f, slider.value, 0.0001f);
 
-            // The other half of what a release drops. ParkedPool leaves a released instance active,
-            // so a button that still carried the callback would send the old model to the controller
-            // from a chest that is not on the board.
             Read<Button>(view, "_button").onClick.Invoke();
 
             Assert.IsFalse(clickReachedTheController,
@@ -176,7 +180,6 @@ namespace Company.ChestGame.Tests.PlayMode
                 "a reused chest still showing the last one's timer is the pooling bug a player sees");
             Assert.AreSame(_closedSprite, image.sprite, "and the new model is closed, so it has to look closed");
 
-            // The old model must not reach it any more, and the new one must.
             previous.SetOpen(hasPrize: true);
             Assert.AreSame(_closedSprite, image.sprite,
                 "the chest it used to show opened, and this view is not the one that should have reacted");

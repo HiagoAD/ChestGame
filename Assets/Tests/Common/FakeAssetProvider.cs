@@ -8,17 +8,21 @@ using Object = UnityEngine.Object;
 
 namespace Company.ChestGame.Tests.Common
 {
-    // Stands in for the whole loading technology, which is what keeps the edit-mode suite off
-    // Addressables the way FakeGameClock keeps it off the player loop. It hands back what a test
-    // put in, records every key, reference, release and download asked for, and can be told to fail
-    // the way a real fetch fails. Releases and downloads are recorded because neither leaves a
-    // trace on the caller.
+    /// <summary>
+    /// Hands back what a test put in, records every key, reference, release and download asked
+    /// for, and can be told to fail the way a real fetch fails. Releases and downloads are
+    /// recorded because neither leaves a trace on the caller.
+    /// </summary>
+    /// <remarks>
+    /// See docs/testing.md, "What lives where".
+    /// </remarks>
     public class FakeAssetProvider : IAssetProvider
     {
         private readonly Dictionary<string, Object> _assetsByKey = new();
         private readonly Dictionary<AssetReference, Object> _assetsByReference = new();
         private readonly Dictionary<AssetReference, Exception> _failuresByReference = new();
         private readonly Dictionary<string, long> _downloadSizes = new();
+        private readonly List<UniTaskCompletionSource> _uncancellableStalls = new();
 
         public List<string> RequestedKeys { get; } = new();
         public List<AssetReference> RequestedReferences { get; } = new();
@@ -27,27 +31,59 @@ namespace Company.ChestGame.Tests.Common
         public List<string> SizedLabels { get; } = new();
         public List<string> DownloadedLabels { get; } = new();
 
-        // Both delivery routes in one ordered log, because the order between them is a design
-        // decision: every size is asked for before anything is fetched.
+        /// <summary>
+        /// Both delivery routes in one ordered log.
+        /// </summary>
+        /// <remarks>
+        /// See docs/content-delivery.md, "When content arrives".
+        /// </remarks>
         public List<string> ContentCalls { get; } = new();
 
-        // Delivered through the returned task rather than thrown from the call, the way a provider
-        // that actually waits would report a failure.
+        /// <summary>
+        /// When set, every load, size query and download fails with this exception, delivered
+        /// through the returned task rather than thrown from the call.
+        /// </summary>
         public Exception FailWith { get; set; }
 
-        // Its own knob, so a test can let the size query succeed and fail only the fetch, which is
-        // the only way to reach the code that runs between the two.
+        /// <summary>
+        /// Fails only <see cref="DownloadAsync"/>, so a test can let the size query succeed and
+        /// reach the code that runs between the two.
+        /// </summary>
         public Exception FailDownloadWith { get; set; }
 
-        // A download that neither finishes nor fails, which is the failure mode a deadline exists
-        // for. It still ends when the token it was handed is cancelled, exactly as the real
-        // provider does.
+        /// <summary>
+        /// A download that neither finishes nor fails. It still ends when the token it was handed
+        /// is cancelled, exactly as the real provider does, unless
+        /// <see cref="StalledDownloadsIgnoreCancellation"/> is set.
+        /// </summary>
+        /// <remarks>
+        /// See docs/content-delivery.md, "Timeouts".
+        /// </remarks>
         public bool StallDownloads { get; set; }
 
-        // What a finishing download reports, in order. Just the final 1 unless a test asks for
-        // the steps in between. A lone 1 carries nothing a caller could not report for itself once
-        // the fetch returned, so only a step from inside the fetch shows whether a caller mapping
-        // one label's progress onto a larger whole forwards and maps it at all.
+        /// <summary>
+        /// Under <see cref="StallDownloads"/>, makes a stalled download ignore the token it was
+        /// handed and end only when <see cref="CompleteStalledDownloads"/> is called: a fetch that
+        /// finishes after its caller has already given up. Off by default, and read when the
+        /// download is asked for.
+        /// </summary>
+        public bool StalledDownloadsIgnoreCancellation { get; set; }
+
+        /// <summary>
+        /// Under <see cref="StalledDownloadsIgnoreCancellation"/>, also registers a callback on the
+        /// stalled download's token that throws, so cancelling that token makes the cancelling
+        /// call throw an <see cref="AggregateException"/> while the download itself stays pending.
+        /// Off by default, and read when the download is asked for.
+        /// </summary>
+        public bool StalledDownloadsThrowOnCancellation { get; set; }
+
+        /// <summary>
+        /// What a finishing download reports, in order. Just the final 1 unless a test asks for
+        /// the steps in between.
+        /// </summary>
+        /// <remarks>
+        /// See docs/content-delivery.md, "Progress reporting".
+        /// </remarks>
         public float[] DownloadProgressSteps { get; set; } = new[] { 1f };
 
         public CancellationToken LastToken { get; private set; }
@@ -64,22 +100,32 @@ namespace Company.ChestGame.Tests.Common
             return this;
         }
 
-        // Zero unless a test says otherwise, because "nothing left to download" is the ordinary
-        // answer.
+        /// <summary>
+        /// Registers the size <see cref="GetDownloadSizeAsync"/> reports for
+        /// <paramref name="label"/>. Zero unless a test says otherwise: "nothing left to
+        /// download" is the ordinary answer.
+        /// </summary>
         public FakeAssetProvider WithDownloadSize(string label, long size)
         {
             _downloadSizes[label] = size;
             return this;
         }
 
-        // Failing one reference rather than everything, the only way to reach the state where a
-        // load already succeeded and the next one did not.
+        /// <summary>
+        /// Fails only the load of <paramref name="reference"/>, the only way to reach the state
+        /// where one load already succeeded and the next did not.
+        /// </summary>
         public FakeAssetProvider FailingOn(AssetReference reference, Exception exception)
         {
             _failuresByReference[reference] = exception;
             return this;
         }
 
+        /// <remarks>
+        /// Returns null rather than throwing when <paramref name="key"/> was never registered
+        /// through <c>With</c>, so the caller's own guards for an empty slot stay reachable in a
+        /// test.
+        /// </remarks>
         public UniTask<TAsset> LoadAsync<TAsset>(string key, CancellationToken ct) where TAsset : Object
         {
             RequestedKeys.Add(key);
@@ -90,8 +136,6 @@ namespace Company.ChestGame.Tests.Common
                 return UniTask.FromException<TAsset>(FailWith);
             }
 
-            // Null rather than a throw, so the guards the sources keep for an empty slot stay
-            // reachable.
             _assetsByKey.TryGetValue(key, out Object asset);
             return UniTask.FromResult(asset as TAsset);
         }
@@ -132,6 +176,10 @@ namespace Company.ChestGame.Tests.Common
             return UniTask.FromResult(size);
         }
 
+        /// <remarks>
+        /// Reports each value of <see cref="DownloadProgressSteps"/> in order (by default just 1), so a
+        /// caller aggregating several labels is not left looking correct while never having been driven.
+        /// </remarks>
         public UniTask DownloadAsync(string label, IProgress<float> progress, CancellationToken ct)
         {
             DownloadedLabels.Add(label);
@@ -147,13 +195,25 @@ namespace Company.ChestGame.Tests.Common
             if (StallDownloads)
             {
                 UniTaskCompletionSource stalled = new();
-                ct.Register(() => stalled.TrySetCanceled(ct));
+
+                if (StalledDownloadsIgnoreCancellation)
+                {
+                    _uncancellableStalls.Add(stalled);
+
+                    if (StalledDownloadsThrowOnCancellation)
+                    {
+                        ct.Register(() => throw new InvalidOperationException(
+                            $"{nameof(FakeAssetProvider)}: a cancellation callback that throws"));
+                    }
+                }
+                else
+                {
+                    ct.Register(() => stalled.TrySetCanceled(ct));
+                }
 
                 return stalled.Task;
             }
 
-            // A download that finishes reports that it finished, or a caller aggregating several
-            // labels would look correct while never having been driven.
             if (progress != null)
             {
                 foreach (float step in DownloadProgressSteps)
@@ -162,6 +222,22 @@ namespace Company.ChestGame.Tests.Common
                 }
             }
             return UniTask.CompletedTask;
+        }
+
+        /// <summary>
+        /// Finishes, successfully, every download stalled under
+        /// <see cref="StalledDownloadsIgnoreCancellation"/>, running its awaiting continuations
+        /// before this returns. Does nothing when none is stalled.
+        /// </summary>
+        public void CompleteStalledDownloads()
+        {
+            UniTaskCompletionSource[] stalls = _uncancellableStalls.ToArray();
+            _uncancellableStalls.Clear();
+
+            foreach (UniTaskCompletionSource stalled in stalls)
+            {
+                stalled.TrySetResult();
+            }
         }
     }
 }

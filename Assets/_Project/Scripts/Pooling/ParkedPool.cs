@@ -3,16 +3,12 @@ using UnityEngine;
 
 namespace Company.ChestGame.Pooling
 {
-    // ActivationPool with the SetActive taken out: parking by reparenting alone costs one hierarchy
-    // change instead of an OnEnable/OnDisable pass down the whole instance and a canvas rebuild
-    // above it. That saving is a uGUI one, so pick ActivationPool for anything in world space -
-    // docs/design-decisions.md has the numbers.
-    //
-    // The price is that parked instances stay live: they still render and still tick. Hiding them
-    // is the holder's job and the holder belongs to the caller, which is why this class only
-    // reparents to it. What the holder must not be is inactive, which the constructor refuses: the
-    // hierarchy would deactivate everything parked under it and fire exactly the OnDisable this
-    // class exists to avoid.
+    /// <summary>
+    /// ActivationPool with the SetActive taken out: parking by reparenting alone.
+    /// </summary>
+    /// <remarks>
+    /// See docs/design-decisions.md, "Why ParkedPool is the default".
+    /// </remarks>
     public class ParkedPool<T> : IPrefabPool<T> where T : Component
     {
         private readonly T _prefab;
@@ -42,6 +38,10 @@ namespace Company.ChestGame.Pooling
             _maxSize = maxSize;
         }
 
+        /// <remarks>
+        /// See docs/pooling.md, "ParkedPool's traps".
+        /// See docs/pooling.md, "The seam's contract details".
+        /// </remarks>
         public T Get(Transform parent)
         {
             if (_disposed) throw PoolException.Disposed();
@@ -49,19 +49,13 @@ namespace Company.ChestGame.Pooling
             T instance;
             if (_parked.Count > 0)
             {
-                // The whole of a hit: one reparent, no activation, nothing woken up.
                 instance = _parked.Pop();
                 instance.transform.SetParent(parent, false);
             }
             else
             {
-                // A miss goes straight to the caller's parent: building it parked first would be a
-                // reparent to the holder that Create immediately undoes.
                 instance = Create(parent);
 
-                // The miss path only: a parked instance is never deactivated, so a hit has nothing
-                // to switch on. Here so a prefab authored with an inactive root still comes out
-                // visible, the same guarantee ActivationPool.Get makes.
                 instance.gameObject.SetActive(true);
             }
 
@@ -69,11 +63,11 @@ namespace Company.ChestGame.Pooling
             return instance;
         }
 
+        /// <remarks>
+        /// See docs/pooling.md, "The seam's contract details".
+        /// </remarks>
         public void Release(T instance)
         {
-            // Remove before the null check, not after. Unity's overloaded equality makes a
-            // destroyed instance read as null, so the other order short-circuits past Remove and
-            // strands the dead entry in the set forever.
             if (!_handedOut.Remove(instance) || instance == null) throw PoolException.NotHandedOut(instance);
 
             if (_parked.Count >= _maxSize)
@@ -86,15 +80,14 @@ namespace Company.ChestGame.Pooling
             _parked.Push(instance);
         }
 
+        /// <remarks>
+        /// See docs/pooling.md, "The seam's contract details".
+        /// </remarks>
         public void ReleaseAll()
         {
-            // Snapshot, because Release edits the set being walked. The list is reused rather than
-            // allocated per call: PoolRace.PrepareLanes does four of these per Run press.
             _scratch.Clear();
             _scratch.AddRange(_handedOut);
 
-            // Every instance, then the first failure. A bare foreach would strand every instance
-            // after the first bad entry.
             PoolException failure = null;
             foreach (T instance in _scratch)
             {
@@ -119,8 +112,9 @@ namespace Company.ChestGame.Pooling
             for (int i = 0; i < count; i++) _parked.Push(CreateIdle());
         }
 
-        // To zero rather than down to max size: Release and Prewarm both refuse to park past the
-        // bound, so there is never a surplus for a trim-to-max-size to find.
+        /// <remarks>
+        /// See docs/design-decisions.md, "The seam itself".
+        /// </remarks>
         public void Trim()
         {
             while (_parked.Count > 0) DestroyInstance(_parked.Pop());
@@ -136,29 +130,30 @@ namespace Company.ChestGame.Pooling
             Trim();
         }
 
+        /// <remarks>
+        /// See docs/pooling.md, "ParkedPool's traps".
+        /// See docs/pooling.md, "The seam's contract details".
+        /// </remarks>
         private T Create(Transform parent)
         {
             T instance = Object.Instantiate(_prefab);
 
-            // Parented in the same call it was instantiated in, so it never draws a frame at the
-            // world origin where Instantiate left it. worldPositionStays is false, so a
-            // RectTransform keeps the anchored layout it was authored with.
             instance.transform.SetParent(parent, false);
 
             CreatedCount++;
             return instance;
         }
 
-        // This pool's idle state: under the holder and still active, which is where Release leaves
-        // one too. Hands the instance back rather than pushing it, so _parked stays the caller's.
+        /// <remarks>
+        /// See docs/pooling.md, "ParkedPool's traps".
+        /// </remarks>
         private T CreateIdle() => Create(_holder);
 
-        // The GameObject, not the component: destroying the component alone leaves an empty object
-        // behind, and on a Transform the engine refuses outright.
+        /// <remarks>
+        /// See docs/pooling.md, "The seam's contract details".
+        /// </remarks>
         private void DestroyInstance(T instance)
         {
-            // An instance handed out can be destroyed behind the pool's back, and .gameObject on a
-            // destroyed Component throws MissingReferenceException.
             if (instance == null) return;
 
             DestroyedCount++;

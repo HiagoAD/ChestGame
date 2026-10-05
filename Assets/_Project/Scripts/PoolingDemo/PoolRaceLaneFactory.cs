@@ -3,17 +3,19 @@ using UnityEngine.UI;
 
 namespace Company.ChestGame.Pooling.Demo
 {
-    // Builds the four real lanes a race needs from a prefab and, for each lane, the transform it is
-    // allowed to build under. Every lane gets its own holder and its own fill parent, so no lane's
-    // pool can dirty another lane's layout by parking into it.
-    //
-    // The pool and its holder both come from PoolFactory, the same call ChestsMinigameView makes.
-    // The fill parent is this class's own: it carries a GridLayoutGroup, which is what turns a
-    // lane's growth into visible motion, and it must never be the holder, or parking would dirty a
-    // rebuild no race needs to pay for.
+    /// <summary>
+    /// Builds the four real lanes a race needs from a prefab, each with its own holder and its own
+    /// fill parent.
+    /// </summary>
+    /// <remarks>
+    /// See docs/pooling.md, "PoolRaceLaneFactory, and why the fill parent is not the holder".
+    /// </remarks>
     public static class PoolRaceLaneFactory
     {
-        // Fixed so the UI and the pools agree on which strategy sits in which column.
+        /// <remarks>
+        /// Order is fixed and matches the demo's lane columns.
+        /// See docs/pooling.md, "PoolRaceLaneFactory, and why the fill parent is not the holder".
+        /// </remarks>
         public static readonly PoolStrategy[] AllStrategies =
         {
             PoolStrategy.ActivationPool,
@@ -25,8 +27,15 @@ namespace Company.ChestGame.Pooling.Demo
         private const int ColumnsPerLane = 20;
         private const float CellSize = 12f;
 
-        // laneRoots has to align with AllStrategies: laneRoots[i] is where AllStrategies[i]'s holder
-        // and fill parent are built.
+        /// <summary>
+        /// Builds one lane per entry in <see cref="AllStrategies"/>.
+        /// </summary>
+        /// <param name="prefab">Prefab every lane fills with.</param>
+        /// <param name="laneRoots">
+        /// Must have the same length as <see cref="AllStrategies"/>. <c>laneRoots[i]</c> is where
+        /// <c>AllStrategies[i]</c>'s holder and fill parent are built.
+        /// </param>
+        /// <param name="maxSize">Maximum size passed to each lane's pool.</param>
         public static PoolRaceLane<T>[] BuildAll<T>(T prefab, Transform[] laneRoots, int maxSize) where T : Component
         {
             PoolRaceLane<T>[] lanes = new PoolRaceLane<T>[AllStrategies.Length];
@@ -45,14 +54,14 @@ namespace Company.ChestGame.Pooling.Demo
             return new PoolRaceLane<T>(strategy, pool, fillParent);
         }
 
+        /// <remarks>
+        /// See docs/pooling.md, "PoolRaceLaneFactory, and why the fill parent is not the holder".
+        /// </remarks>
         private static Transform CreateFillParent(Transform laneRoot)
         {
             GameObject fillParent = new("Fill", typeof(RectTransform), typeof(GridLayoutGroup));
             fillParent.transform.SetParent(laneRoot, false);
 
-            // Stretched rather than left at its default centered rect: laneRoot is the masked slot
-            // the panel built and carries no layout group, so nothing else would give this a width
-            // to lay a grid out inside.
             RectTransform fillRect = (RectTransform)fillParent.transform;
             fillRect.anchorMin = Vector2.zero;
             fillRect.anchorMax = Vector2.one;

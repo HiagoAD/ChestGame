@@ -4,12 +4,9 @@ using UnityEngine;
 
 namespace Company.ChestGame.Tests.EditMode
 {
-    // The authored value, not the code default. A [SerializeField] with an initializer keeps that
-    // initializer only while the key is absent from the asset; the moment anything re-saves the
-    // prefab, whatever the inspector was showing wins instead.
-    //
-    // Same shape as the GameLifetimeScopeTests assertions against the real composition root: run
-    // against the real authored asset, not a copy of what it is supposed to contain.
+    /// <remarks>
+    /// See docs/design-decisions.md, "One place that constructs a pool".
+    /// </remarks>
     public class ChestsMinigamePrefabTests
     {
         private const string PrefabPath = "Assets/_Project/Minigames/Chests/ChestsMinigame.prefab";

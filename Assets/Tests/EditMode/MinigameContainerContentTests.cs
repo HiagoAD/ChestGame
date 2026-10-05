@@ -14,33 +14,38 @@ using UnityEngine;
 using UnityEngine.AddressableAssets;
 using UnityEngine.TestTools;
 using VContainer;
-// System brings a second Object with it; the alias keeps every use of UnityEngine's meaning what it
-// did.
 using Object = UnityEngine.Object;
 
 namespace Company.ChestGame.Tests.EditMode
 {
-    // The minigame framework's content handling: a definition asset carries AssetReferences, so
-    // nothing resolves while the container is built and everything content-shaped happens together
-    // in BeginAsync. Edit mode against FakeAssetProvider, which hands back already-completed tasks,
-    // so BeginAsync runs inside the call and can be asserted the moment it returns.
+    /// <summary>
+    /// Exercises how a minigame's content resolves: nothing loads while the container is built, and
+    /// everything content-shaped happens together in <see cref="MinigameContainer.BeginAsync"/>.
+    /// Runs in edit mode against <see cref="FakeAssetProvider"/>.
+    /// </summary>
+    /// <remarks>
+    /// See docs/minigames.md, "Nothing loads while the container is built".
+    /// See docs/testing.md, "MinigameContainerContentTests, and its fixture choices".
+    /// </remarks>
     public class MinigameContainerContentTests
     {
         private const string VIEW_GUID = "11111111111111111111111111111111";
         private const string CONFIG_GUID = "22222222222222222222222222222222";
         private const string CONTENT_LABEL = "minigame.configurable";
 
-        // Short enough that a test costs milliseconds rather than the ninety seconds the game ships
-        // with, long enough that it cannot fire before the start it bounds has begun.
+        /// <remarks>
+        /// See docs/testing.md, "MinigameContainerContentTests, and its fixture choices".
+        /// </remarks>
         private static readonly TimeSpan SHORT_DEADLINE = TimeSpan.FromMilliseconds(50);
 
-        // Longer than any test run, so a test about caller cancellation can be sure the deadline is
-        // not what ended the wait.
+        /// <remarks>
+        /// See docs/testing.md, "MinigameContainerContentTests, and its fixture choices".
+        /// </remarks>
         private static readonly TimeSpan UNREACHABLE_DEADLINE = TimeSpan.FromMinutes(5);
 
-        // How long a test waits for a bounded operation: more than SHORT_DEADLINE so a slow machine
-        // is not a failure, far less than the shipped budget so a deadline that never fires fails
-        // rather than hangs.
+        /// <remarks>
+        /// See docs/testing.md, "MinigameContainerContentTests, and its fixture choices".
+        /// </remarks>
         private static readonly TimeSpan WAIT_LIMIT = TimeSpan.FromSeconds(10);
 
         private readonly List<Object> _created = new();
@@ -51,6 +56,9 @@ namespace Company.ChestGame.Tests.EditMode
         private AssetReference _configRef;
         private GameObject _parent;
 
+        /// <remarks>
+        /// See docs/minigames.md, "A definition names its content, it does not hold it".
+        /// </remarks>
         [SetUp]
         public void SetUp()
         {
@@ -61,7 +69,6 @@ namespace Company.ChestGame.Tests.EditMode
             builder.Register<IRandomProvider, UnityRandomProvider>(Lifetime.Singleton);
             _resolver = builder.Build();
 
-            // A GUID string is all an AssetReference is, so a test needs no real asset behind one.
             _viewRef = new AssetReferenceGameObject(VIEW_GUID);
             _configRef = new AssetReference(CONFIG_GUID);
 
@@ -80,6 +87,9 @@ namespace Company.ChestGame.Tests.EditMode
             _created.Clear();
         }
 
+        /// <remarks>
+        /// See docs/minigames.md, "Nothing loads while the container is built".
+        /// </remarks>
         [Test]
         public void BeginAsync_LoadsTheViewAndTheMinigamesOwnContent()
         {
@@ -90,19 +100,14 @@ namespace Company.ChestGame.Tests.EditMode
 
             CollectionAssert.AreEqual(new AssetReference[] { _viewRef, _configRef }, _assets.RequestedReferences,
                 "the view and the minigame's own content are both fetched by Begin, the view first");
-
-            // That construction resolves nothing is pinned next door, by
-            // ChestsMinigameConfigTests.ADefinitionWithNoConfigDocument_FailsWithATypedException:
-            // it builds a container before expecting the failure, so a config check moved back into
-            // GetMinigameContainer would throw too early.
         }
 
+        /// <remarks>
+        /// See docs/minigames.md, "Nothing loads while the container is built".
+        /// </remarks>
         [Test]
         public void BeginAsync_ConfiguresTheControllerBeforeInjectingIt()
         {
-            // A framework contract and the reason this fixture exists: a controller has to build
-            // state from its own config and still be injected on top of it. ChestsMinigameSO
-            // depends on exactly this.
             ConfigurableMinigameSO definition = Definition();
             MinigameContainer minigame = Build(definition);
 
@@ -117,6 +122,9 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.AreEqual(1, controller.InjectCalls, "and injected exactly once");
         }
 
+        /// <remarks>
+        /// See docs/testing.md, "MinigameContainerContentTests, and its fixture choices".
+        /// </remarks>
         [Test]
         public void End_ReleasesTheViewAndTheMinigamesOwnContent()
         {
@@ -124,9 +132,6 @@ namespace Company.ChestGame.Tests.EditMode
             MinigameContainer minigame = Build(definition);
             SynchronousUniTask.Complete(minigame.BeginAsync(_parent.transform, CancellationToken.None));
 
-            // The view instance is taken out first, because Object.Destroy is a logged error in
-            // edit mode. Releasing the handles does not depend on the instance surviving; End
-            // against a live view is the play-mode fixture's job.
             Object.DestroyImmediate(minigame.ViewInstance.gameObject);
 
             minigame.End();
@@ -135,11 +140,12 @@ namespace Company.ChestGame.Tests.EditMode
                 "everything Begin loaded has to be let go of, or the bundle stays resident forever");
         }
 
+        /// <remarks>
+        /// See docs/minigames.md, "Teardown".
+        /// </remarks>
         [Test]
         public void End_OnAContainerThatNeverBegan_ReleasesNothing()
         {
-            // The teardown paths call End unconditionally, so it has to be safe on a container
-            // holding no handle.
             ConfigurableMinigameSO definition = Definition();
             MinigameContainer minigame = Build(definition);
 
@@ -147,11 +153,12 @@ namespace Company.ChestGame.Tests.EditMode
             CollectionAssert.IsEmpty(_assets.ReleasedReferences);
         }
 
+        /// <remarks>
+        /// See docs/architecture.md, "Exception hierarchy".
+        /// </remarks>
         [Test]
         public void BeginAsync_WhenTheContentCannotBeLoaded_SurfacesTheTypedFailure()
         {
-            // Typed all the way out, so a caller can tell "this minigame never shipped" from an
-            // unrelated NullReferenceException inside Begin.
             ConfigurableMinigameSO definition = Definition();
             MinigameContainer minigame = Build(definition);
             _assets.FailWith = new MissingAssetException("Minigames/Chests/View", nameof(GameObject));
@@ -163,12 +170,12 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.IsFalse(minigame.Running, "a minigame whose content never arrived is not running");
         }
 
+        /// <remarks>
+        /// See docs/minigames.md, "Failure during a start".
+        /// </remarks>
         [Test]
         public void BeginAsync_WhenALaterLoadFails_ReleasesWhatItAlreadyTook()
         {
-            // The one leak nothing else could close: End is a no-op until _running is true, the
-            // last line of BeginAsync. The view load succeeds and the config load fails, the only
-            // arrangement that reaches the state where something is held and the start is over.
             ConfigurableMinigameSO definition = Definition();
             MinigameContainer minigame = Build(definition);
             _assets.FailingOn(_configRef, new MissingAssetException("Minigames/Chests/Config", nameof(TextAsset)));
@@ -181,12 +188,12 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.IsFalse(minigame.Running);
         }
 
+        /// <remarks>
+        /// See docs/content-delivery.md, "When content arrives".
+        /// </remarks>
         [Test]
         public void BeginAsync_ForAnOnDemandMinigame_FetchesItsContentBeforeLoadingAnyOfIt()
         {
-            // The other half of the load policy: on-demand content is asked for at the one moment
-            // the game knows it is about to be needed, and it has to come down before the first
-            // LoadAsync.
             ConfigurableMinigameSO definition = Definition();
             definition.WithContent(CONTENT_LABEL, MinigameLoadPolicy.OnDemand);
             _assets.WithDownloadSize(CONTENT_LABEL, 4096);
@@ -197,12 +204,12 @@ namespace Company.ChestGame.Tests.EditMode
             CollectionAssert.AreEqual(new[] { CONTENT_LABEL }, _assets.DownloadedLabels);
         }
 
+        /// <remarks>
+        /// See docs/content-delivery.md, "When content arrives".
+        /// </remarks>
         [Test]
         public void BeginAsync_ForAnOnDemandMinigameWhoseContentIsAlreadyThere_DownloadsNothing()
         {
-            // Zero is the answer on every run after the first, and on every build that shipped the
-            // content local. Fetching anyway would put a network call in front of a button press
-            // that needed none.
             ConfigurableMinigameSO definition = Definition();
             definition.WithContent(CONTENT_LABEL, MinigameLoadPolicy.OnDemand);
 
@@ -212,11 +219,12 @@ namespace Company.ChestGame.Tests.EditMode
             CollectionAssert.IsEmpty(_assets.DownloadedLabels);
         }
 
+        /// <remarks>
+        /// See docs/content-delivery.md, "When content arrives".
+        /// </remarks>
         [Test]
         public void BeginAsync_ForAPreloadedMinigame_AsksAboutNoDownloadAtAll()
         {
-            // Preloaded content was already fetched, so measuring it again at start would be a wait
-            // the policy exists to have paid.
             ConfigurableMinigameSO definition = Definition();
             definition.WithContent(CONTENT_LABEL, MinigameLoadPolicy.Preload);
             _assets.WithDownloadSize(CONTENT_LABEL, 4096);
@@ -227,12 +235,12 @@ namespace Company.ChestGame.Tests.EditMode
             CollectionAssert.IsEmpty(_assets.DownloadedLabels);
         }
 
+        /// <remarks>
+        /// See docs/content-delivery.md, "When content arrives".
+        /// </remarks>
         [Test]
         public void BeginAsync_ForAnOnDemandMinigameWithNoContentLabel_DownloadsNothing()
         {
-            // A blank label is not a key, the same rule the catalogs and the preloader apply. A
-            // minigame naming no content is a real case, but it is warned about rather than skipped
-            // in silence.
             LogAssert.Expect(LogType.Warning, new Regex("names no content label"));
 
             ConfigurableMinigameSO definition = Definition();
@@ -244,11 +252,12 @@ namespace Company.ChestGame.Tests.EditMode
             CollectionAssert.IsEmpty(_assets.DownloadedLabels);
         }
 
+        /// <remarks>
+        /// See docs/minigames.md, "Starting twice is loud".
+        /// </remarks>
         [Test]
         public void BeginAsync_OnAContainerAlreadyRunning_RefusesRatherThanLoadingTwice()
         {
-            // One release per load is what the provider counts, and End releases exactly once, so a
-            // second start would take a ref-count nothing could give back.
             ConfigurableMinigameSO definition = Definition();
             MinigameContainer minigame = Build(definition);
 
@@ -267,11 +276,13 @@ namespace Company.ChestGame.Tests.EditMode
             Object.DestroyImmediate(minigame.ViewInstance.gameObject);
         }
 
+        /// <remarks>
+        /// See docs/content-delivery.md, "When content arrives".
+        /// See docs/minigames.md, "Failure during a start".
+        /// </remarks>
         [Test]
         public void BeginAsync_WhenTheDownloadFails_SurfacesTheTypedFailureAndStartsNothing()
         {
-            // What the shell turns into a popup. A start that could not fetch its content must not
-            // leave a half-built minigame behind for the next press.
             ConfigurableMinigameSO definition = Definition();
             definition.WithContent(CONTENT_LABEL, MinigameLoadPolicy.OnDemand);
             _assets.WithDownloadSize(CONTENT_LABEL, 4096);
@@ -286,10 +297,14 @@ namespace Company.ChestGame.Tests.EditMode
             CollectionAssert.IsEmpty(_assets.RequestedReferences, "nothing is loaded before its bundle is there");
         }
 
-        // The two tests below cannot use SynchronousUniTask: a real deadline is a real timer on a
-        // background thread, so BeginAsync is genuinely pending when it returns. Nothing that
-        // completes it needs the main thread, so blocking here cannot deadlock, and GetResult
-        // rethrows the original exception rather than an AggregateException.
+        /// <summary>
+        /// Blocks the calling thread for up to <see cref="WAIT_LIMIT"/> for <paramref name="task"/>
+        /// to complete, then rethrows the original exception rather than an
+        /// <see cref="AggregateException"/>, or fails the test if it never completes.
+        /// </summary>
+        /// <remarks>
+        /// See docs/testing.md, "MinigameContainerContentTests, and its fixture choices".
+        /// </remarks>
         private static void WaitFor(UniTask task)
         {
             Task completing = task.AsTask();
@@ -302,12 +317,12 @@ namespace Company.ChestGame.Tests.EditMode
             completing.GetAwaiter().GetResult();
         }
 
+        /// <remarks>
+        /// See docs/content-delivery.md, "Timeouts".
+        /// </remarks>
         [Test]
         public void BeginAsync_WhenTheDownloadStalls_GivesUpAndSurfacesATypedFailure()
         {
-            // The failure the deadline exists for, and the one the other download test cannot
-            // reach: a request that fails at least returns. Typed under ChestGameException because
-            // that is what GameManager catches to raise the popup.
             ConfigurableMinigameSO definition = Definition();
             definition.WithContent(CONTENT_LABEL, MinigameLoadPolicy.OnDemand);
             _assets.WithDownloadSize(CONTENT_LABEL, 4096);
@@ -325,13 +340,12 @@ namespace Company.ChestGame.Tests.EditMode
             CollectionAssert.IsEmpty(_assets.RequestedReferences, "nothing is loaded before its bundle is there");
         }
 
+        /// <remarks>
+        /// See docs/content-delivery.md, "Which token fired".
+        /// </remarks>
         [Test]
         public void BeginAsync_WhenTheCallerCancels_StaysACancellationRatherThanBecomingAPlayerFacingFailure()
         {
-            // The other half of the deadline, and the half that is easy to lose: a linked source
-            // cancels the same way whichever end fired it, so a naive implementation turns the
-            // scene going away into a popup on a scene that is going away. The deadline here is set
-            // beyond any test run.
             ConfigurableMinigameSO definition = Definition();
             definition.WithContent(CONTENT_LABEL, MinigameLoadPolicy.OnDemand);
             _assets.WithDownloadSize(CONTENT_LABEL, 4096);
@@ -351,6 +365,59 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.IsNotInstanceOf<ChestGameException>(error,
                 "a scene going away is not a delivery failure, and the player must not be told about it");
             Assert.IsFalse(minigame.Running);
+        }
+
+        /// <remarks>
+        /// See docs/minigames.md, "Failure during a start".
+        /// </remarks>
+        [Test]
+        public void BeginAsync_WhenCancelledWhileADownloadThatIgnoresCancellationCompletes_NeverInjectsTheController()
+        {
+            ConfigurableMinigameSO definition = Definition();
+            definition.WithContent(CONTENT_LABEL, MinigameLoadPolicy.OnDemand);
+            _assets.WithDownloadSize(CONTENT_LABEL, 4096);
+            _assets.StallDownloads = true;
+            _assets.StalledDownloadsIgnoreCancellation = true;
+
+            MinigameContainer minigame = Build(definition);
+            ConfigurableController controller = (ConfigurableController)minigame.ControllerInstance;
+            using CancellationTokenSource caller = new();
+
+            UniTask starting = minigame.BeginAsync(_parent.transform, caller.Token);
+            caller.Cancel();
+            Assert.AreEqual(UniTaskStatus.Pending, starting.Status,
+                "guard: the download ignores cancellation, so the start must still be in flight");
+
+            _assets.CompleteStalledDownloads();
+
+            Assert.AreEqual(UniTaskStatus.Canceled, starting.Status);
+            Assert.AreEqual(0, controller.InjectCalls,
+                "injecting registers the controller's save scheduler, which a cancelled start must not do");
+            Assert.IsFalse(minigame.Running);
+            Assert.IsNull(minigame.ViewInstance);
+            CollectionAssert.Contains(_assets.ReleasedReferences, _viewRef);
+            CollectionAssert.Contains(_assets.ReleasedReferences, _configRef);
+        }
+
+        /// <remarks>
+        /// See docs/minigames.md, "Failure during a start".
+        /// </remarks>
+        [Test]
+        public void BeginAsync_WhenItFailsBeforeInjection_DoesNotDisposeTheController()
+        {
+            ConfigurableMinigameSO definition = Definition();
+            definition.WithContent(CONTENT_LABEL, MinigameLoadPolicy.OnDemand);
+            _assets.WithDownloadSize(CONTENT_LABEL, 4096);
+            _assets.FailDownloadWith = new AssetLoadException(CONTENT_LABEL, new System.Exception("offline"));
+
+            MinigameContainer minigame = Build(definition);
+            ConfigurableController controller = (ConfigurableController)minigame.ControllerInstance;
+
+            Assert.Throws<AssetLoadException>(() =>
+                SynchronousUniTask.Complete(minigame.BeginAsync(_parent.transform, CancellationToken.None)));
+
+            Assert.AreEqual(0, controller.DisposeCalls,
+                "a controller that was never injected registered nothing, so there is nothing to dispose");
         }
 
         private ConfigurableMinigameSO Definition()
@@ -386,8 +453,9 @@ namespace Company.ChestGame.Tests.EditMode
             return created;
         }
 
-        // Built on the generic base rather than MinigameBaseSO, so the hook and its ordering run
-        // through the real GetMinigameContainer and the real BeginAsync.
+        /// <remarks>
+        /// See docs/testing.md, "MinigameContainerContentTests, and its fixture choices".
+        /// </remarks>
         private class ConfigurableMinigameSO
             : MinigameBase<ConfigurableController, ConfigurableView, ConfigurableContainer>
         {
@@ -403,8 +471,9 @@ namespace Company.ChestGame.Tests.EditMode
             public override void ReleaseContent(IAssetProvider assets) => assets.Release(ConfigRef);
         }
 
-        // The seam a real minigame would use: a container subclass decides its own download budget.
-        // Null leaves the shipped value alone.
+        /// <remarks>
+        /// See docs/content-delivery.md, "Timeouts".
+        /// </remarks>
         private class ConfigurableContainer : MinigameContainer
         {
             public TimeSpan? Deadline { get; set; }
@@ -435,7 +504,9 @@ namespace Company.ChestGame.Tests.EditMode
 
             public override void NewGame() { }
 
-            public override void Dispose() { }
+            public int DisposeCalls { get; private set; }
+
+            public override void Dispose() => DisposeCalls++;
         }
     }
 }

@@ -3,9 +3,11 @@ using Company.ChestGame.Common;
 
 namespace Company.ChestGame.Assets
 {
-    // The key was in the catalog and the load still failed: a corrupt bundle, a failed download, a
-    // broken dependency. MissingAssetException is the authoring mistake; only this one is worth
-    // retrying.
+    /// <summary>
+    /// The key was in the catalog and the load still failed: a corrupt bundle, a failed download, a
+    /// broken dependency. <see cref="MissingAssetException"/> is the authoring mistake; only this
+    /// one is worth retrying.
+    /// </summary>
     public class AssetLoadException : ChestGameException
     {
         public string Key { get; }

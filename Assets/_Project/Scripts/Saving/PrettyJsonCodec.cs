@@ -3,8 +3,10 @@ using Newtonsoft.Json;
 
 namespace Company.ChestGame.Saving
 {
-    // JsonCodec with indentation: the same data, formatted for a person to read rather than for
-    // size.
+    /// <summary>
+    /// <see cref="JsonCodec"/> with indentation: the same data, formatted for a person to read
+    /// rather than for size.
+    /// </summary>
     public class PrettyJsonCodec : ISaveCodec
     {
         private static readonly UTF8Encoding Utf8 = new(false);
@@ -14,10 +16,13 @@ namespace Company.ChestGame.Saving
 
         public byte[] Encode<T>(T value) => Utf8.GetBytes(JsonConvert.SerializeObject(value, Formatting.Indented));
 
-        // Lets JsonException propagate: this type has no key to report a failure against.
+        /// <summary>
+        /// Lets <see cref="Newtonsoft.Json.JsonException"/> propagate: this type has no key to
+        /// report a failure against.
+        /// </summary>
         public T Decode<T>(byte[] bytes) => JsonConvert.DeserializeObject<T>(Utf8.GetString(bytes));
 
-        // Already JSON text; nothing to undo before handing it to a migration.
+        /// <summary>Already JSON text; nothing to undo before handing it to a migration.</summary>
         public string ToJson(byte[] encoded) => Utf8.GetString(encoded);
     }
 }

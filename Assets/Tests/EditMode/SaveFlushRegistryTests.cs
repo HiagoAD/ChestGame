@@ -6,11 +6,16 @@ using UnityEngine.TestTools;
 
 namespace Company.ChestGame.Tests.EditMode
 {
-    // The seam GameLifetimeScope flushes at pause/quit, and the one place a scheduler defined in an
-    // assembly the composition root cannot reference still gets flushed - see docs/saving.md, "Why
-    // the flush stopped being one field". Everything here runs from OnApplicationPause or
-    // OnApplicationQuit in production, so the properties that matter are the ones about what happens
-    // when something goes wrong at the exact moment durability does.
+    /// <summary>
+    /// Covers <see cref="SaveFlushRegistry"/>: the seam <c>GameLifetimeScope</c> flushes at
+    /// pause/quit, including a scheduler defined in an assembly the composition root cannot
+    /// reference. Everything here runs from <c>OnApplicationPause</c> or <c>OnApplicationQuit</c> in
+    /// production, so the properties that matter are what happens when something goes wrong at the
+    /// exact moment durability does.
+    /// </summary>
+    /// <remarks>
+    /// See docs/saving.md, "Why the flush stopped being one field".
+    /// </remarks>
     public class SaveFlushRegistryTests
     {
         private SaveFlushRegistry _registry;

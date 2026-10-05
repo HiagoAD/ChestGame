@@ -4,6 +4,7 @@
     "references": [
         "Company.ChestGame.Saving",
         "Company.ChestGame.Common",
+        "Company.ChestGame.Mvc",
         "UniTask"
     ],
     "includePlatforms": [],

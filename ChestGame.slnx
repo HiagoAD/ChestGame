@@ -45,6 +45,7 @@
   <Project Path="Unity.VisualScripting.State.Editor.csproj" />
   <Project Path="Unity.Burst.CodeGen.csproj" />
   <Project Path="Unity.Addressables.DocExampleCode.Editor.Tests.csproj" />
+  <Project Path="Company.ChestGame.Gameplay.csproj" />
   <Project Path="Unity.VisualScripting.Flow.csproj" />
   <Project Path="Unity.PerformanceTesting.csproj" />
   <Project Path="Unity.2D.Tilemap.Extras.Editor.csproj" />
@@ -71,13 +72,14 @@
   <Project Path="UnityEditor.UI.csproj" />
   <Project Path="Unity.RenderPipelines.Universal.2D.Editor.Overrides.csproj" />
   <Project Path="Unity.2D.Sprite.Editor.csproj" />
-  <Project Path="Company.ChestGame.Gameplay.csproj" />
+  <Project Path="Company.ChestGame.Mvc.csproj" />
   <Project Path="Company.ChestGame.Currency.csproj" />
   <Project Path="Unity.Multiplayer.Center.Common.csproj" />
   <Project Path="Company.ChestGame.Tests.EditMode.csproj" />
   <Project Path="Company.ChestGame.Minigame.csproj" />
   <Project Path="Unity.InputSystem.ForUI.csproj" />
   <Project Path="Company.ChestGame.Minigame.Chests.csproj" />
+  <Project Path="Company.ChestGame.UI.csproj" />
   <Project Path="Company.ChestGame.Core.csproj" />
   <Project Path="Unity.Collections.CodeGen.csproj" />
   <Project Path="Unity.2D.Tilemap.Extras.csproj" />
@@ -114,7 +116,6 @@
   <Project Path="UniTask.Addressables.csproj" />
   <Project Path="Unity.Rendering.LightTransport.Editor.csproj" />
   <Project Path="Unity.Collections.Editor.csproj" />
-  <Project Path="Company.ChestGame.UI.csproj" />
   <Project Path="UniTask.DOTween.csproj" />
   <Project Path="Unity.RenderPipelines.Universal.Config.Runtime.csproj" />
   <Project Path="Unity.RenderPipelines.ShaderGraph.ShaderGraphLibrary.csproj" />

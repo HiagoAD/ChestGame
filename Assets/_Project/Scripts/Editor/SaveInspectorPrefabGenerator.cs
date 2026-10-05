@@ -5,9 +5,13 @@ using UnityEngine.UIElements;
 
 namespace Company.ChestGame.Editor
 {
-    // Builds Assets/_Project/UI/SaveInspector/SaveInspector.prefab from the authored .uxml files and
-    // PanelSettings. Safe to re-run: an existing prefab is updated in place rather than replaced, so
-    // every object keeps its identity and a scene that already places the prefab stays wired.
+    /// <summary>
+    /// Builds Assets/_Project/UI/SaveInspector/SaveInspector.prefab from the authored .uxml files and
+    /// PanelSettings. Safe to re-run: an existing prefab is updated in place rather than replaced.
+    /// </summary>
+    /// <remarks>
+    /// See docs/saving.md, "Two overlays in one scene, and why the save inspector uses two documents".
+    /// </remarks>
     public static class SaveInspectorPrefabGenerator
     {
         private const string UxmlPath = "Assets/_Project/UI/SaveInspector/SaveInspector.uxml";
@@ -20,6 +24,9 @@ namespace Company.ChestGame.Editor
         private const string ChromeChildName = "Chrome";
         private const string ToggleChildName = "Toggle";
 
+        /// <remarks>
+        /// See docs/saving.md, "Two overlays in one scene, and why the save inspector uses two documents".
+        /// </remarks>
         [MenuItem("Tools/Saving/Generate Save Inspector Prefab")]
         public static void Generate()
         {
@@ -33,9 +40,6 @@ namespace Company.ChestGame.Editor
             GameObject root = exists ? PrefabUtility.LoadPrefabContents(PrefabPath) : new GameObject(RootName);
             try
             {
-                // The two documents are siblings and the root carries neither. A UIDocument under
-                // another one joins that document's panel and cannot take PanelSettings of its own,
-                // which would put both back on a single sort order.
                 if (root.TryGetComponent(out UIDocument onRoot)) Object.DestroyImmediate(onRoot);
 
                 UIDocument document = GetOrAdd<UIDocument>(GetOrAddChild(root, ChromeChildName));

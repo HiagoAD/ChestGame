@@ -5,17 +5,16 @@ using NUnit.Framework;
 
 namespace Company.ChestGame.Tests.EditMode
 {
-    // HmacSignedProtector directly. See docs/saving.md, "The protectors, and what a key shipping
-    // inside the binary buys". PayloadTamperedException is internal and this test assembly has no
-    // InternalsVisibleTo into Company.ChestGame.Saving (confirmed absent project-wide), so a
-    // failure's exact type is checked by name through reflection rather than by catching the type
-    // directly. SaveServiceTamperDetectionTests proves the same class of failure through the public
-    // SaveException.PayloadTampered instead.
+    /// <summary>
+    /// Tests <see cref="HmacSignedProtector"/> directly.
+    /// </summary>
+    /// <remarks>
+    /// See docs/saving.md, "The protectors, and what a key shipping inside the binary buys".
+    /// See docs/testing.md, "The save fixtures".
+    /// </remarks>
     public class HmacSignedProtectorTests
     {
         private static byte[] Key(string seed = "HmacSignedProtectorTests.key") => Encoding.UTF8.GetBytes(seed);
-
-        // --- Property 6: HmacSignedProtector specifics --------------------------------------------
 
         [Test]
         public void Protect_MakesTheOutputExactlyThirtyTwoBytesLongerThanTheInput()
@@ -44,15 +43,13 @@ namespace Company.ChestGame.Tests.EditMode
         public void Unprotect_WithAPayloadShorterThanASignature_IsRejectedAsTamperingRatherThanSomethingUntyped()
         {
             HmacSignedProtector protector = new(Key());
-            byte[] tooShort = new byte[10]; // less than the 32-byte signature
+            byte[] tooShort = new byte[10];
 
             Exception error = Assert.Catch(() => protector.Unprotect(tooShort));
 
             Assert.AreEqual("PayloadTamperedException", error.GetType().Name,
                 "a payload too short to carry a signature has to be rejected as tampering, not as an IndexOutOfRangeException or similar");
         }
-
-        // --- Property 4: a different key reads as tampering ---------------------------------------
 
         [Test]
         public void Unprotect_WithADifferentKeyThanProtect_IsRejectedAsTampering()
@@ -67,8 +64,6 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.AreEqual("PayloadTamperedException", error.GetType().Name,
                 "a signature computed under a different key must fail exactly like a genuinely tampered one, not surface as garbage returned as if valid");
         }
-
-        // --- Constructor guards (SaveException.NoProtectorKey) ------------------------------------
 
         [Test]
         public void Constructor_WithANullKey_ThrowsNoProtectorKey()

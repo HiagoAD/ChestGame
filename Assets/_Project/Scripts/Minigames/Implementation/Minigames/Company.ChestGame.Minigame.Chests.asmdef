@@ -12,7 +12,8 @@
         "Unity.TextMeshPro",
         "UnityEngine.UI",
         "VContainer",
-        "Unity.Addressables"
+        "Unity.Addressables",
+        "Company.ChestGame.Mvc"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

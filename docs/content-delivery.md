@@ -85,21 +85,34 @@ acts on it.
 `Preload` content is fetched during boot, before the player can press anything.
 `MinigameContentPreloader` walks the catalog, sums the download sizes of every preloaded label, and
 downloads them reporting one aggregate progress figure to the boot scene's status label.
+`MinigameContentPreloader` is a plain class with no scene and no scope: the bootstrapper holds one
+call to it, and it can run against a fake asset provider in edit mode.
 
 `OnDemand` content is fetched by `MinigameContainer.BeginAsync`, the one moment the game knows the
 content is about to be needed. It asks for the size first and downloads only if there is something to
 download, so the ordinary case, content already cached or a build that shipped it local, costs one
-query and no wait. The chests minigame is `OnDemand`.
+query and no wait. The chests minigame is `OnDemand`. An on-demand minigame is one the player may
+never open, so `MinigameContentPreloader` never measures or fetches its label at boot; fetching it up
+front would spend the wait on content that might never be needed.
 
 A minigame set to preload but naming no label is skipped with a warning, the same policy the catalogs
-apply to a blank id. That rule is stated once, on `MinigameBaseSO.TryGetContentLabel`, because both
-delivery paths need it and they used to answer it differently: the preloader warned while the
-on-demand fetch skipped in silence, so whether an unauthored slot was visible depended on which
+apply to a blank id: the minigame still starts, and skipping the label only means the preloader never
+fetches it up front for that minigame. That rule is stated once, on `MinigameBaseSO.TryGetContentLabel`,
+because both delivery paths need it and they used to answer it differently: the preloader warned while
+the on-demand fetch skipped in silence, so whether an unauthored slot was visible depended on which
 policy it happened to be paired with.
 
-`GameManager` makes the start button non-interactable while a start is in flight and turns a failed
-one into a `ContentUnavailablePopup` rather than leaving a button that silently does nothing. There
-is no progress bar in the game scene; boot is the only place a download is narrated.
+Once every preloaded label has already been fetched, a later preload run still asks for a fresh size
+on each label, so a newly added one is not missed, but finds nothing left to download, so boot never
+waits on a download that has no work to do. A failed download is typed all the way out so the shell
+can tell a delivery problem from a bug; the size query for that label still has to succeed, so the
+failure being pinned is one that survives the gap between measuring and fetching, not one measuring
+itself would have already caught.
+
+`GameShellView` makes the start button non-interactable while a start is in flight, following the
+busy state `GameShellController` raises, and the controller turns a failed start into a
+`ContentUnavailablePopup` rather than leaving a button that silently does nothing. There is no
+progress bar in the game scene; boot is the only place a download is narrated.
 
 ## Progress reporting
 
@@ -108,7 +121,9 @@ the work is split by minigame, and a bar that restarts at zero for every label r
 are gathered first for exactly that reason: the share each label is worth cannot be known until the
 whole total is. `AggregateProgress` maps one label's own 0..1 onto its slice, and the preloader
 reports again on completion of each label rather than trusting the inner reporter to have finished at
-exactly its own 1.
+exactly its own 1. When every preloaded label's size comes back at or below zero, `PreloadAsync`
+returns without reporting: everything asked for is already cached or shipped local, so there is
+nothing to wait for and nothing to say.
 
 The preloader reports a number because a number is all it knows. Wording is the shell's business, so
 `GameBootstrapper.DownloadStatus` turns the fraction into the line the boot scene shows.
@@ -130,6 +145,12 @@ minigame whose payload justifies a longer wait widens it on its own container su
 minigame already has, and a test shortens it to milliseconds. No tuning knob appears on a document
 that ships to players, and the framework grows no config surface it does not otherwise need.
 
+`MinigameContainer.EnsureContentIsDownloadedAsync` reads the budget into a local once, before starting
+the linked `CancellationTokenSource`, rather than reading the virtual property again when building the
+`ContentDownloadTimeoutException`. Reading it once means the exception always reports the budget that
+was actually given to `CancelAfter`, even though the property is `protected virtual` and a subclass
+could in principle compute a different value on a second call.
+
 The preloader bounds each label separately rather than the whole walk. A wall-clock budget for the
 entire preload would make boot fail for having more content rather than for being stuck, so every
 minigame added would bring the game closer to a spurious timeout. Bounding each label means the budget
@@ -137,11 +158,19 @@ measures the thing that is actually wrong, one fetch that stopped answering, and
 preload is never killed for its size. The worst case grows with the number of labels, which is the
 honest trade: it is bounded, and every step is reported to the player.
 
+A label that stalls during preload is the boot-time twin of a stall in `MinigameContainer`: a preload
+that fails outright returns and the bootstrapper reports it, while one that stalls would otherwise
+return nothing at all. Typing the giving-up path under `ChestGameException` lets the catch around both
+preload and on-demand delivery report either the same way.
+
 ### Which token fired
 
 Both paths link the deadline to the caller's token, so a scene going away mid-fetch ends the wait
 immediately instead of sitting out the rest of the budget. That makes the two ends indistinguishable
 at the catch site, and the caller's token is the only one that can be asked about after the fact.
+`MinigameContentPreloader` hands `IAssetProvider` a token linked to the caller's rather than the
+caller's own, so the two cannot be told apart by identity. The linkage is only observable while a
+fetch is in flight, because the linked source is disposed as soon as the fetch returns.
 
 The caller cancelling means the scene is going away, or the application is quitting, and there is
 nobody left to tell. It stays an `OperationCanceledException` and travels out untouched. Only the

@@ -8,13 +8,14 @@ using UnityEngine.TestTools;
 
 namespace Company.ChestGame.Tests.EditMode
 {
-    // ILegacyImport's ordering guarantee (docs/saving.md, "The legacy import"): Import() produces a
-    // document, SaveAsync writes and durably persists it, and only then does Clear() run - never the
-    // reverse, and a failure to Clear() must never cost the load or the imported data. The real
-    // JsonCodec and NoProtection run underneath (rather than the isolated fakes SaveServiceTests
-    // uses) because the idempotency scenario below needs an honest round trip: whether a value saved
-    // after the import is really what a second load reads back, not what a fixed fake decode result
-    // says it is.
+    /// <summary>
+    /// Covers <see cref="ILegacyImport"/>'s ordering guarantee: <c>Import()</c> produces a document,
+    /// <c>SaveAsync</c> writes and durably persists it, and only then does <c>Clear()</c> run - never
+    /// the reverse, and a failure to <c>Clear()</c> must never cost the load or the imported data.
+    /// </summary>
+    /// <remarks>
+    /// See docs/saving.md, "The legacy import", and docs/testing.md, "The save fixtures".
+    /// </remarks>
     public class SaveServiceLegacyImportTests
     {
         private const string Key = "profile";
@@ -81,6 +82,9 @@ namespace Company.ChestGame.Tests.EditMode
                 "the write has to be durable by the time Clear() runs - that ordering is the entire reason this is three methods, not one");
         }
 
+        /// <remarks>
+        /// See docs/saving.md, "The legacy import", and docs/testing.md, "The save fixtures".
+        /// </remarks>
         [Test]
         public void LoadAsync_WhenClearThrows_DoesNotFailTheLoad_AndDoesNotLoseTheImportedData()
         {
@@ -88,12 +92,6 @@ namespace Company.ChestGame.Tests.EditMode
             _legacyImport.ImportFunc = () => JObject.Parse(@"{""Value"":55}");
             _legacyImport.ClearThrows = true;
 
-            // A failed Clear() is now logged rather than only swallowed - see SaveService.cs,
-            // ImportLegacyOrFreshAsync's own catch. Expected here rather than left to fail this test
-            // as an unhandled log message, which is what newly-correct production behaviour ought to
-            // do to a test that has not been told to expect it yet - the two things this test's name
-            // claims (the load does not fail, the imported data is not lost) still have to hold
-            // regardless of what gets logged along the way.
             LogAssert.Expect(LogType.Error, "Failed to clear the legacy save under 'profile' after importing it: FakeLegacyImport.Clear was configured to fail");
 
             TestState result = null;
@@ -105,15 +103,12 @@ namespace Company.ChestGame.Tests.EditMode
                 "a failed Clear() must be swallowed as best-effort, leaving the already-durable save intact");
         }
 
+        /// <remarks>
+        /// See docs/saving.md, "The legacy import".
+        /// </remarks>
         [Test]
         public void LoadAsync_CalledTwice_WithIsPresentStillTrueTheSecondTime_ImportsOnlyOnce_AndDoesNotOverwriteANewerSave()
         {
-            // IsPresent() staying true simulates a Clear() that silently failed to actually remove
-            // the legacy data. The structural guarantee this design exists for is that the branch
-            // becomes unreachable once the store has bytes under key - not that IsPresent() is
-            // trusted to answer false. A value saved after the import must survive a second load
-            // untouched by the stale legacy data; overwriting it is the data-loss scenario this
-            // whole design exists to prevent.
             _legacyImport.Present = true;
             _legacyImport.ImportFunc = () => JObject.Parse(@"{""Value"":1}");
 
@@ -129,8 +124,9 @@ namespace Company.ChestGame.Tests.EditMode
                 "a value saved after the import must not be overwritten by stale legacy data on the second load");
         }
 
-        // --- Cancellation before and after the durable write --------------------------------------
-
+        /// <remarks>
+        /// See docs/saving.md, "The legacy import".
+        /// </remarks>
         [Test]
         public void LoadAsync_CancelledBeforeTheWriteCompletes_ThrowsAndWritesNothing()
         {
@@ -138,9 +134,6 @@ namespace Company.ChestGame.Tests.EditMode
             _legacyImport.Present = true;
             _legacyImport.ImportFunc = () =>
             {
-                // The write has not started yet; cancelling here proves SaveAsync's own
-                // ThrowIfCancellationRequested actually aborts the write rather than the import
-                // path racing ahead of it.
                 cancellation.Cancel();
                 return JObject.Parse(@"{""Value"":1}");
             };
@@ -153,14 +146,15 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.AreEqual(0, _legacyImport.ClearCallCount, "Clear() must never run if the write never completed");
         }
 
+        /// <remarks>
+        /// See docs/saving.md, "The legacy import".
+        /// </remarks>
         [Test]
         public void LoadAsync_CancelledDuringClear_AfterTheWriteAlreadySucceeded_StillReturnsTheImportedValue()
         {
             using CancellationTokenSource cancellation = new();
             _legacyImport.Present = true;
             _legacyImport.ImportFunc = () => JObject.Parse(@"{""Value"":42}");
-            // By the time Clear() runs the write has already succeeded, so cancelling here must not
-            // be able to turn a completed import into a failed load.
             _legacyImport.OnClear = () => cancellation.Cancel();
 
             TestState result = SynchronousUniTask.Result(_service.LoadAsync<TestState>(Key, cancellation.Token));
@@ -168,8 +162,6 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.AreEqual(42, result.Value, "cancellation after the durable write must not lose the imported value");
             Assert.IsTrue(SynchronousUniTask.Result(_store.ExistsAsync(Key, CancellationToken.None)));
         }
-
-        // --- TargetKey ------------------------------------------------------------------------
 
         [Test]
         public void LoadAsync_ForAKeyThisImportDoesNotTarget_NeverAsksItAnything()
@@ -188,13 +180,12 @@ namespace Company.ChestGame.Tests.EditMode
                 "an untargeted key must not have the legacy document written under it");
         }
 
+        /// <remarks>
+        /// See docs/saving.md, "TargetKey, and the defect a second save key exposed".
+        /// </remarks>
         [Test]
         public void LoadAsync_AfterAnUntargetedKeyWasLoadedFirst_TheTargetedKeyStillImports()
         {
-            // The whole phase 7a regression, end to end. Before TargetKey, loading any second key
-            // first would import the legacy document under that key and then Clear() it - so by the
-            // time the key it actually belonged to asked, the data was already gone and the player
-            // booted at zero with nothing thrown anywhere.
             _legacyImport.Present = true;
             _legacyImport.ImportFunc = () => JObject.Parse(@"{""Value"":123}");
 

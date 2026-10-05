@@ -4,16 +4,22 @@ using Newtonsoft.Json.Linq;
 
 namespace Company.ChestGame.Tests.EditMode
 {
-    // ILegacyImport with every branch a test needs to drive by hand: Present toggles IsPresent(),
-    // ImportFunc supplies the reshaped document, and OnClear runs inside Clear() itself so a test
-    // can inspect (or mutate) the world exactly at the point SaveService considers the import
-    // finished - which is what proves the write-before-clear ordering rather than merely assuming
-    // it from the call counts alone.
+    /// <summary>
+    /// An <see cref="ILegacyImport"/> test double with every branch a test needs to drive by hand:
+    /// <see cref="Present"/> toggles <see cref="IsPresent"/>, <see cref="ImportFunc"/> supplies the
+    /// reshaped document, and <see cref="OnClear"/> runs inside <see cref="Clear"/> itself so a test
+    /// can inspect, or mutate, the world exactly at the point <c>SaveService</c> considers the import
+    /// finished.
+    /// </summary>
+    /// <remarks>
+    /// See docs/testing.md, "FakeLegacyImport, and how OnClear proves write-before-clear directly".
+    /// </remarks>
     public class FakeLegacyImport : ILegacyImport
     {
-        // Defaults to "profile", the key every existing test against this fake already loads under
-        // - settable too, for a test that needs a different key to prove SaveService only ever
-        // consults this import for the one key it targets.
+        /// <summary>
+        /// The save key this import's data belongs under. Defaults to <c>"profile"</c>; settable for
+        /// a test that needs a different key.
+        /// </summary>
         public string TargetKey { get; set; }
 
         public bool Present { get; set; }

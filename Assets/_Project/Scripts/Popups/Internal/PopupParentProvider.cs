@@ -2,9 +2,12 @@ using UnityEngine;
 
 namespace Company.ChestGame.Popups.Internal
 {
-    // Creates the shared popup canvas on first use rather than at construction. The instance is
-    // DontDestroyOnLoad, so building it during resolution would leak a scene object into every
-    // consumer of the container, tests included. There is a test pinning that.
+    /// <summary>
+    /// Creates the shared popup canvas on first use rather than at construction.
+    /// </summary>
+    /// <remarks>
+    /// See docs/architecture.md, "Popups".
+    /// </remarks>
     public class PopupParentProvider : IPopupParentProvider
     {
         private readonly PopupParent _prefab;

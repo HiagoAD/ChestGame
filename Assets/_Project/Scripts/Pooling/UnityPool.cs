@@ -4,10 +4,13 @@ using UnityEngine.Pool;
 
 namespace Company.ChestGame.Pooling
 {
-    // ActivationPool's strategy over the engine's own ObjectPool instead of a hand-rolled stack.
-    // Once ObjectPool owns the stack, the bound and the create/destroy callbacks, what is left here
-    // is the parenting, the counters and the two rejections the seam promises. ObjectPool ships
-    // with UnityEngine.CoreModule, so this costs no package reference.
+    /// <summary>
+    /// <see cref="IPrefabPool{T}"/> implementation built on the engine's own
+    /// <see cref="ObjectPool{T}"/> rather than a hand-rolled stack.
+    /// </summary>
+    /// <remarks>
+    /// See docs/pooling.md, "UnityPool, and what wrapping ObjectPool costs".
+    /// </remarks>
     public class UnityPool<T> : IPrefabPool<T> where T : Component
     {
         private readonly T _prefab;
@@ -15,9 +18,6 @@ namespace Company.ChestGame.Pooling
         private readonly int _maxSize;
         private readonly ObjectPool<T> _pool;
 
-        // ObjectPool's own active count reads zero after a Clear with instances still handed out,
-        // because Clear resets the total it derives that from. This set has to exist anyway to
-        // answer "did this pool hand that out", so ActiveCount comes from here.
         private readonly HashSet<T> _handedOut = new();
 
         private readonly List<T> _scratch = new();
@@ -25,7 +25,17 @@ namespace Company.ChestGame.Pooling
 
         public int CreatedCount { get; private set; }
         public int DestroyedCount { get; private set; }
+
+        /// <summary>
+        /// Number of instances currently handed out.
+        /// </summary>
+        /// <remarks>
+        /// Reads from this pool's own handed-out set rather than from the underlying
+        /// <see cref="ObjectPool{T}"/>.
+        /// See docs/pooling.md, "UnityPool, and what wrapping ObjectPool costs".
+        /// </remarks>
         public int ActiveCount => _handedOut.Count;
+
         public int AvailableCount => _pool.CountInactive;
 
         public UnityPool(T prefab, Transform holder, int maxSize)
@@ -38,25 +48,25 @@ namespace Company.ChestGame.Pooling
             _holder = holder;
             _maxSize = maxSize;
 
-            // collectionCheck stays on as a second net under this class's own release check. No
-            // actionOnGet, because activating has to happen after the parent is set and ObjectPool
-            // fires that callback before it hands the instance back.
             _pool = new ObjectPool<T>(Create, actionOnRelease: Park, actionOnDestroy: DestroyInstance,
                 collectionCheck: true, defaultCapacity: maxSize, maxSize: maxSize);
         }
 
+        /// <summary>
+        /// Hands back a pooled or newly created instance, reparented under <paramref name="parent"/>
+        /// and active.
+        /// </summary>
+        /// <exception cref="PoolException">The pool has been disposed.</exception>
+        /// <remarks>
+        /// See docs/design-decisions.md, "Why ParkedPool is the default".
+        /// See docs/pooling.md, "ActivationPool's traps".
+        /// </remarks>
         public T Get(Transform parent)
         {
             if (_disposed) throw PoolException.Disposed();
 
             T instance = _pool.Get();
 
-            // A miss here pays for a park it does not need: ObjectPool's factory callback is handed
-            // no context, so Create has to park the instance and these two lines undo it.
-            // ActivationPool avoids that by branching on the miss; the wrapper cannot, and
-            // docs/design-decisions.md keeps what it costs visible.
-            //
-            // Reparent before activating, for the reason ActivationPool.Get gives.
             instance.transform.SetParent(parent, false);
             instance.gameObject.SetActive(true);
 
@@ -64,20 +74,21 @@ namespace Company.ChestGame.Pooling
             return instance;
         }
 
+        /// <summary>
+        /// Returns a previously handed-out instance to the pool.
+        /// </summary>
+        /// <exception cref="PoolException">
+        /// <paramref name="instance"/> was not handed out by this pool, or has already been
+        /// released.
+        /// </exception>
+        /// <remarks>
+        /// See docs/pooling.md, "The seam's contract details".
+        /// See docs/pooling.md, "UnityPool, and what wrapping ObjectPool costs".
+        /// </remarks>
         public void Release(T instance)
         {
-            // This check has to be the one that reports: ObjectPool's own collection check throws a
-            // bare InvalidOperationException, which names nothing. PoolException subclasses it, so
-            // what a caller catches stays specific.
-            //
-            // Remove before the null check, not after. Unity's overloaded equality makes a
-            // destroyed instance read as null, so the other order short-circuits past Remove and
-            // strands the dead entry in the set forever.
             if (!_handedOut.Remove(instance) || instance == null) throw PoolException.NotHandedOut(instance);
 
-            // Past the bound ObjectPool destroys the surplus itself, but fires actionOnRelease
-            // first - so the instance gets parked, switched off and reparented, on its way to being
-            // destroyed. Checking here skips that and matches what the hand-rolled pools do.
             if (_pool.CountInactive >= _maxSize)
             {
                 DestroyInstance(instance);
@@ -87,15 +98,21 @@ namespace Company.ChestGame.Pooling
             _pool.Release(instance);
         }
 
+        /// <summary>
+        /// Releases every instance currently handed out.
+        /// </summary>
+        /// <exception cref="PoolException">
+        /// Rethrown after every instance has been released, if releasing any of them failed.
+        /// </exception>
+        /// <remarks>
+        /// See docs/pooling.md, "The seam's contract details".
+        /// See docs/pooling.md, "UnityPool, and what wrapping ObjectPool costs".
+        /// </remarks>
         public void ReleaseAll()
         {
-            // Snapshot, because Release edits the set being walked. The list is reused rather than
-            // allocated per call: PoolRace.PrepareLanes does four of these per Run press.
             _scratch.Clear();
             _scratch.AddRange(_handedOut);
 
-            // Every instance, then the first failure. A bare foreach would strand every instance
-            // after the first bad entry.
             PoolException failure = null;
             foreach (T instance in _scratch)
             {
@@ -112,6 +129,16 @@ namespace Company.ChestGame.Pooling
             if (failure != null) throw failure;
         }
 
+        /// <summary>
+        /// Creates and parks <paramref name="count"/> instances.
+        /// </summary>
+        /// <exception cref="PoolException">
+        /// The pool has been disposed, or parking <paramref name="count"/> more instances would
+        /// pass the pool's max size.
+        /// </exception>
+        /// <remarks>
+        /// See docs/pooling.md, "UnityPool, and what wrapping ObjectPool costs".
+        /// </remarks>
         public void Prewarm(int count)
         {
             if (_disposed) throw PoolException.Disposed();
@@ -120,29 +147,29 @@ namespace Company.ChestGame.Pooling
                 throw PoolException.PrewarmPastMaxSize(count, _pool.CountInactive, _maxSize);
             }
 
-            // Created directly rather than taken and given back. ObjectPool.Get pops existing stock
-            // before it calls the factory, so get-then-release on a pool already holding k pops
-            // those k and puts them straight back, creating only count - k. The other three always
-            // create.
             for (int i = 0; i < count; i++) _pool.Release(Create());
         }
 
-        // Clear destroys everything parked through actionOnDestroy and leaves what is handed out
-        // alone. To zero rather than down to max size, for the reason ActivationPool.Trim gives.
+        /// <summary>
+        /// Destroys every parked instance. Instances currently handed out are left alone.
+        /// </summary>
+        /// <remarks>
+        /// See docs/design-decisions.md, "The seam itself".
+        /// </remarks>
         public void Trim() => _pool.Clear();
 
+        /// <summary>
+        /// Destroys every instance this pool owns, parked and handed out alike.
+        /// </summary>
         public void Dispose()
         {
             if (_disposed) return;
 
             _disposed = true;
 
-            // Destroyed directly rather than released first, which would park them under the
-            // holder only for the next line to destroy them.
             foreach (T instance in new List<T>(_handedOut)) DestroyInstance(instance);
             _handedOut.Clear();
 
-            // Disposing clears the pool, which destroys what is parked through the same callback.
             _pool.Dispose();
         }
 
@@ -155,20 +182,21 @@ namespace Company.ChestGame.Pooling
             return instance;
         }
 
-        // Also ObjectPool's actionOnRelease. worldPositionStays is false, so a RectTransform keeps
-        // the anchored layout it was authored with.
+        /// <remarks>
+        /// Also this pool's <c>actionOnRelease</c> callback.
+        /// See docs/pooling.md, "The seam's contract details".
+        /// </remarks>
         private void Park(T instance)
         {
             instance.gameObject.SetActive(false);
             instance.transform.SetParent(_holder, false);
         }
 
-        // The GameObject, not the component: destroying the component alone leaves an empty object
-        // behind, and on a Transform the engine refuses outright.
+        /// <remarks>
+        /// See docs/pooling.md, "The seam's contract details".
+        /// </remarks>
         private void DestroyInstance(T instance)
         {
-            // An instance handed out can be destroyed behind the pool's back, and .gameObject on a
-            // destroyed Component throws MissingReferenceException.
             if (instance == null) return;
 
             DestroyedCount++;

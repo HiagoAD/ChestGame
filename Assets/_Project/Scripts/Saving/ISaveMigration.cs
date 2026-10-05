@@ -2,14 +2,16 @@ using Newtonsoft.Json.Linq;
 
 namespace Company.ChestGame.Saving
 {
-    // One step of a migration chain. A step advances a document exactly one version and never
-    // further; walking several is the caller's job.
+    /// <summary>
+    /// One step of a migration chain. A step advances a document exactly one version and never
+    /// further; walking several is the caller's job.
+    /// </summary>
     public interface ISaveMigration
     {
-        // The version this step reads. It writes FromVersion + 1.
+        /// <summary>The version this step reads. It writes <c>FromVersion + 1</c>.</summary>
         int FromVersion { get; }
 
-        // The document advanced one version. Never null.
+        /// <summary>The document advanced one version. Never null.</summary>
         JObject Apply(JObject document);
     }
 }

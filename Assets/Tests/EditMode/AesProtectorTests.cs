@@ -5,21 +5,16 @@ using NUnit.Framework;
 
 namespace Company.ChestGame.Tests.EditMode
 {
-    // AesProtector directly: AES-256-CBC with a random IV per save, encrypt-then-MAC, the tag
-    // checked through ConstantTimeCompare before a single byte reaches AES. See docs/saving.md,
-    // "The protectors, and what a key shipping inside the binary buys".
-    //
-    // PayloadTamperedException is internal and this test assembly has no InternalsVisibleTo into
-    // Company.ChestGame.Saving (confirmed absent project-wide), so a failure's exact type is
-    // checked by name through reflection here rather than by catching the type directly -
-    // Exception.GetType() is accessible regardless of the type's own visibility.
-    // SaveServiceTamperDetectionTests proves the same class of failure through the public
-    // SaveException.PayloadTampered instead, which is what an actual caller ever sees.
+    /// <summary>
+    /// Tests <see cref="AesProtector"/> directly.
+    /// </summary>
+    /// <remarks>
+    /// See docs/saving.md, "The protectors, and what a key shipping inside the binary buys".
+    /// See docs/testing.md, "The save fixtures".
+    /// </remarks>
     public class AesProtectorTests
     {
         private static byte[] Key(string seed = "AesProtectorTests.key") => Encoding.UTF8.GetBytes(seed);
-
-        // --- Property 5: AesProtector specifics --------------------------------------------------
 
         [Test]
         public void Protect_TheSamePlaintextTwice_ProducesDifferentBytes_ButBothStillDecryptToIt()
@@ -36,14 +31,12 @@ namespace Company.ChestGame.Tests.EditMode
             CollectionAssert.AreEqual(plain, protector.Unprotect(second));
         }
 
+        /// <remarks>
+        /// See docs/saving.md, "Tamper detection is a different failure from a corrupt payload".
+        /// </remarks>
         [Test]
         public void Protect_DoesNotCarryAnyBlockOfThePlaintextInTheClear()
         {
-            // Every other test here would pass for a protector that wrote IV || plaintext || tag:
-            // the round trip works, the IV still differs per save, and the tag still catches an
-            // edit. Encryption is the one thing it would not do, so it is checked directly - no
-            // block-sized run of a distinctive plaintext may appear anywhere in the output. Real
-            // ciphertext matching 16 chosen bytes by chance is not a failure mode worth guarding.
             AesProtector protector = new(Key());
             byte[] plain = Encoding.UTF8.GetBytes("{\"Balance\":987654321,\"Nickname\":\"plaintext-that-must-not-survive\"}");
             Assert.GreaterOrEqual(plain.Length, 32, "guard: the plaintext has to span several blocks");
@@ -58,10 +51,9 @@ namespace Company.ChestGame.Tests.EditMode
             }
         }
 
-        // The tag is the last 32 bytes, and it is the only region SaveServiceTamperDetectionTests
-        // ever flips. A MAC computed over the ciphertext alone would pass that and still let the IV
-        // be edited - which under CBC rewrites the first plaintext block at will - so the IV and the
-        // ciphertext are each tampered with here directly.
+        /// <remarks>
+        /// See docs/saving.md, "Tamper detection is a different failure from a corrupt payload".
+        /// </remarks>
         [TestCase(0, TestName = "Unprotect_WithTheFirstIvByteFlipped_IsRejectedAsTampering")]
         [TestCase(16, TestName = "Unprotect_WithTheFirstCiphertextByteFlipped_IsRejectedAsTampering")]
         public void Unprotect_WithOneByteFlippedOutsideTheTag_IsRejectedAsTampering(int index)
@@ -83,15 +75,13 @@ namespace Company.ChestGame.Tests.EditMode
         public void Unprotect_WithAPayloadShorterThanAnIvPlusATag_IsRejectedAsTamperingRatherThanSomethingUntyped()
         {
             AesProtector protector = new(Key());
-            byte[] tooShort = new byte[10]; // less than 16 (IV) + 32 (tag) = 48
+            byte[] tooShort = new byte[10];
 
             Exception error = Assert.Catch(() => protector.Unprotect(tooShort));
 
             Assert.AreEqual("PayloadTamperedException", error.GetType().Name,
                 "a payload too short to carry an IV and a tag has to be rejected as tampering, not as an IndexOutOfRangeException or similar");
         }
-
-        // --- Property 4: a different key reads as tampering, not as a CryptographicException -----
 
         [Test]
         public void Unprotect_WithADifferentKeyThanProtect_IsRejectedAsTamperingRatherThanACryptographicException()
@@ -107,8 +97,6 @@ namespace Company.ChestGame.Tests.EditMode
                 "encrypt-then-MAC checks the tag before a single byte reaches AES, so a wrong key must fail the tag check rather than surface as a CryptographicException out of the AES transform, or as garbage returned as if valid");
         }
 
-        // --- Constructor guards (SaveException.NoProtectorKey) -----------------------------------
-
         [Test]
         public void Constructor_WithANullKey_ThrowsNoProtectorKey()
         {
@@ -123,7 +111,10 @@ namespace Company.ChestGame.Tests.EditMode
             StringAssert.Contains("key material", error.Message);
         }
 
-        // Where needle[start..start+length) first occurs in haystack, or -1.
+        /// <summary>
+        /// Returns the index in <paramref name="haystack"/> where
+        /// <c>needle[start..start+length)</c> first occurs, or -1.
+        /// </summary>
         private static int IndexOf(byte[] haystack, byte[] needle, int start, int length)
         {
             for (int i = 0; i + length <= haystack.Length; i++)

@@ -11,15 +11,19 @@ using UnityEngine;
 using UnityEngine.AddressableAssets;
 using UnityEngine.TestTools;
 using VContainer;
-// System brings a second Object with it; the alias keeps every Object.Destroy meaning what it did.
 using Object = UnityEngine.Object;
 
 namespace Company.ChestGame.Tests.PlayMode
 {
-    // The stop half of the framework: End disposes the controller, destroys the view, releases the
-    // handles, and leaves the container safe to tear down again. Play mode because Object.Destroy
-    // only takes effect there. The provider is still a fake, since this is about the container's
-    // lifecycle rather than Addressables.
+    /// <summary>
+    /// Covers the stop half of the framework: <c>End</c> disposes the controller, destroys the
+    /// view, releases the handles, and leaves the container safe to tear down again. Runs in play
+    /// mode because <c>Object.Destroy</c> only takes effect there; the asset provider is still a
+    /// fake, since this is about the container's lifecycle rather than Addressables.
+    /// </summary>
+    /// <remarks>
+    /// See docs/minigames.md, "Teardown".
+    /// </remarks>
     public class MinigameContainerLifecycleTests
     {
         private const string VIEW_GUID = "33333333333333333333333333333333";
@@ -37,13 +41,15 @@ namespace Company.ChestGame.Tests.PlayMode
         private GameObject _parent;
         private MinigameContainer _minigame;
 
+        /// <remarks>
+        /// See docs/minigames.md, "A definition names its content, it does not hold it".
+        /// </remarks>
         [SetUp]
         public void SetUp()
         {
             _viewRef = new GameObject("ViewPrefab").AddComponent<TestMinigameView>();
             _parent = new GameObject("MinigameParent");
 
-            // A GUID string is all an AssetReference is, so no real addressable asset is needed.
             _viewReference = new AssetReferenceGameObject(VIEW_GUID);
             _assets = new FakeAssetProvider().With(_viewReference, _viewRef.gameObject);
 
@@ -89,17 +95,13 @@ namespace Company.ChestGame.Tests.PlayMode
             Assert.AreSame(_parent.transform, _minigame.ViewInstance.transform.parent);
         });
 
+        /// <remarks>
+        /// See docs/minigames.md, "Failure during a start".
+        /// </remarks>
         [UnityTest]
         public IEnumerator BeginAsync_WhenTheViewRejectsTheController_LeavesNoOrphanBehind() =>
             UniTask.ToCoroutine(async () =>
         {
-            // The view is instantiated before SetController runs and _running is set after it, so a
-            // throw from SetController lands in the catch with a live GameObject already in the
-            // scene. End returns early while _running is false, so if the catch does not destroy
-            // it, nothing does. The same goes for the controller: by the time the view exists it has
-            // already been injected, and injection is where a controller takes on what only Dispose
-            // gives back (ChestsMinigameController registers with the process-wide flush registry
-            // there). If the catch does not dispose it, nothing ever will.
             TestMinigameView rejecting = new GameObject("RejectingViewPrefab").AddComponent<RejectingView>();
             AssetReferenceGameObject rejectingRef = new(REJECTING_GUID);
             _assets.With(rejectingRef, rejecting.gameObject);
@@ -115,7 +117,6 @@ namespace Company.ChestGame.Tests.PlayMode
             }
             catch (InvalidOperationException)
             {
-                // The rejection itself. What matters is what the catch left behind.
             }
 
             Assert.IsFalse(minigame.Running, "a start that threw did not start anything");
@@ -124,7 +125,6 @@ namespace Company.ChestGame.Tests.PlayMode
             Assert.AreEqual(1, _controller.DisposeCalls,
                 "a controller injected for a start that then failed has to be disposed by that failure, since End never will be");
 
-            // End is a no-op on a start that never completed; calling it must not dispose twice.
             minigame.End();
             Assert.AreEqual(1, _controller.DisposeCalls, "the failed start's own cleanup and a later End must not both dispose it");
 
@@ -136,13 +136,13 @@ namespace Company.ChestGame.Tests.PlayMode
             Object.Destroy(rejecting.gameObject);
         });
 
+        /// <remarks>
+        /// See docs/minigames.md, "Failure during a start".
+        /// </remarks>
         [UnityTest]
         public IEnumerator BeginAsync_WhenCleaningUpTheControllerAlsoThrows_RethrowsTheOriginalFailure() =>
             UniTask.ToCoroutine(async () =>
         {
-            // The catch disposes the controller after the view is gone and the content released. If
-            // that Dispose throws and nothing contains it, the caller is handed the cleanup's
-            // exception and never learns why the start actually failed.
             TestMinigameView rejecting = new GameObject("RejectingViewPrefab").AddComponent<RejectingView>();
             AssetReferenceGameObject rejectingRef = new(REJECTING_GUID);
             _assets.With(rejectingRef, rejecting.gameObject);
@@ -194,11 +194,12 @@ namespace Company.ChestGame.Tests.PlayMode
             Assert.IsTrue(viewObject == null, "the view GameObject is destroyed");
         });
 
+        /// <remarks>
+        /// See docs/minigames.md, "Teardown".
+        /// </remarks>
         [UnityTest]
         public IEnumerator End_ReleasesWhatBeginLoaded() => UniTask.ToCoroutine(async () =>
         {
-            // Handles, not instances: releasing the loaded asset rather than the instantiated
-            // object is what lets End stay synchronous.
             await _minigame.BeginAsync(_parent.transform, CancellationToken.None);
 
             _minigame.End();
@@ -229,22 +230,28 @@ namespace Company.ChestGame.Tests.PlayMode
             Assert.AreEqual(1, _definition.ReleaseContentCalls, "and releases its content only once");
         });
 
-        // Stands in for any view whose SetController fails. What it throws does not matter; that it
-        // throws after the instance exists is the scenario.
+        /// <summary>
+        /// Stands in for any view whose <c>SetController</c> fails. What it throws does not matter;
+        /// that it throws after the instance exists is the scenario.
+        /// </summary>
         private class RejectingView : TestMinigameView
         {
             public override void SetController(MinigameControllerBase controller) =>
                 throw new InvalidOperationException("this view refuses its controller");
         }
 
-        // A different exception type from the view's, so a test can tell which of the two reached it.
+        /// <summary>
+        /// Thrown by <see cref="ThrowingDisposeController"/>; a different type from the view's, so a
+        /// test can tell which of the two reached it.
+        /// </summary>
         private class DisposeFailedException : Exception
         {
             public DisposeFailedException(string message) : base(message) { }
         }
 
-        // Counts the call like the shared fake does, then fails the way a controller whose
-        // teardown hits something it cannot let go of would.
+        /// <summary>
+        /// Counts the call like the shared fake does, then throws <see cref="DisposeFailedException"/>.
+        /// </summary>
         private class ThrowingDisposeController : FakeMinigameController
         {
             public override void Dispose()

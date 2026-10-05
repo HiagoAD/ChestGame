@@ -15,15 +15,27 @@ namespace Company.ChestGame.Minigame.Chests
     [CreateAssetMenu(fileName = "ChestsMinigame", menuName = "Minigames/Chests")]
     public class ChestsMinigameSO : MinigameBase<ChestsMinigameController, ChestsMinigameView, ChestsMinigame>
     {
-        // Its own document, not fields off a shared config, and a reference rather than the
-        // TextAsset itself: a direct field would make this descriptor depend on the chests bundle.
+        /// <summary>
+        /// Its own document, not fields off a shared config, and a reference rather than the
+        /// TextAsset itself.
+        /// </summary>
+        /// <remarks>
+        /// See docs/minigames.md, "A definition names its content, it does not hold it".
+        /// </remarks>
         [SerializeField] private AssetReferenceT<TextAsset> _configDocument;
 
+        /// <exception cref="GameConfigException">
+        /// <c>_configDocument</c> is unassigned, or names a document that is not valid JSON for
+        /// <see cref="ChestsMinigameConfig"/>.
+        /// </exception>
+        /// <exception cref="AssetLoadException">The reference resolved but the load itself failed.</exception>
+        /// <exception cref="MissingAssetException">The reference is unwired or unresolvable.</exception>
+        /// <remarks>
+        /// See docs/minigames.md, "Its own config document".
+        /// </remarks>
         protected override async UniTask ConfigureControllerAsync(
             ChestsMinigameController controller, IAssetProvider assets, CancellationToken ct)
         {
-            // Checked before the load: an empty slot would otherwise surface as a
-            // MissingAssetException naming an empty GUID, traceable back to nothing.
             if (_configDocument == null || !_configDocument.RuntimeKeyIsValid())
             {
                 throw new GameConfigException(
@@ -35,7 +47,9 @@ namespace Company.ChestGame.Minigame.Chests
             controller.Configure(ChestsMinigameConfig.Parse(document.text));
         }
 
-        // Only needed to build the controller's state, so nothing holds it past teardown.
+        /// <remarks>
+        /// See docs/minigames.md, "Its own config document".
+        /// </remarks>
         public override void ReleaseContent(IAssetProvider assets) => assets.Release(_configDocument);
     }
 }

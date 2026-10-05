@@ -6,17 +6,22 @@ using Cysharp.Threading.Tasks;
 
 namespace Company.ChestGame.Tests.Common
 {
-    // A clock the test drives by hand. Awaiters park until AdvanceFrame releases them, and
-    // continuations resume synchronously inside that call, so once it returns every effect of that
-    // frame has already happened.
+    /// <summary>
+    /// A clock the test drives by hand. Awaiters park until <see cref="AdvanceFrame"/> releases them,
+    /// and continuations resume synchronously inside that call, so once it returns every effect of
+    /// that frame has already happened.
+    /// </summary>
+    /// <remarks>
+    /// See docs/testing.md, "FakeGameClock, and what its knobs are for".
+    /// </remarks>
     public class FakeGameClock : IGameClock
     {
-        // Seconds each AdvanceFrame call represents. 50ms keeps frame counts small and exact.
+        /// <summary>Seconds each <see cref="AdvanceFrame"/> call represents.</summary>
         public float DeltaTime { get; set; } = 0.05f;
 
-        // Which resumes first when a frame tick and a delay come due together. The real player loop
-        // currently runs them in this order but nothing promises it, so tests flip the knob and
-        // check behaviour does not depend on the answer.
+        /// <summary>
+        /// Which resumes first when a frame tick and a delay come due together.
+        /// </summary>
         public bool FrameWaitersResumeFirst { get; set; } = true;
 
         public int FramesAdvanced { get; private set; }
@@ -41,14 +46,18 @@ namespace Company.ChestGame.Tests.Common
         public UniTask Delay(int milliseconds, CancellationToken cancellationToken) =>
             Park(_delayWaiters, _nowMilliseconds + milliseconds, cancellationToken);
 
-        // Moves the clock on without advancing a frame: what work that costs time inside one frame
-        // looks like, and the only way a test can make a time budget run out. Delays are measured
-        // against the same running total, so time spent here brings a pending one closer to due,
-        // exactly as real work would.
+        /// <summary>
+        /// Moves the clock on without advancing a frame: what work that costs time inside one frame
+        /// looks like, and the only way a test can make a time budget run out. Delays are measured
+        /// against the same running total, so time spent here brings a pending one closer to due,
+        /// exactly as real work would.
+        /// </summary>
         public void Spend(double milliseconds) => _nowMilliseconds += milliseconds;
 
-        // Advances one frame: every parked waiter resumes and any due delay fires, ordered by
-        // FrameWaitersResumeFirst.
+        /// <summary>
+        /// Advances one frame: every parked waiter resumes and any due delay fires, ordered by
+        /// <see cref="FrameWaitersResumeFirst"/>.
+        /// </summary>
         public void AdvanceFrame()
         {
             FramesAdvanced++;
@@ -78,8 +87,14 @@ namespace Company.ChestGame.Tests.Common
             }
         }
 
-        // Advances until nothing is parked, with a budget so a flow that never settles fails rather
-        // than hangs.
+        /// <summary>
+        /// Advances until nothing is parked, with a budget so a flow that never settles fails rather
+        /// than hangs.
+        /// </summary>
+        /// <exception cref="TimeoutException">
+        /// More than <paramref name="maxFrames"/> frames were advanced while a waiter was still
+        /// pending.
+        /// </exception>
         public void AdvanceUntilIdle(int maxFrames = 1000)
         {
             int frames = 0;
@@ -118,10 +133,11 @@ namespace Company.ChestGame.Tests.Common
             return waiter.Source.Task;
         }
 
+        /// <remarks>
+        /// See docs/testing.md, "FakeGameClock, and what its knobs are for".
+        /// </remarks>
         private static void Release(List<Waiter> waiters, Func<Waiter, bool> isDue)
         {
-            // Snapshot first: resuming a waiter runs its continuation synchronously, and that
-            // continuation usually parks a fresh waiter belonging to the next frame.
             List<Waiter> ready = waiters.FindAll(waiter => isDue(waiter));
 
             foreach (Waiter waiter in ready)

@@ -10,9 +10,13 @@ using UnityEngine.TestTools;
 
 namespace Company.ChestGame.Tests.EditMode
 {
-    // Every CurrencyManager here is built on an in-memory save handler, so the real PlayerPrefs
-    // save is never touched. It logs an error on each rejected operation, which fails a test by
-    // default, hence the LogAssert.Expect calls on the negative paths.
+    /// <summary>
+    /// Specifies <c>CurrencyManager</c>, built on an in-memory save handler so the real PlayerPrefs
+    /// save is never touched.
+    /// </summary>
+    /// <remarks>
+    /// See docs/saving.md, "Save, then notify, for both operations".
+    /// </remarks>
     public class CurrencyManagerTests
     {
         private InMemoryCurrencySaveHandler _saveHandler;
@@ -37,16 +41,12 @@ namespace Company.ChestGame.Tests.EditMode
             _currency.OnCurrencySpent += (c, a, b, s) => _spent.Add((c, a, b, s));
         }
 
-        // --- Baseline ----------------------------------------------------------------------
-
         [Test]
         public void FreshBank_StartsEveryCurrencyAtZero()
         {
             Assert.AreEqual(0, _currency.GetCurrencyAmount(CurrencyType.Coins));
             Assert.AreEqual(0, _currency.GetCurrencyAmount(CurrencyType.Gems));
         }
-
-        // --- Adding ------------------------------------------------------------------------
 
         [Test]
         public void AddCurrency_IncreasesTheBalance()
@@ -89,8 +89,6 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.AreEqual(0, _currency.GetCurrencyAmount(CurrencyType.Coins));
             CollectionAssert.IsEmpty(_changed);
         }
-
-        // --- Spending ----------------------------------------------------------------------
 
         [Test]
         public void TrySpendCurrency_WithEnoughBalance_SucceedsAndDeducts()
@@ -227,13 +225,9 @@ namespace Company.ChestGame.Tests.EditMode
             CollectionAssert.IsEmpty(_spent);
         }
 
-        // --- Event shape -------------------------------------------------------------------
-
         [Test]
         public void Spending_ReportsAPositiveAmountOnSpent_AndANegativeOneOnChanged()
         {
-            // The asymmetry is deliberate: Changed always describes the delta applied to the
-            // balance, Spent describes the size of the withdrawal.
             _currency.AddCurrency(CurrencyType.Coins, 100, "test");
             _changed.Clear();
             _collected.Clear();
@@ -245,8 +239,6 @@ namespace Company.ChestGame.Tests.EditMode
             CollectionAssert.IsEmpty(_collected);
         }
 
-        // Collected and Spent fire first, Changed right after them; a listener on both sees them in
-        // that order.
         [Test]
         public void AddCurrency_RaisesCollectedBeforeChanged()
         {
@@ -279,13 +271,9 @@ namespace Company.ChestGame.Tests.EditMode
             return order;
         }
 
-        // --- Listener failures -------------------------------------------------------------
-        //
-        // A listener that throws is logged with Debug.LogException and cannot stop the other
-        // listeners, the save, or the caller's result. Listeners below only throw or capture: every
-        // assertion comes after the call, because one thrown inside a listener would be caught and
-        // logged instead of failing the test.
-
+        /// <remarks>
+        /// See docs/saving.md, "Save, then notify, for both operations".
+        /// </remarks>
         [TestCase(typeof(InvalidOperationException))]
         [TestCase(typeof(NullReferenceException))]
         public void AddCurrency_WhenACollectedListenerThrows_StillRaisesChanged_Saves_AndReturns(Type exceptionType)
@@ -382,17 +370,19 @@ namespace Company.ChestGame.Tests.EditMode
         private static CurrencyChangedHandler Throwing(string message) =>
             Throwing(message, typeof(InvalidOperationException));
 
-        // A NullReferenceException is the realistic failure, a broken label or a destroyed view, so
-        // the isolation tests run it too: a catch narrowed to one type must not pass them.
+        /// <summary>
+        /// Returns a listener that throws a new <paramref name="exceptionType"/> carrying
+        /// <paramref name="message"/>.
+        /// </summary>
         private static CurrencyChangedHandler Throwing(string message, Type exceptionType) =>
             (c, a, b, s) => throw (Exception)Activator.CreateInstance(exceptionType, message);
 
-        // Debug.LogException logs "<ExceptionType>: <message>", so the message alone identifies the
-        // listener whatever its type. A looser pattern could let a different failure through.
+        /// <summary>
+        /// Expects exactly one logged exception whose text contains <paramref name="message"/>,
+        /// whatever its type.
+        /// </summary>
         private static void ExpectLoggedException(string message) =>
             LogAssert.Expect(LogType.Exception, new Regex(Regex.Escape(message)));
-
-        // --- What a listener sees ----------------------------------------------------------
 
         [Test]
         public void AnAddsListeners_SeeTheNewBalanceAlreadySavedAndInMemory()
@@ -421,9 +411,10 @@ namespace Company.ChestGame.Tests.EditMode
             CollectionAssert.AreEqual(new[] { (6L, 6L), (6L, 6L) }, seen);
         }
 
-        // The balance a listener can observe at this moment: what the save handler held when its
-        // last Save ran (-1 before any did) and what GetCurrencyAmount reports. Not Stored, which
-        // is live and would show a document the manager finished after handing it over.
+        /// <summary>
+        /// The balance a listener can observe at this moment: what the save handler held when its
+        /// last Save ran (-1 before any did) and what <c>GetCurrencyAmount</c> reports.
+        /// </summary>
         private (long saved, long held) SavedAndHeld(CurrencyType currencyType)
         {
             long saved = _saveHandler.LastSavedBalances == null ? -1 : _saveHandler.LastSavedBalances[currencyType];
@@ -447,8 +438,6 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.AreEqual(8, _currency.GetCurrencyAmount(CurrencyType.Coins));
             Assert.AreEqual(8, _saveHandler.Stored.ResourceAmount[CurrencyType.Coins]);
         }
-
-        // --- Persistence -------------------------------------------------------------------
 
         [Test]
         public void Balances_SurviveThroughTheSaveHandler()
@@ -528,8 +517,6 @@ namespace Company.ChestGame.Tests.EditMode
             StringAssert.Contains("needs one to load and save through", error.Message);
         }
 
-        // --- Debug helper ------------------------------------------------------------------
-
         [Test]
         public void CheatResetCurrencyAmount_ZeroesTheBalance()
         {
@@ -560,9 +547,6 @@ namespace Company.ChestGame.Tests.EditMode
         [Test]
         public void CheatResetCurrencyAmount_OnAZeroBalance_DoesNothing()
         {
-            // No LogAssert.Expect: the cheat does not go through TrySpendCurrency, so a zero
-            // balance is refused without CurrencyManager logging anything. An error here would fail
-            // the test.
             _currency.CHEAT_ResetCurrencyAmount(CurrencyType.Coins);
 
             Assert.AreEqual(0, _currency.GetCurrencyAmount(CurrencyType.Coins));

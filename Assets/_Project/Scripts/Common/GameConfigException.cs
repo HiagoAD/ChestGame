@@ -2,9 +2,12 @@ using System;
 
 namespace Company.ChestGame.Common
 {
-    // A config document was absent, unparseable, or carried values the game cannot run with. In
-    // Common rather than Config because each minigame owns and validates its own document, and none
-    // should need a reference to the game-wide config assembly to name its failure.
+    /// <summary>
+    /// A config document was absent, unparseable, or carried values the game cannot run with.
+    /// </summary>
+    /// <remarks>
+    /// See docs/architecture.md, "Config pipeline".
+    /// </remarks>
     public class GameConfigException : ChestGameException
     {
         public GameConfigException(string message) : base(message) { }

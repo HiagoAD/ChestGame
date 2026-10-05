@@ -3,11 +3,15 @@ using Company.ChestGame.Currency;
 
 namespace Company.ChestGame.Tests.Common
 {
-    // In-memory ICurrencyManager that records calls and raises the same event shapes as the real
-    // one: OnCurrencySpent reports a positive amount while OnCurrencyChanged reports a negative one.
-    // It neither saves nor isolates listeners: a throwing listener escapes the call here, where the
-    // real CurrencyManager logs it and carries on. Do not use it to test listener-failure
-    // behaviour; build the real CurrencyManager over an InMemoryCurrencySaveHandler for that.
+    /// <summary>
+    /// In-memory ICurrencyManager that records calls and raises the same event shapes as the real
+    /// one: OnCurrencySpent reports a positive amount while OnCurrencyChanged reports a negative one.
+    /// </summary>
+    /// <remarks>
+    /// It neither saves nor isolates listeners: a throwing listener escapes the call here, where the
+    /// real CurrencyManager logs it and carries on. Do not use it to test listener-failure
+    /// behaviour; build the real CurrencyManager over an InMemoryCurrencySaveHandler for that.
+    /// </remarks>
     public class FakeCurrencyManager : ICurrencyManager
     {
         public event CurrencyChangedHandler OnCurrencyChanged;

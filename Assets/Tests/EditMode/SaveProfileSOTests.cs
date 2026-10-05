@@ -11,10 +11,16 @@ using Object = UnityEngine.Object;
 
 namespace Company.ChestGame.Tests.EditMode
 {
-    // A profile built in code, its private serialized fields driven through SerializedObject the
-    // way the inspector would, proving SaveServiceFactory actually reads what the dropdowns write
-    // rather than a value only a test's own reflection could see. See docs/saving.md,
-    // "SaveServiceFactory" and "The three selection enums are append-only".
+    /// <summary>
+    /// Covers <see cref="SaveServiceFactory"/> against a <see cref="SaveProfileSO"/> built in code,
+    /// its private serialized fields driven through <c>SerializedObject</c> the way the inspector
+    /// would, so what a test proves is that the factory actually reads what the dropdowns write.
+    /// </summary>
+    /// <remarks>
+    /// See docs/saving.md, "`SaveComponentFactory`, `SaveFactoryInputs` and `SaveServiceFactory`" and
+    /// "The three selection enums are append-only".
+    /// See docs/testing.md, "SaveProfileSOTests, and why it drives fields through SerializedObject".
+    /// </remarks>
     public class SaveProfileSOTests
     {
         private const string Key = "profile";
@@ -36,16 +42,14 @@ namespace Company.ChestGame.Tests.EditMode
             _prefsPrefix = "ChestGameSaveTests." + Guid.NewGuid() + ".";
         }
 
+        /// <summary>
+        /// See docs/testing.md, "The save suites never touch a real save".
+        /// </summary>
         [TearDown]
         public void TearDown()
         {
             if (_profile != null) Object.DestroyImmediate(_profile);
             if (Directory.Exists(_root)) Directory.Delete(_root, recursive: true);
-            // DeleteKey alone only edits PlayerPrefs' in-memory table; PlayerPrefsStore.
-            // WriteAsync/DeleteAsync always follow a mutation with Save() for exactly this
-            // reason. Without it here, a batch-mode process that exits before its own implicit
-            // flush leaves this test's key sitting in the developer's real editor prefs even
-            // though this TearDown ran and asked for it to be gone.
             PlayerPrefs.DeleteKey(_prefsPrefix + Key);
             PlayerPrefs.Save();
         }
@@ -95,8 +99,6 @@ namespace Company.ChestGame.Tests.EditMode
                 _ => throw new ArgumentOutOfRangeException(nameof(protection), protection, "a new SaveProtection member needs an expected id here too")
             };
 
-        // --- A profile authored for each storage drives the factory to the matching backend -----
-
         [TestCaseSource(nameof(EveryStorage))]
         public void AProfileAuthoredForAStorage_DrivesTheFactoryToTheMatchingBackend(SaveStorage storage)
         {
@@ -139,13 +141,12 @@ namespace Company.ChestGame.Tests.EditMode
                 "a profile authored for AtomicFile must land on AtomicFileStore, not plain FileStore");
         }
 
-        // --- Codec and protector fields are read too, not just storage --------------------------
-
+        /// <summary>
+        /// See docs/saving.md, "`SaveComponentFactory`, `SaveFactoryInputs` and `SaveServiceFactory`".
+        /// </summary>
         [Test]
         public void AFreshlySerializedProfile_NamesJsonAndNoneInTheWrittenEnvelope()
         {
-            // Index 0 in both enums, which is where a field lands before anyone touches its
-            // dropdown - so this also pins that a freshly authored profile is usable as-is.
             SetStorage(SaveStorage.File);
             Assert.AreEqual(SaveCodec.Json, _profile.Codec);
             Assert.AreEqual(SaveProtection.None, _profile.Protection);
@@ -161,16 +162,9 @@ namespace Company.ChestGame.Tests.EditMode
                 "the profile's Protection field has to reach the envelope actually written to disk");
         }
 
-        // --- Every SaveCodec and every SaveProtection, authored through the profile (coverage gap) ---
-        //
-        // AProfileAuthoredForAStorage_DrivesTheFactoryToTheMatchingBackend above proves round-tripping,
-        // but a round trip alone cannot catch "CreateCodec/CreateProtector always falls back to its
-        // default arm regardless of what the dropdown says", because the same (wrong) component would
-        // then be used for both the save and the load and still agree with itself. These two instead
-        // pin the id actually written into the envelope on disk against what each enum member is
-        // supposed to produce - the same check AFreshlySerializedProfile_NamesJsonAndNoneInTheWrittenEnvelope
-        // already runs for the default (Json, None) pair, extended to every member of both enums.
-
+        /// <summary>
+        /// See docs/saving.md, "`SaveComponentFactory`, `SaveFactoryInputs` and `SaveServiceFactory`".
+        /// </summary>
         [TestCaseSource(nameof(EveryCodec))]
         public void AProfileAuthoredForACodec_WritesThatCodecsIdIntoTheEnvelope(SaveCodec codec)
         {
@@ -188,6 +182,9 @@ namespace Company.ChestGame.Tests.EditMode
                 $"a profile authored for {codec} has to reach SaveServiceFactory.CreateCodec and actually drive the matching arm, not silently fall back to Json's");
         }
 
+        /// <summary>
+        /// See docs/saving.md, "`SaveComponentFactory`, `SaveFactoryInputs` and `SaveServiceFactory`".
+        /// </summary>
         [TestCaseSource(nameof(EveryProtection))]
         public void AProfileAuthoredForAProtection_WritesThatProtectionsIdIntoTheEnvelope(SaveProtection protection)
         {
@@ -204,9 +201,6 @@ namespace Company.ChestGame.Tests.EditMode
             StringAssert.Contains($"\"prot\": \"{ProtectionIdFor(protection)}\"", json,
                 $"a profile authored for {protection} has to reach SaveServiceFactory.CreateProtector and actually drive the matching arm, not silently fall back to None's");
         }
-
-        // Round trip too, for every codec and every protection the profile can author - not just
-        // that the right id landed in the envelope, but that what comes back out is also correct.
 
         [TestCaseSource(nameof(EveryCodec))]
         public void AProfileAuthoredForACodec_StillRoundTrips(SaveCodec codec)

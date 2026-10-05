@@ -8,13 +8,15 @@ using NUnit.Framework;
 
 namespace Company.ChestGame.Tests.EditMode
 {
-    // What this class has to get right is where the frames land, so every test is about the split
-    // rather than the work. FakeGameClock decides when a frame happens and Spend makes a unit cost
-    // time, which is the only way a time budget can run out with no player loop under it.
+    /// <summary>
+    /// Covers where <see cref="FrameBudgetedLoop"/> places each unit of work across frames, not the
+    /// units themselves.
+    /// </summary>
+    /// <remarks>
+    /// See docs/testing.md, "FrameBudgetedLoopTests, and what the tests are shaped around".
+    /// </remarks>
     public class FrameBudgetedLoopTests
     {
-        // Three units to a frame: four milliseconds each against a budget of ten, and the budget is
-        // read after the unit, so the third is the one that passes it.
         private const double BudgetMilliseconds = 10d;
         private const double CostPerUnitMilliseconds = 4d;
         private const int UnitsPerFrame = 3;
@@ -32,17 +34,13 @@ namespace Company.ChestGame.Tests.EditMode
 
         private FrameBudgetedLoop Loop() => new(_clock, BudgetMilliseconds);
 
-        // A unit that costs time, which is the only kind a time budget can measure.
         private void CostlyStep(int index)
         {
             _ran.Add(index);
             _clock.Spend(CostPerUnitMilliseconds);
         }
 
-        // A unit that costs nothing, for the tests that are about something other than the split.
         private void FreeStep(int index) => _ran.Add(index);
-
-        // --- Running the work ---------------------------------------------------------------
 
         [Test]
         public void RunAsync_RunsEveryUnitOnce_InOrder()
@@ -56,11 +54,12 @@ namespace Company.ChestGame.Tests.EditMode
                 "spreading the work over frames must not lose a unit, repeat one, or reorder them");
         }
 
+        /// <remarks>
+        /// See docs/testing.md, "FrameBudgetedLoopTests, and what the tests are shaped around".
+        /// </remarks>
         [Test]
         public void RunAsync_SplitsTheWorkAcrossFrames_RatherThanDoingItAllInOne()
         {
-            // The loop runs synchronously up to its first yield, so what is here the moment RunAsync
-            // returns is exactly one frame's worth.
             UniTask running = Loop().RunAsync(Units, CostlyStep, CancellationToken.None);
 
             Assert.AreEqual(UnitsPerFrame, _ran.Count,
@@ -74,13 +73,12 @@ namespace Company.ChestGame.Tests.EditMode
             SynchronousUniTask.Complete(running);
         }
 
+        /// <remarks>
+        /// See docs/testing.md, "FrameBudgetedLoopTests, and what the tests are shaped around".
+        /// </remarks>
         [Test]
         public void RunAsync_PlacesMoreOfACheaperUnitInTheSameFrame()
         {
-            // Why the budget is time and not a count per frame. Two loops with the same budget and
-            // unit count, differing only in what a unit costs, have to come out of their first frame
-            // in different places; a count would put them both at the same one. A clock each,
-            // because Spend moves the clock the other loop is reading.
             List<int> cheap = new();
             FakeGameClock cheapClock = new();
             new FrameBudgetedLoop(cheapClock, BudgetMilliseconds)
@@ -99,11 +97,12 @@ namespace Company.ChestGame.Tests.EditMode
                 "if the cheaper work does not visibly get further in a frame, the budget is counting items and the comparison it is here to make shows nothing");
         }
 
+        /// <remarks>
+        /// See docs/architecture.md, "Why RunAsync is split, and the ordering inside the loop".
+        /// </remarks>
         [Test]
         public void RunAsync_WhenOneUnitCostsMoreThanTheWholeBudget_StillPlacesOnePerFrame()
         {
-            // Reading the budget before the unit instead of after it would give a frame in which
-            // nothing is placed, and a fill that never ends.
             UniTask running = Loop().RunAsync(3, ExpensiveStep, CancellationToken.None);
 
             Assert.AreEqual(1, _ran.Count);
@@ -115,8 +114,6 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.AreEqual(3, _ran.Count);
             SynchronousUniTask.Complete(running);
         }
-
-        // --- The ends of the range ----------------------------------------------------------
 
         [Test]
         public void RunAsync_WithNothingToDo_FinishesWithoutCostingAFrame()
@@ -139,8 +136,6 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.AreEqual(0, _clock.PendingWaiters,
                 "there was nothing left to place, so yielding would have bought a frame of nothing");
         }
-
-        // --- Cancellation -------------------------------------------------------------------
 
         [Test]
         public void RunAsync_CancelledBetweenFrames_StopsWhereItGotTo()
@@ -171,8 +166,6 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.Throws<OperationCanceledException>(() => SynchronousUniTask.Complete(running));
         }
 
-        // --- What it refuses to be set up with ----------------------------------------------
-
         [Test]
         public void Constructing_WithoutAClockOrWithoutABudget_ThrowsFrameBudgetException()
         {
@@ -182,23 +175,23 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.Throws<FrameBudgetException>(() => new FrameBudgetedLoop(_clock, -1d));
         }
 
+        /// <remarks>
+        /// See docs/architecture.md, "Why RunAsync is split, and the ordering inside the loop".
+        /// </remarks>
         [Test]
         public void RunAsync_WithNoUnitOrANegativeCount_ThrowsAtTheCallSiteRatherThanIntoTheTask()
         {
-            // Assert.Throws is the assertion. An async method captures what it throws into the task
-            // it returns, and the caller this is written for forgets that task, so a mistake
-            // reported that way would surface nowhere.
             Assert.Throws<FrameBudgetException>(() => Loop().RunAsync(1, null, CancellationToken.None));
             Assert.Throws<FrameBudgetException>(() => Loop().RunAsync(-1, FreeStep, CancellationToken.None));
             CollectionAssert.IsEmpty(_ran);
         }
 
+        /// <remarks>
+        /// See docs/architecture.md, "Exception hierarchy".
+        /// </remarks>
         [Test]
         public void FrameBudgetException_IsDeliberatelyNotUnderChestGameException()
         {
-            // The rule PoolException follows, for the same reason: a loop handed no clock is a view
-            // that was never injected, and it has to reach a developer rather than become a
-            // content-download popup. See docs/architecture.md.
             FrameBudgetException failure = Assert.Throws<FrameBudgetException>(
                 () => new FrameBudgetedLoop(null, BudgetMilliseconds));
 

@@ -7,8 +7,10 @@ using Cysharp.Threading.Tasks;
 
 namespace Company.ChestGame.Minigame.Internal
 {
-    // Fetches the authored minigame list through the asset provider, and the only place that knows
-    // the key.
+    /// <summary>
+    /// Fetches the authored minigame list through the asset provider, and the only place that
+    /// knows the key.
+    /// </summary>
     public class AddressablesMinigameListSource : IMinigameListSource
     {
         private const string LIST_KEY = "Minigames/MinigameList";
@@ -17,6 +19,14 @@ namespace Company.ChestGame.Minigame.Internal
 
         public AddressablesMinigameListSource(IAssetProvider assets) => _assets = assets;
 
+        /// <summary>
+        /// Loads the authored minigame list.
+        /// </summary>
+        /// <returns>The list's entries.</returns>
+        /// <exception cref="MissingAssetException">
+        /// The key is not in the shipped catalog, or the loaded asset resolves to null.
+        /// </exception>
+        /// <exception cref="AssetLoadException">The key resolved but the load itself failed.</exception>
         public async UniTask<IReadOnlyList<MinigameBaseSO>> ReadAsync(CancellationToken ct)
         {
             MinigameListSO minigameListSO = await _assets.LoadAsync<MinigameListSO>(LIST_KEY, ct);

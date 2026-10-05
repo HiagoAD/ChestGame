@@ -3,10 +3,16 @@ using Company.ChestGame.Saving;
 
 namespace Company.ChestGame.Tests.EditMode
 {
-    // ISaveFlushable with every branch a registry test needs to drive by hand: CanFlushBlocking
-    // toggles the wiring guard, OnFlush runs inside FlushBlocking itself so a test can mutate the
-    // registry at exactly the point it is iterating, and FlushThrows drives the fault isolation
-    // FlushAll owes every other flushable.
+    /// <summary>
+    /// An <see cref="ISaveFlushable"/> test double with every branch a registry test needs to drive
+    /// by hand: <see cref="CanFlushBlocking"/> toggles the wiring guard, <see cref="OnFlush"/> runs
+    /// inside <see cref="FlushBlocking"/> itself so a test can mutate the registry at exactly the
+    /// point it is iterating, and <see cref="FlushThrows"/> drives the fault isolation
+    /// <c>FlushAll</c> owes every other flushable.
+    /// </summary>
+    /// <remarks>
+    /// See docs/saving.md, "Why the flush stopped being one field".
+    /// </remarks>
     public class FakeSaveFlushable : ISaveFlushable
     {
         public bool CanFlushBlocking { get; set; } = true;

@@ -8,13 +8,14 @@ using NUnit.Framework;
 
 namespace Company.ChestGame.Tests.EditMode
 {
-    // Property 3: tamper detection is a distinct, typed failure from a merely corrupt or
-    // unreadable payload - proven against a real FileStore, since that is the fixture the property
-    // asks for, with the contrast against an unprotected save proving the distinction is real.
-    // Property 4: a save read back by a protector holding a different key fails exactly the same
-    // way a genuinely tampered save does, because a MAC has no way to tell "tampered" from "signed
-    // under a different key" apart. See docs/saving.md, "Tamper detection is a different failure
-    // from a corrupt payload".
+    /// <summary>
+    /// Covers tamper detection as a distinct, typed failure from a merely corrupt or unreadable
+    /// payload, and covers a save read back by a protector holding a different key failing exactly
+    /// the same way a genuinely tampered save does.
+    /// </summary>
+    /// <remarks>
+    /// See docs/saving.md, "Tamper detection is a different failure from a corrupt payload".
+    /// </remarks>
     public class SaveServiceTamperDetectionTests
     {
         private const string Key = "profile";
@@ -57,9 +58,11 @@ namespace Company.ChestGame.Tests.EditMode
             return copy;
         }
 
-        // Reads the envelope a real save produced, flips one byte of the protected payload it
-        // carries, and writes the tampered envelope straight back through the same real store -
-        // simulating a byte flipped on disk between a write and the next load.
+        /// <summary>
+        /// Reads the envelope a real save produced, flips one byte of the protected payload it
+        /// carries, and writes the tampered envelope straight back through the same store -
+        /// simulating a byte flipped on disk between a write and the next load.
+        /// </summary>
         private static void TamperStoredPayload(ISaveStore store, string codecId, string protectorId, bool protectorTextSafe)
         {
             byte[] envelopeBytes = SynchronousUniTask.Result(store.ReadAsync(Key, CancellationToken.None));
@@ -90,8 +93,6 @@ namespace Company.ChestGame.Tests.EditMode
         [Test]
         public void LoadAsync_ThroughARealStore_AfterFlippingAByteInAnUnprotectedSave_ReportsUnreadableNotTampering()
         {
-            // The contrast that proves the distinction above is real: the exact same kind of flip,
-            // with no protector at all to detect it, has to land on the generic failure instead.
             FileStore store = new(_root);
             SaveService service = new(new JsonCodec(), new NoProtection(), store);
 
@@ -105,8 +106,6 @@ namespace Company.ChestGame.Tests.EditMode
                 "an unprotected save has no MAC to fail; a corrupted body has to read as PayloadUnreadable, never as PayloadTampered");
             StringAssert.Contains("could not be read back", error.Message);
         }
-
-        // --- Property 4: a different key reads as tampering, for both protectors -----------------
 
         [TestCase("hmac")]
         [TestCase("aes")]

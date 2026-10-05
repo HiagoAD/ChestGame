@@ -1,17 +1,31 @@
 namespace Company.ChestGame.Saving
 {
-    // Turns each selection enum into the component it names. CreateStore, CreateCodec and
-    // CreateProtector each hand back one component, never an assembled save pipeline. A value this
-    // build does not recognise, such as one serialized by a newer build, gets the default - File,
-    // Json or None - rather than an exception. See docs/saving.md for the reasoning behind this.
+    /// <summary>
+    /// Turns each selection enum into the component it names. <see cref="CreateStore"/>,
+    /// <see cref="CreateCodec"/> and <see cref="CreateProtector"/> each hand back one component,
+    /// never an assembled save pipeline. A value this build does not recognise, such as one
+    /// serialized by a newer build, gets the default - File, Json or None - rather than an
+    /// exception.
+    /// </summary>
+    /// <remarks>
+    /// See docs/saving.md, "SaveComponentFactory, SaveFactoryInputs and SaveServiceFactory".
+    /// </remarks>
     public static class SaveComponentFactory
     {
-        // Every InMemory store handed out is this one instance, so what it holds lasts for the life
-        // of the process however many times it is requested. Construct InMemoryStore directly for
-        // an isolated one.
+        /// <summary>
+        /// The single <see cref="InMemoryStore"/> handed out for every <see cref="SaveStorage.InMemory"/>
+        /// request, so what it holds lasts for the life of the process however many times it is
+        /// requested. Construct <see cref="InMemoryStore"/> directly for an isolated one.
+        /// </summary>
         private static readonly InMemoryStore SharedInMemoryStore = new();
 
-        // Throws SaveException when inputs is null, even for InMemory, which reads nothing from it.
+        /// <summary>
+        /// Builds the <see cref="ISaveStore"/> named by <paramref name="storage"/>.
+        /// </summary>
+        /// <exception cref="SaveException">
+        /// When <paramref name="inputs"/> is null, even for <see cref="SaveStorage.InMemory"/>,
+        /// which reads nothing from it.
+        /// </exception>
         public static ISaveStore CreateStore(SaveStorage storage, SaveFactoryInputs inputs)
         {
             if (inputs == null) throw SaveException.NoFactoryInputs();
@@ -34,7 +48,13 @@ namespace Company.ChestGame.Saving
                 _ => new JsonCodec()
             };
 
-        // Throws SaveException when inputs is null, even for None and Base64, which need no key.
+        /// <summary>
+        /// Builds the <see cref="IPayloadProtector"/> named by <paramref name="protection"/>.
+        /// </summary>
+        /// <exception cref="SaveException">
+        /// When <paramref name="inputs"/> is null, even for <see cref="SaveProtection.None"/> and
+        /// <see cref="SaveProtection.Base64"/>, which need no key.
+        /// </exception>
         public static IPayloadProtector CreateProtector(SaveProtection protection, SaveFactoryInputs inputs)
         {
             if (inputs == null) throw SaveException.NoFactoryInputs();

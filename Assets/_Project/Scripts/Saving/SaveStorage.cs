@@ -1,11 +1,14 @@
 namespace Company.ChestGame.Saving
 {
-    // Which ISaveStore a profile wants, in a form an inspector can serialize.
-    //
-    // Append only. A SaveProfileSO stores this by index, so inserting a member in the middle
-    // silently repoints every authored profile at a different backend. File sits first because
-    // first place is what a newly serialized field lands on; a fifth backend goes after InMemory,
-    // not before it.
+    /// <summary>
+    /// Which <see cref="ISaveStore"/> a profile wants, in a form an inspector can serialize.
+    /// </summary>
+    /// <remarks>
+    /// Append only. A <see cref="SaveProfileSO"/> stores this by index, so inserting a member in
+    /// the middle silently repoints every authored profile at a different backend. A new backend
+    /// goes after <see cref="InMemory"/>, not before it.
+    /// See docs/saving.md, "The three selection enums are append-only".
+    /// </remarks>
     public enum SaveStorage
     {
         File,

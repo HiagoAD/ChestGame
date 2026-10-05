@@ -4,6 +4,7 @@
     "references": [
         "Company.ChestGame.Pooling",
         "Company.ChestGame.Common",
+        "Company.ChestGame.Mvc",
         "UniTask",
         "UnityEngine.UI"
     ],

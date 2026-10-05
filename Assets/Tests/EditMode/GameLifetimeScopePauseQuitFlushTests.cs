@@ -12,24 +12,13 @@ using UnityEngine.TestTools;
 
 namespace Company.ChestGame.Tests.EditMode
 {
-    // GameLifetimeScope.OnApplicationPause/OnApplicationQuit, proven without ever letting Awake()
-    // run for real. Awake() calls base.Awake(), which VContainer uses to invoke Configure(), which
-    // hardcodes RegisterCoreServices(builder, status) with no override for currencySaveInputs or
-    // legacyCurrencyPlayerPrefsKey - the production call site, deliberately not overridable (see
-    // docs/saving.md, "Redirecting this composition away from a developer's real save": production
-    // is meant to use the real values). That means any test that lets a real GameLifetimeScope
-    // Awake() would touch the developer's real Application.persistentDataPath and real legacy
-    // PlayerPrefs entry - see this gate's report for where that already happens today
-    // (GameBootstrapperTests, by booting the real scenes).
-    //
-    // This fixture avoids that entirely: the GameObject is left inactive for its whole life, which
-    // defers Awake() indefinitely (Unity never calls Awake on a component whose GameObject has not
-    // yet been active), so the container is never built and Configure() never runs. The private
-    // _saveFlushRegistry field - the only state either callback touches - is set directly through
-    // reflection to a real SaveFlushRegistry holding a scheduler built over an isolated in-memory
-    // FakeSaveStore, and the private OnApplicationPause/OnApplicationQuit methods are invoked the
-    // same way, since nothing in this process actually pauses or quits the application to call them
-    // for us.
+    /// <summary>
+    /// Covers <see cref="GameLifetimeScope"/>'s <c>OnApplicationPause</c>/<c>OnApplicationQuit</c>
+    /// flush, without ever letting a real <c>Awake()</c> run.
+    /// </summary>
+    /// <remarks>
+    /// See docs/saving.md, "Sealing the boot path a test cannot pass arguments through".
+    /// </remarks>
     public class GameLifetimeScopePauseQuitFlushTests
     {
         private const string Key = "currency";
@@ -72,11 +61,12 @@ namespace Company.ChestGame.Tests.EditMode
             return (new SaveService(new JsonCodec(), new NoProtection(), store), store);
         }
 
+        /// <remarks>
+        /// See docs/saving.md, "Sealing the boot path a test cannot pass arguments through".
+        /// </remarks>
         [Test]
         public void GuardSetup_NeverRanAwake()
         {
-            // If this fails, Awake() ran and the rest of this fixture's isolation claim is false -
-            // Container being null is exactly what "Configure() never ran" looks like from outside.
             Assert.IsNull(_scope.Container, "guard: Awake() must never have run in this fixture");
         }
 
@@ -138,6 +128,9 @@ namespace Company.ChestGame.Tests.EditMode
             scheduler.Dispose();
         }
 
+        /// <remarks>
+        /// See docs/saving.md, "Why the flush stopped being one field".
+        /// </remarks>
         [Test]
         public void OnApplicationPause_True_WhenAFlushableThrows_LogsRatherThanPropagating()
         {
@@ -145,15 +138,9 @@ namespace Company.ChestGame.Tests.EditMode
             SaveScheduler<CurrencySaveDocument> scheduler = new(service, Key, new FakeGameClock());
             SaveFlushRegistry registry = new();
             registry.Register(scheduler);
-            // A disposed scheduler's own FlushBlocking throws SchedulerDisposed - a real exception
-            // from the real type, not a fake standing in for one. Disposing after registering:
-            // Register itself asserts CanFlushBlocking, which disposal does not change.
             scheduler.Dispose();
             SetRegistry(registry);
 
-            // Logged by SaveFlushRegistry.FlushAll's own per-item catch, not by this callback's
-            // outer one - FlushAll never lets a single flushable's failure reach here at all - and
-            // naming the key, which is the whole reason ISaveFlushable carries one.
             LogAssert.Expect(LogType.Error, new Regex(Regex.Escape($"The save under '{Key}' failed to flush on pause/quit")));
 
             Assert.DoesNotThrow(() => InvokeOnApplicationPause(true));

@@ -7,7 +7,6 @@ using UnityEngine;
 using UnityEngine.AddressableAssets;
 using VContainer;
 using VContainer.Unity;
-// System brings a second Object with it; the alias keeps End's Object.Destroy meaning what it did.
 using Object = UnityEngine.Object;
 
 namespace Company.ChestGame.Minigame.Core
@@ -30,12 +29,17 @@ namespace Company.ChestGame.Minigame.Core
         [Inject]
         private IAssetProvider _assets;
 
-        // Known here because the definition owns the content hook, which runs from BeginAsync.
+        /// <remarks>
+        /// See docs/minigames.md, "Nothing loads while the container is built".
+        /// </remarks>
         private MinigameBaseSO _definition;
 
-        // How long the on-demand fetch may take before the player is told it did not work.
-        // Overridable rather than authored, and longer than anything Addressables bounds itself.
-        // See docs/content-delivery.md.
+        /// <summary>
+        /// How long the on-demand fetch may take before the player is told it did not work.
+        /// </summary>
+        /// <remarks>
+        /// See docs/content-delivery.md, "Timeouts".
+        /// </remarks>
         protected virtual TimeSpan ContentDownloadTimeout => TimeSpan.FromSeconds(90);
 
 
@@ -46,19 +50,39 @@ namespace Company.ChestGame.Minigame.Core
             _definition = definition;
         }
 
-        // Everything content-shaped happens here, because a reference resolves asynchronously and
-        // none of it can happen earlier. The configure-before-inject ordering below is a framework
-        // promise, not an accident of where the lines sit: a controller builds state from its own
-        // config and is injected on top of it.
+        /// <summary>
+        /// Everything content-shaped happens here: fetches this minigame's on-demand content if
+        /// needed, loads the view, then runs the definition's configure hook and injects the
+        /// controller before the view is instantiated. A controller builds state from its own
+        /// config and is injected on top of it. When a step fails once injection has begun,
+        /// including a throw inside <c>Inject</c> itself, the view is destroyed, the content
+        /// released and then the controller disposed; a failure before injection begins does not
+        /// dispose it.
+        /// </summary>
+        /// <exception cref="MinigameAlreadyRunningException">The container is already running.</exception>
+        /// <exception cref="ContentDownloadTimeoutException">
+        /// The on-demand content deadline elapsed before the download finished.
+        /// </exception>
+        /// <exception cref="AssetLoadException">
+        /// The on-demand content query or download, or the view load, resolved but failed.
+        /// </exception>
+        /// <exception cref="MissingAssetException">
+        /// The on-demand content label or the view reference names nothing in the shipped catalog.
+        /// </exception>
+        /// <exception cref="OperationCanceledException">
+        /// <paramref name="ct"/> was cancelled before the controller was injected, including when
+        /// the last await completed after the cancel. Nothing is injected, instantiated or left
+        /// running, and the content is released.
+        /// </exception>
+        /// <remarks>
+        /// See docs/minigames.md, "Nothing loads while the container is built".
+        /// See docs/minigames.md, "Starting twice is loud".
+        /// See docs/minigames.md, "Failure during a start".
+        /// </remarks>
         public async UniTask BeginAsync(Transform parent, CancellationToken ct)
         {
-            // Loud rather than a silent early return, and deliberately not symmetrical with End:
-            // a second start takes a second ref-count on the view that the single End can never
-            // give back.
             if (_running) throw new MinigameAlreadyRunningException(_definition != null ? _definition.Id : null);
 
-            // Set the moment injection begins, so the catch disposes a controller only once it may
-            // have taken on something Dispose gives back, and never one that was never reached.
             bool controllerInjected = false;
 
             try
@@ -68,20 +92,17 @@ namespace Company.ChestGame.Minigame.Core
                 GameObject prefab = await _assets.LoadAsync<GameObject>(ViewRef, ct);
 
                 await _definition.ConfigureControllerAsync(ControllerInstance, _assets, ct);
+                ct.ThrowIfCancellationRequested();
+
                 controllerInjected = true;
                 _resolver.Inject(ControllerInstance);
 
-                // Through the resolver rather than Addressables, so the view and everything under
-                // it are injected the way every other object in the game is.
                 ViewInstance = _resolver.Instantiate(prefab.GetComponent<MinigameViewBase>(), parent);
                 ViewInstance.SetController(ControllerInstance);
                 _running = true;
             }
             catch
             {
-                // Nothing else can ever let these go: End is a no-op until _running is true, which
-                // is the last line above. The view is destroyed here for the same reason, one
-                // object further on.
                 if (ViewInstance != null)
                 {
                     Object.Destroy(ViewInstance.gameObject);
@@ -90,11 +111,6 @@ namespace Company.ChestGame.Minigame.Core
 
                 ReleaseContent();
 
-                // Same reason, for the controller: injection is where it registers for flushing,
-                // and End, which would dispose it, is a no-op until _running is true. Last, and
-                // logged rather than thrown, so a failing Dispose cannot replace the failure the
-                // caller needs to see. The nested catch ends before the bare throw below, which is
-                // what keeps that throw pointing at the original.
                 if (controllerInjected)
                 {
                     try
@@ -111,8 +127,13 @@ namespace Company.ChestGame.Minigame.Core
             }
         }
 
-        // Safe on a minigame that was never begun, or begun and already ended, so callers can tear
-        // down unconditionally. Synchronous because it releases handles, never instances.
+        /// <summary>
+        /// Safe on a minigame that was never begun, or begun and already ended, so callers can tear
+        /// down unconditionally.
+        /// </summary>
+        /// <remarks>
+        /// See docs/minigames.md, "Teardown".
+        /// </remarks>
         public void End()
         {
             if (!_running) return;
@@ -129,20 +150,22 @@ namespace Company.ChestGame.Minigame.Core
             ReleaseContent();
         }
 
-        // The one moment the game knows this content is about to be needed. Already cached,
-        // shipped local or preloaded content measures zero and costs one size query.
+        /// <exception cref="ContentDownloadTimeoutException">
+        /// <see cref="ContentDownloadTimeout"/> elapsed before the download finished.
+        /// </exception>
+        /// <exception cref="AssetLoadException">The size query or the download resolved but failed.</exception>
+        /// <exception cref="MissingAssetException">The content label names nothing in the shipped catalog.</exception>
+        /// <remarks>
+        /// See docs/content-delivery.md, "When content arrives".
+        /// See docs/content-delivery.md, "Timeouts".
+        /// See docs/content-delivery.md, "Which token fired".
+        /// </remarks>
         private async UniTask EnsureContentIsDownloadedAsync(CancellationToken ct)
         {
             if (_definition.LoadPolicy != MinigameLoadPolicy.OnDemand) return;
 
-            // The blank-label rule belongs to the descriptor, which owns the field, so both
-            // delivery paths get the same answer.
             if (!_definition.TryGetContentLabel(out string label)) return;
 
-            // A deadline at all because a stalled download never fails: nothing throws, nothing
-            // returns, and the disabled start button stays disabled. Linked, so a scene going away
-            // mid-fetch ends the wait immediately. Read once, so the exception reports the budget
-            // that was actually given.
             TimeSpan budget = ContentDownloadTimeout;
 
             using CancellationTokenSource deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -155,8 +178,6 @@ namespace Company.ChestGame.Minigame.Core
 
                 await _assets.DownloadAsync(label, null, deadline.Token);
             }
-            // Only the deadline firing on its own is worth telling a player about; the caller
-            // cancelling means the scene is going away. Both at once counts as the caller's.
             catch (OperationCanceledException) when (!ct.IsCancellationRequested)
             {
                 throw new ContentDownloadTimeoutException(label, budget);

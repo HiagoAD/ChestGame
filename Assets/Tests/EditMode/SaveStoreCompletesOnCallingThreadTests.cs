@@ -8,16 +8,17 @@ using UnityEngine;
 
 namespace Company.ChestGame.Tests.EditMode
 {
-    // Every concrete ISaveStore this assembly ships answers CompletesOnCallingThread with true, and
-    // callers block on the result on the strength of that answer - see docs/saving.md, "The thread
-    // hop". Restating the constant proves nothing, so each store here is actually driven through
-    // Write, Read, Exists and Delete, and every task it hands back has to be finished the instant
-    // the call returns: a store that genuinely suspended anywhere would be caught Pending here, which
-    // is exactly the state a blocking caller would deadlock on. PlayerPrefsStore alone also carries
-    // IMainThreadOnlyStore, pinned alongside.
-    //
-    // Real disk and real PlayerPrefs, isolated the way docs/testing.md requires: a GUID temp root
-    // deleted in TearDown, and a GUID key prefix whose one key is deleted and saved in TearDown.
+    /// <summary>
+    /// Drives every concrete <c>ISaveStore</c> this assembly ships through Write, Read, Exists and
+    /// Delete, and requires each returned task to be finished the instant the call returns.
+    /// <c>PlayerPrefsStore</c> alone also carries <c>IMainThreadOnlyStore</c>, pinned alongside.
+    /// </summary>
+    /// <remarks>
+    /// Uses real disk and real PlayerPrefs, isolated by a GUID temp root and a GUID key prefix that
+    /// <c>TearDown</c> removes.
+    /// See docs/saving.md, "The thread hop, and why it is not inside SaveService".
+    /// See docs/testing.md, "The save suites never touch a real save".
+    /// </remarks>
     public class SaveStoreCompletesOnCallingThreadTests
     {
         private const string Key = "save";
@@ -41,8 +42,9 @@ namespace Company.ChestGame.Tests.EditMode
             PlayerPrefs.Save();
         }
 
-        // Each status is read before anything else touches the task, so "finished" means finished
-        // by the time the call itself returned - not by the time something later waited on it.
+        /// <remarks>
+        /// See docs/testing.md, "The save fixtures".
+        /// </remarks>
         private static void AssertEveryCallFinishesBeforeReturning(ISaveStore store)
         {
             Assert.IsTrue(store.CompletesOnCallingThread, "guard: this store has to claim the answer being checked");

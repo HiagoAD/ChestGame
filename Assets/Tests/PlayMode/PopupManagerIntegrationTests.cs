@@ -13,14 +13,22 @@ using UnityEngine.TestTools;
 
 namespace Company.ChestGame.Tests.PlayMode
 {
-    // PopupManager's own logic and the sources' key handling are covered in edit mode. What is left
-    // here needs the engine and the shipped content: that the Addressables-backed sources resolve
-    // the keys the game ships, and that a real prefab instantiates under the canvas the provider
-    // builds. UnityTests throughout, because these loads really do wait.
+    /// <summary>
+    /// Integration coverage for what only a real engine and the shipped content can prove about
+    /// popups: that the Addressables-backed sources resolve the keys the game ships, and that a real
+    /// prefab instantiates under the canvas the provider builds.
+    /// </summary>
+    /// <remarks>
+    /// See docs/testing.md, "What lives where".
+    /// </remarks>
     public class PopupManagerIntegrationTests
     {
         private GameObject _spawnedRoot;
 
+        /// <remarks>
+        /// See docs/architecture.md, "Popups".
+        /// See docs/testing.md, "What lives where".
+        /// </remarks>
         [TearDown]
         public void TearDown()
         {
@@ -29,8 +37,6 @@ namespace Company.ChestGame.Tests.PlayMode
                 Object.Destroy(_spawnedRoot);
             }
 
-            // The provider parents popups under a DontDestroyOnLoad canvas it creates on first use,
-            // which would otherwise survive into the next test.
             foreach (PopupParent parent in Object.FindObjectsByType<PopupParent>(FindObjectsSortMode.None))
             {
                 Object.Destroy(parent.gameObject);
@@ -87,7 +93,6 @@ namespace Company.ChestGame.Tests.PlayMode
             Assert.IsNotNull(popup.transform.parent, "popups land under the shared canvas when no parent is given");
         });
 
-        // The real provider, not a fake: the point of these four is that the shipped keys resolve.
         private static readonly IAssetProvider AssetProvider = new AddressablesAssetProvider();
 
         private static UniTask<IReadOnlyList<PopupBase>> ShippedPopupEntries() =>

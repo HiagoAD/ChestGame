@@ -14,26 +14,33 @@ using UnityEngine.UI;
 
 namespace Company.ChestGame.Tests.PlayMode
 {
-    // The board is rebuilt from scratch on every new game, which is what pooling pays for. This
-    // turns that claim into an assertion: the same view, the same rounds, one serialized field
-    // different, and a count of how many chest objects the engine actually had to build.
-    //
-    // Play mode rather than edit mode because Object.Destroy is deferred to end of frame, and "how
-    // many of these exist" has a wrong answer until it has landed. Every count is read after the
-    // fill and the destroys have settled.
+    /// <summary>
+    /// Turns the board-is-rebuilt-from-scratch claim into an assertion: the same view, the same
+    /// rounds, one serialized field different, and a count of how many chest objects the engine
+    /// actually had to build.
+    /// </summary>
+    /// <remarks>
+    /// See docs/design-decisions.md, "14. Pooling, and why the board is rebuilt rather than kept".
+    /// See docs/testing.md, "What lives where".
+    /// </remarks>
     public class ChestBoardPoolingTests
     {
         private const int BoardSize = 6;
         private const int Rounds = 3;
 
-        // The worst a time-budgeted fill can do is one chest a frame, which a cold first frame after
-        // a domain reload can actually produce, plus room for the deferred destroys to land.
+        /// <remarks>
+        /// See docs/minigames.md, "The board is rebuilt every game".
+        /// </remarks>
         private const int SettleFrames = BoardSize + 4;
 
         private GameObject _prefabObject;
         private GameObject _viewObject;
         private ChestsMinigameController _controller;
 
+        /// <remarks>
+        /// See docs/saving.md, "InMemoryStore".
+        /// See docs/testing.md, "What lives where".
+        /// </remarks>
         [SetUp]
         public void SetUp()
         {
@@ -41,9 +48,6 @@ namespace Company.ChestGame.Tests.PlayMode
             _controller.Configure(ChestsMinigameConfig.Create(
                 chestCount: BoardSize, attempsCount: BoardSize, timeToOpenChestMiliseconds: 1000));
 
-            // A real ISaveService over InMemoryStore rather than a test double: InMemoryStore is a
-            // legitimate production choice for exactly this reason (docs/saving.md), and this
-            // fixture's own PlayMode assembly cannot reference the EditMode-only FakeSaveStore.
             ISaveService saveService = new SaveService(new JsonCodec(), new NoProtection(), new InMemoryStore());
             _controller.Inject(new FakeRewardsManager(), new FakeRandomProvider(), new UnityGameClock(), saveService, new SaveFlushRegistry());
         }
@@ -70,11 +74,12 @@ namespace Company.ChestGame.Tests.PlayMode
                 "and it has to be holding exactly one board, not a board per round it forgot to hand back");
         }
 
+        /// <remarks>
+        /// See docs/design-decisions.md, "14. Pooling, and why the board is rebuilt rather than kept".
+        /// </remarks>
         [UnityTest]
         public IEnumerator UnderTheBaseline_ReplayingTheBoardRebuildsItEveryTime()
         {
-            // What makes the number above mean anything: if this ever comes back equal to a single
-            // board, the comparison rests on a pool measured against a pool.
             BuildView(PoolStrategy.DirectSpawner);
 
             yield return PlayRounds(Rounds);
@@ -85,13 +90,13 @@ namespace Company.ChestGame.Tests.PlayMode
                 "it destroys what it releases, so it leaks nothing either: the difference between the two is what a round costs, not what it leaves behind");
         }
 
+        /// <remarks>
+        /// See docs/minigames.md, "A chest has two lifetimes now".
+        /// See docs/design-decisions.md, "14. Pooling, and why the board is rebuilt rather than kept".
+        /// </remarks>
         [UnityTest]
         public IEnumerator AfterARebuild_EachChestModelStillDrivesExactlyOneView()
         {
-            // Why a released view has to let go of its model rather than rely on being destroyed.
-            // The pool hands instances back in reverse order, so an instance that kept its old
-            // subscription shows one chest while still listening to another, and one model then
-            // lights up two views.
             BuildView(PoolStrategy.ActivationPool);
 
             yield return PlayRounds(2);
@@ -102,13 +107,14 @@ namespace Company.ChestGame.Tests.PlayMode
                 "one chest opened, so one chest on the board shows a timer; two means a reused view is still following the chest it used to show");
         }
 
-        // --- The rig ------------------------------------------------------------------------
-
+        /// <remarks>
+        /// See docs/minigames.md, "Nothing loads while the container is built".
+        /// See docs/design-decisions.md, "14. Pooling, and why the board is rebuilt rather than kept".
+        /// </remarks>
         private ChestsMinigameView BuildView(PoolStrategy strategy)
         {
             ChestsMinigameChestElementView prefab = BuildChestPrefab();
 
-            // A Canvas because this is a uGUI screen and TextMeshProUGUI expects to live under one.
             _viewObject = new GameObject("ChestsView", typeof(RectTransform), typeof(Canvas));
             _viewObject.SetActive(false);
 
@@ -121,17 +127,16 @@ namespace Company.ChestGame.Tests.PlayMode
 
             _viewObject.SetActive(true);
 
-            // The order the container uses: the resolver instantiates and injects the view, then the
-            // controller is handed over, then the shell starts a game.
             view.Inject(new UnityGameClock());
             view.SetController(_controller);
 
-            // After the rig is standing, so the one Awake the source object ran on its own is not
-            // counted as something the board built.
             SpawnProbe.Instantiations = 0;
             return view;
         }
 
+        /// <remarks>
+        /// See docs/design-decisions.md, "What the tests do and do not prove".
+        /// </remarks>
         private ChestsMinigameChestElementView BuildChestPrefab()
         {
             _prefabObject = new GameObject("ChestPrefab", typeof(RectTransform));
@@ -144,8 +149,6 @@ namespace Company.ChestGame.Tests.PlayMode
             Set(chest, "_timerSlider", AddChild<Slider>(_prefabObject, "Slider"));
             Set(chest, "_button", AddChild<Button>(_prefabObject, "Button"));
 
-            // Left active, like the real prefab's root: an inactive source would measure the rig
-            // rather than the pools.
             _prefabObject.SetActive(true);
             return chest;
         }
@@ -160,8 +163,9 @@ namespace Company.ChestGame.Tests.PlayMode
             }
         }
 
-        // Everything under the view: the board and whatever is parked in the pool's holder, which is
-        // a child of the view too. Inactive included, because that is how ActivationPool parks.
+        /// <remarks>
+        /// See docs/design-decisions.md, "Why ParkedPool is the default".
+        /// </remarks>
         private int LiveChestsUnderTheView() =>
             _viewObject.GetComponentsInChildren<ChestsMinigameChestElementView>(true).Length;
 
@@ -191,8 +195,9 @@ namespace Company.ChestGame.Tests.PlayMode
                 .GetField(fieldName, BindingFlags.NonPublic | BindingFlags.Instance)
                 .SetValue(target, value);
 
-        // Counts how many chest objects the engine was actually asked to build. A pool's own
-        // CreatedCount would only prove a field moved; an Awake proves Instantiate ran.
+        /// <remarks>
+        /// See docs/design-decisions.md, "What the tests do and do not prove".
+        /// </remarks>
         public class SpawnProbe : MonoBehaviour
         {
             public static int Instantiations;

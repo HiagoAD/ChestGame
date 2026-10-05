@@ -3,19 +3,26 @@ using System.Collections.Generic;
 
 namespace Company.ChestGame.Saving
 {
-    // Human-readable warnings about a profile's codec/protector combination. Never errors: nothing
-    // returned here prevents a service being built from the profile it warns about.
+    /// <summary>
+    /// Human-readable warnings about a profile's codec/protector combination. Never errors: nothing
+    /// returned here prevents a service being built from the profile it warns about.
+    /// </summary>
     public static class SaveProfileValidator
     {
+        /// <summary>
+        /// Unity-null, not C#-null: a destroyed profile has nothing to warn about, and refusing it
+        /// outright is a different method's job.
+        /// </summary>
         public static IReadOnlyList<string> Validate(SaveProfileSO profile)
         {
-            // Unity-null, not C#-null: a destroyed profile has nothing to warn about, and refusing
-            // it outright is a different method's job.
             if (profile == null) return Array.Empty<string>();
 
             return Validate(profile.Codec, profile.Protection);
         }
 
+        /// <remarks>
+        /// See docs/saving.md, "SaveProfileValidator".
+        /// </remarks>
         public static IReadOnlyList<string> Validate(SaveCodec codec, SaveProtection protection)
         {
             List<string> warnings = new();
@@ -27,14 +34,6 @@ namespace Company.ChestGame.Saving
                     $"{protection} makes that body unreadable anyway — the indentation is paid " +
                     "for and then thrown away.");
             }
-
-            // Deliberately not warned about: JsonGzip paired with an encrypting protector. Encoding
-            // always runs before protecting, so gzip always compresses the plaintext before
-            // anything encrypts it. "Compression after encryption buys nothing" is true, but
-            // it describes the opposite order to the one this pipeline runs: encrypting a codec's
-            // output can never make that codec's own compression pointless, because the compression
-            // already happened first. That failure mode would need IPayloadProtector to run before
-            // ISaveCodec, which nothing in this architecture does.
 
             if (protection == SaveProtection.Base64)
             {

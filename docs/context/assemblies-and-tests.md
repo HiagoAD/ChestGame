@@ -222,7 +222,7 @@ Each of these was reachable in the shipped game unless noted.
 5. **Catalog `ToDictionary` crashed on nulls and duplicates.** Made easier to reach by converting
    `OnValidate` from throw to log, which left the null behind instead of aborting the edit.
 6. **`SetOpening` had no guard against firing after a chest opened**, unlike `SetOpen`. Belt and
-   braces; see the honest caveat in section 7.
+   braces; see the `FakeGameClock` caveat in [WIP.md](../WIP.md), "Known gaps in the tests".
 7. **Two stray editor-only usings in runtime files** (`UnityEditor.U2D.Aseprite` in `PopupManager`,
     `Unity.Android.Gradle.Manifest` in `PopupBase`). They compiled only because `Assembly-CSharp`
     gets editor references in the editor. They would have broken any player build.
@@ -231,28 +231,11 @@ Each of these was reachable in the shipped game unless noted.
 
 ## 7. Known gaps, and one honest caveat
 
-**`GameManager` is untested.** It is MonoBehaviour glue needing a wired Button and a scene. `End()`
-is reachable and `MinigameContainerLifecycleTests` covers the container lifecycle directly, but
-nothing asserts that `GameManager` calls it. Two more of its behaviours are asserted nowhere: the
-start button going non-interactable while a start is in flight, and a `ChestGameException` becoming
-a `ContentUnavailablePopup`. The pattern in `ChestElementViewLifetimeTests` (deactivate, add
-component, reflect fields in, reactivate) would close all of this, and `FakePopupManager` already
-records what would have been spawned.
-
-**`CurrencyWatcher` is untested.** Cosmetic UI binding, judged low value.
-
-**The play-mode ordering test is dormant.** `OnTheRealPlayerLoop_NoProgressTickLandsAfterAChestOpens`
-passes with or without the `SetOpening` guard, because the real player loop currently orders the two
-tasks favourably. It is a canary for a future ordering change, not an active check.
-
-**`FakeGameClock` cannot reproduce the ordering bug it was meant to guard.** In the fake, `passedTime`
-and the delay share one clock, so `passedTime < totalTime` flips false on exactly the frame the delay
-comes due, and the progress loop always exits before it could tick again. That holds under both
-orderings. The real risk is drift between `UniTask.Yield` accumulation and `UniTask.Delay`, which are
-separate accumulators in the engine but one in the fake. What actually protects the invariant is the
-`SetOpening` guard, covered by `SetOpening_AfterTheChestIsOpen_IsIgnored` (verified by mutation).
-`OpeningIsUnaffectedByScheduling` is kept because scheduling independence is worth asserting, but it
-does not guard this.
+The gaps this pass left, and the one honest caveat about `FakeGameClock`, are tracked in
+[WIP.md](../WIP.md), "Known gaps in the tests": `GameManager`'s behaviour untested, the dormant
+play-mode ordering test, and the fake clock that cannot reproduce the ordering bug. The gap that was
+first listed here as `CurrencyWatcher` untested was reshaped by the MVC refactor into
+`CurrencyLabelController`, which has tests; see [WIP.md](../WIP.md) for what remains.
 
 **`ICurrencyManager` leaking `ResourceBankCallbacks`** is resolved: the delegate is now the
 project-owned `CurrencyChangedHandler`, and `UI` no longer references `TapNation.Modules`. See

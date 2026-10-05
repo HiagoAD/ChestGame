@@ -5,7 +5,9 @@ using UnityEngine.UI;
 
 namespace Company.ChestGame.Minigame.Chests.Internal
 {
-    // Drives one chest from its model state, with a slider during the opening state.
+    /// <summary>
+    /// Drives one chest from its model state, with a slider during the opening state.
+    /// </summary>
     public class ChestsMinigameChestElementView : MonoBehaviour
     {
 
@@ -30,9 +32,9 @@ namespace Company.ChestGame.Minigame.Chests.Internal
             SetClosed();
         }
 
-        // Paired with Release, which the caller owes between two Inits: a pool hands the same
-        // instance out over and over, and the model it was showing last time has to have been let
-        // go by then. Releasing here as well would hide a caller that forgot.
+        /// <remarks>
+        /// See docs/minigames.md, "A chest has two lifetimes now".
+        /// </remarks>
         public void Init(ChestsMinigameChestModel model, Action<ChestsMinigameChestModel> callback)
         {
             _model = model;
@@ -42,14 +44,10 @@ namespace Company.ChestGame.Minigame.Chests.Internal
             OnStateChanged(_model.CurrentState);
         }
 
-        // The other half of Init, and what pooling needs that destruction alone did not. A released
-        // instance goes on existing - ParkedPool does not even deactivate it - so a subscription
-        // left behind would drive a chest this view is no longer showing, and a click would still
-        // reach the controller carrying the old model.
-        //
-        // Nothing visual is reset here, on purpose: Init drives all of it from the model it is
-        // handed, and clearing it here too would let a broken Init still look right on whichever
-        // instance came next.
+        /// <remarks>
+        /// The other half of <see cref="Init"/>.
+        /// See docs/minigames.md, "A chest has two lifetimes now".
+        /// </remarks>
         public void Release()
         {
             if (_model != null)
@@ -61,9 +59,10 @@ namespace Company.ChestGame.Minigame.Chests.Internal
             _onClickCallback = null;
         }
 
-        // The click listener is per instance, added once in Awake and dropped once here. The model
-        // subscription is per acquire, so it goes out through Release: the model belongs to the
-        // controller and outlives the view showing it.
+        /// <remarks>
+        /// See docs/minigames.md, "A chest has two lifetimes now".
+        /// See docs/minigames.md, "The views".
+        /// </remarks>
         private void OnDestroy()
         {
             Release();

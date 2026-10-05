@@ -4,14 +4,15 @@ using UnityEngine.ResourceManagement.AsyncOperations;
 
 namespace Company.ChestGame.Assets
 {
-    // What the provider is holding on behalf of each authored reference.
-    //
-    // Keyed on the runtime key, never on the reference: AssetReference overrides neither Equals nor
-    // GetHashCode, so a dictionary keyed on it has reference identity and any caller rebuilding a
-    // reference from the same GUID would get a silent no-op release and a leaked handle.
-    //
-    // Every handle is kept, not one per reference, because Addressables ref-counts per load. One
-    // TryTake pairs with one Remember, last-in-first-out. See docs/asset-loading.md.
+    /// <summary>
+    /// What the provider is holding on behalf of each authored reference.
+    /// </summary>
+    /// <remarks>
+    /// Keyed on the runtime key, never on the reference. Every handle is kept rather than one per
+    /// reference, and one <see cref="TryTake"/> pairs with one <see cref="Remember"/>,
+    /// last-in-first-out.
+    /// See docs/asset-loading.md, "AssetHandleRegistry".
+    /// </remarks>
     public class AssetHandleRegistry
     {
         private readonly Dictionary<string, List<AsyncOperationHandle>> _handles = new();
@@ -30,8 +31,16 @@ namespace Company.ChestGame.Assets
             handles.Add(handle);
         }
 
-        // A reference nothing is currently held for answers false rather than failing, so the
-        // teardown paths can release unconditionally.
+        /// <summary>
+        /// Takes one handle remembered for <paramref name="reference"/>, if any.
+        /// </summary>
+        /// <returns>
+        /// False when nothing is currently held for the reference, rather than failing, so
+        /// teardown paths can call this unconditionally.
+        /// </returns>
+        /// <remarks>
+        /// See docs/asset-loading.md, "AssetHandleRegistry".
+        /// </remarks>
         public bool TryTake(AssetReference reference, out AsyncOperationHandle handle)
         {
             handle = default;
@@ -43,7 +52,6 @@ namespace Company.ChestGame.Assets
             handle = handles[last];
             handles.RemoveAt(last);
 
-            // The key goes with its last handle, so repeated load-release leaves no empty lists.
             if (handles.Count == 0) _handles.Remove(key);
 
             return true;

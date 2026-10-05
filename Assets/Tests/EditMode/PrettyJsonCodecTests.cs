@@ -8,11 +8,14 @@ using NUnit.Framework;
 
 namespace Company.ChestGame.Tests.EditMode
 {
-    // PrettyJsonCodec: JsonCodec's own serialization with Formatting.Indented instead of
-    // Formatting.None. See docs/saving.md, "The codecs". The value-survives-but-whitespace-
-    // normalises-on-read claim for this codec is covered by SaveCodecEnvelopeValueExactnessTests;
-    // what stays here is the other half of that same doc section - that the file on disk, before
-    // anything ever re-Parses it, still carries the codec's own indentation verbatim.
+    /// <summary>
+    /// Tests <see cref="PrettyJsonCodec"/>: <see cref="JsonCodec"/>'s own serialization with
+    /// <c>Formatting.Indented</c> instead of <c>Formatting.None</c>.
+    /// </summary>
+    /// <remarks>
+    /// See docs/saving.md, "The codecs".
+    /// See docs/testing.md, "The save fixtures".
+    /// </remarks>
     public class PrettyJsonCodecTests
     {
         private class TestState { public int Value; }
@@ -56,17 +59,9 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.AreNotEqual(new JsonCodec().Id, new PrettyJsonCodec().Id);
         }
 
-        // --- Coverage gap: the file on disk is genuinely indented, not just the codec's own output ---
-
         [Test]
         public void SaveAsync_ThroughFileStore_WritesTheBodyGenuinelyIndented_AsFirstWrittenToDisk()
         {
-            // SaveEnvelope.Wrap builds the body JRaw straight from the codec's own output string,
-            // and Serialize writes that JRaw verbatim through WriteRawValue - only a later Parse
-            // normalises the whitespace away, and SaveService never re-wraps and re-writes what it
-            // loaded. So the bytes this test reads straight back off disk, without ever routing
-            // through Parse, have to still be PrettyJsonCodec's own indented text - the whole reason
-            // this codec exists (docs/saving.md, "Value-exactness, and where the formatting stops").
             string root = Path.Combine(Path.GetTempPath(), "ChestGameSaveTests_" + Guid.NewGuid());
             try
             {

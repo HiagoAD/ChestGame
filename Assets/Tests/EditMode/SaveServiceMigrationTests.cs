@@ -6,11 +6,13 @@ using NUnit.Framework;
 
 namespace Company.ChestGame.Tests.EditMode
 {
-    // SaveService's three-way version branch once a SaveMigrator exists to feed - see
-    // docs/saving.md, "Wiring: what LoadAsync does with a migrator". SaveServiceTests already pins
-    // the two branches that predate phase 4 (equal, and older-with-no-migrator) and stays
-    // untouched by this phase; this file adds the branch phase 4 makes reachable and re-confirms,
-    // with a migrator now wired in, that the other two still behave exactly as before.
+    /// <summary>
+    /// Covers <see cref="SaveService"/>'s three-way version branch once a <see cref="SaveMigrator"/>
+    /// exists to feed it.
+    /// </summary>
+    /// <remarks>
+    /// See docs/saving.md, "Wiring: what LoadAsync does with a migrator".
+    /// </remarks>
     public class SaveServiceMigrationTests
     {
         private const string Key = "profile";
@@ -55,10 +57,6 @@ namespace Company.ChestGame.Tests.EditMode
         [Test]
         public void LoadAsync_WhenVersionIsBelowCurrent_AndNoMigratorIsConfigured_StillThrowsNoMigrationPath()
         {
-            // The exact pre-phase-4 behaviour: SaveServiceTests already pins this without touching
-            // any phase 4 surface. Repeated here, explicitly alongside a migrator constructed but
-            // not supplied to this particular service, to make the "no migrator" half of the
-            // branch's own docs paragraph explicit in the same file as its sibling below.
             SaveService service = new(_codec, _protector, _store);
             _store.Seed(Key, Bytes(EnvelopeJson((SaveService.CurrentSchemaVersion - 1).ToString())));
 
@@ -73,9 +71,6 @@ namespace Company.ChestGame.Tests.EditMode
         [Test]
         public void LoadAsync_WhenVersionIsBelowCurrent_AndAMigratorIsConfigured_WalksTheChainAndMaterialisesTheMigratedDocument()
         {
-            // Every link in the chain depends on the one before it: the stored body reaches
-            // ToJson, ToJson's text reaches the migration, and the migration builds on the value it
-            // was handed rather than overwriting it. A wrong input at any link changes the result.
             int storedVersion = SaveService.CurrentSchemaVersion - 1;
             int? valueTheMigrationSaw = null;
             FakeSaveMigration migration = new(storedVersion, doc =>

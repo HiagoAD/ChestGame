@@ -6,8 +6,12 @@ using Object = UnityEngine.Object;
 
 namespace Company.ChestGame.Popups
 {
-    // Spawns popups from prefabs. Where those come from and where they get parented are both
-    // supplied, which leaves this class picking a prefab, picking a parent, handing over the data.
+    /// <summary>
+    /// Spawns popups from prefabs.
+    /// </summary>
+    /// <remarks>
+    /// See docs/architecture.md, "Popups".
+    /// </remarks>
     public class PopupManager : IPopupManager
     {
         readonly private IPopupCatalog _catalog;
@@ -32,9 +36,19 @@ namespace Company.ChestGame.Popups
             parent ??= _parentProvider.Default;
 
             TPopup popup = Object.Instantiate(popupPrefab, parent) as TPopup;
+            popup.OnCloseRequested += OnPopupCloseRequested;
             popup.Initialize(data);
 
             return popup;
+        }
+
+        /// <remarks>
+        /// See docs/architecture.md, "Popups".
+        /// </remarks>
+        private static void OnPopupCloseRequested(PopupBase popup)
+        {
+            popup.OnCloseRequested -= OnPopupCloseRequested;
+            Object.Destroy(popup.gameObject);
         }
     }
 }

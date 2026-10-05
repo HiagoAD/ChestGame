@@ -10,9 +10,12 @@ using NUnit.Framework;
 
 namespace Company.ChestGame.Tests.EditMode
 {
-    // SavePipelineProbe against SaveStorage.InMemory: SaveComponentFactory hands every InMemory case
-    // the same process-lifetime store (see SaveServiceFactoryCrossProductTests), so isolation here
-    // comes from a unique key per test rather than a fresh store - never a shared key across cases.
+    /// <summary>
+    /// <see cref="SavePipelineProbe"/> against <see cref="SaveStorage"/>.InMemory.
+    /// </summary>
+    /// <remarks>
+    /// See docs/testing.md, "SavePipelineProbeTests, and why isolation is per-key not per-store".
+    /// </remarks>
     public class SavePipelineProbeTests
     {
         private string _key;
@@ -47,10 +50,10 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.Greater(result.ByteCount, 0);
         }
 
-        // Envelope headers are always plaintext JSON and a non-text-safe body always travels the
-        // envelope's own base64 path (docs/saving.md, "The envelope"), so this is measured rather
-        // than assumed: none of the fifteen codec/protector pairs this factory can build ever needs
-        // the hex fallback.
+        /// <remarks>
+        /// See docs/saving.md, "The envelope".
+        /// See docs/saving.md, "The bytes are always renderable, and that is structural".
+        /// </remarks>
         [TestCaseSource(nameof(EveryCodecAndProtection))]
         public void RunAsync_EveryCombination_StoresValidUtf8NotAHexDump(SaveCodec codec, SaveProtection protection)
         {
@@ -62,11 +65,9 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.IsFalse(result.IsHexDump, $"{codec}/{protection} unexpectedly needed the hex fallback");
         }
 
-        // RawBytes is documented as what actually landed, read back through the store rather than
-        // re-encoded. The shared InMemory store is the one SaveComponentFactory hands back again
-        // here, so reading the probe's own key from it is an independent look at what landed. Aes
-        // draws a fresh IV per save, so a probe that re-encoded instead would differ from the store
-        // even for the same document.
+        /// <remarks>
+        /// See docs/testing.md, "SavePipelineProbeTests, and why isolation is per-key not per-store".
+        /// </remarks>
         [TestCaseSource(nameof(EveryCodecAndProtection))]
         public void RunAsync_EveryCombination_ReportsExactlyTheBytesThatLandedInTheStore(SaveCodec codec, SaveProtection protection)
         {
@@ -122,9 +123,9 @@ namespace Company.ChestGame.Tests.EditMode
             Assert.AreEqual("none", baseline.ProtectorId);
         }
 
-        // Big enough that gzip's saving is real rather than swallowed by the envelope's own
-        // overhead and gzip's own fixed header cost - a short document can come out larger gzipped.
-        // The baseline is computed through RunBaselineAsync, not a hard-coded byte count.
+        /// <remarks>
+        /// See docs/saving.md, "SaveBenchmark, and the number the plan got wrong".
+        /// </remarks>
         [Test]
         public void RunAsync_WithJsonGzip_IsSmallerThanTheComputedBaselineForALargeDocument()
         {

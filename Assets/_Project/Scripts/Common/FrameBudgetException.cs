@@ -2,14 +2,12 @@ using System;
 
 namespace Company.ChestGame.Common
 {
-    // A frame-budgeted loop was set up with something it cannot honestly run. Typed, because a test
-    // asserting that a budget of zero is refused must not be satisfied by a NullReferenceException
-    // from somewhere further in.
-    //
-    // Deliberately not under ChestGameException, for the reason PoolException is not either: a loop
-    // handed no clock is a view that was never injected, not a delivery failure. It sits in Common
-    // beside ChestGameException without being one - see the exception hierarchy in
-    // docs/architecture.md.
+    /// <summary>
+    /// A frame-budgeted loop was set up with something it cannot honestly run.
+    /// </summary>
+    /// <remarks>
+    /// See docs/architecture.md, "Exception hierarchy".
+    /// </remarks>
     public class FrameBudgetException : InvalidOperationException
     {
         public FrameBudgetException(string message) : base(message) { }
@@ -17,9 +15,9 @@ namespace Company.ChestGame.Common
         public static FrameBudgetException NoClock() =>
             new("A frame-budgeted loop advances frames through IGameClock, and was handed none");
 
-        // Zero is not "no budget": with the budget checked after each unit it is one unit per frame,
-        // the shape the class exists to avoid, while reading at the call site like switching the
-        // budgeting off.
+        /// <remarks>
+        /// See docs/architecture.md, "Why RunAsync is split, and the ordering inside the loop".
+        /// </remarks>
         public static FrameBudgetException BudgetNotPositive(double budgetMilliseconds) =>
             new($"A frame budget has to be more than zero milliseconds, got {budgetMilliseconds}");
 

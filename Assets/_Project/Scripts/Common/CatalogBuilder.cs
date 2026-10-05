@@ -4,10 +4,15 @@ using UnityEngine;
 
 namespace Company.ChestGame.Common
 {
-    // Shared policy for the game's catalogs: an empty slot is skipped with a warning because the
-    // rest of the game is still playable, a repeat is fatal because there is no right answer for
-    // which entry wins. The TEntry constraint makes the null check use Unity's overloaded equality,
-    // which also catches destroyed objects.
+    /// <summary>
+    /// Shared policy for building the game's catalogs from a list of authored entries.
+    /// </summary>
+    /// <remarks>
+    /// An empty slot is skipped with a warning. A duplicate key throws
+    /// <see cref="InvalidCatalogException"/>. The <c>TEntry</c> constraint makes the null check use
+    /// Unity's overloaded equality, which also catches destroyed objects.
+    /// See docs/architecture.md, "Catalogs".
+    /// </remarks>
     public static class CatalogBuilder
     {
         public static IReadOnlyDictionary<TKey, TEntry> Build<TKey, TEntry>(
@@ -34,9 +39,14 @@ namespace Company.ChestGame.Common
             return byKey;
         }
 
-        // One rule the generic build cannot express: an id that was never authored is blank, and
-        // blank is not a key, so two unauthored entries would otherwise collide as a false
-        // duplicate. An empty slot passes silently because the type-keyed build already warned.
+        /// <summary>
+        /// Builds an id-keyed lookup from <paramref name="entries"/>. An entry with no authored id is
+        /// skipped from the lookup with a warning; a null entry is skipped silently.
+        /// </summary>
+        /// <exception cref="InvalidCatalogException">Two entries produce the same id.</exception>
+        /// <remarks>
+        /// See docs/architecture.md, "Catalogs".
+        /// </remarks>
         public static IReadOnlyDictionary<string, TEntry> BuildById<TEntry>(
             IReadOnlyList<TEntry> entries, Func<TEntry, string> idOf, string catalogName)
             where TEntry : UnityEngine.Object
