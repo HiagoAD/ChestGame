@@ -6,6 +6,20 @@ now. When an item ships, delete it here and document the result in the file that
 
 Each entry names the area, what is planned or missing, and the file or type it touches.
 
+## Editor update to 6000.3.27f2 (security patch, 2026-10-30)
+
+The pin in `ProjectSettings/ProjectVersion.txt` moved from 6000.3.11f1 to 6000.3.27f2 without opening the
+project in Unity; see [engine-version.md](engine-version.md). Still to do:
+
+- Open the project once in 6000.3.27f2, let it re-resolve packages, and commit whatever it rewrites in
+  `Packages/packages-lock.json` and `ProjectSettings/`. Then compile and run both suites
+  (`ci/run-tests.sh`) and rebuild the Addressables content (`ci/build-addressables.sh`). None of these
+  has been run.
+- Any player build made before this change keeps the affected runtime libraries. Rebuild with
+  6000.3.27f2 before distributing a build again.
+- Each developer machine needs 6000.3.27f2 installed (`unityhub://6000.3.27f2/22188f149405`). Unity Hub 3.x
+  is affected too; update it to 3.22.5 once that is released, or move to Hub 4.x.
+
 ## Open decisions, awaiting the project owner
 
 Raised during review, none ruled on. **Do not act on these without asking.**

@@ -16,6 +16,7 @@ only. Future work goes in [WIP.md](WIP.md). The full policy is in [CLAUDE.md](..
 | [pooling.md](pooling.md) | `IPrefabPool<T>` and its implementations, `PoolFactory`, the pool race demo, and what the pooling tests prove |
 | [saving.md](saving.md) | The `ISaveService` seam, the envelope and its value-exact round trip, versioning and the legacy import, the stores, codecs and protectors, the selection enums, async writes and coalescing, the save model, and the inspector |
 | [testing.md](testing.md) | The two suites, what belongs in each, running them, CI |
+| [engine-version.md](engine-version.md) | The pinned Unity editor version, why it is that patch (the October 2026 Brotli and eMudhra advisories) and the project's exposure |
 | [design-decisions.md](design-decisions.md) | Why the project landed this way |
 | [assistant-setup.md](assistant-setup.md) | Shared Claude and Codex instructions and the machine-local configuration layout |
 | [WIP.md](WIP.md) | Planned features, phases, pending changes, known gaps and TODOs |

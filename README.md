@@ -1,6 +1,6 @@
 # ChestGame
 
-Project made in Unity 6000.3.11f1
+Project made in Unity 6000.3.27f2
 
 ## 0. What is this?
 
@@ -73,7 +73,7 @@ Working notes from the development passes, including approaches that were tried 
 
 ## 3. Build and run
 
-Open the project in Unity 6000.3.11f1 or compatible.
+Open the project in Unity 6000.3.27f2 (see [docs/engine-version.md](docs/engine-version.md)).
 
 To play in the editor, open `Assets/_Project/Scenes/Boot.unity` and press Play. Starting from
 `Game.unity` will not work, because the boot scene is what loads the content and builds the scope it
